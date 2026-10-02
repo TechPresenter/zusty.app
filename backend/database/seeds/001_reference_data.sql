@@ -183,7 +183,7 @@ INSERT INTO `settings` (`group_key`, `setting_key`, `value`, `type`, `label`, `d
   -- General
   ('general','app_name','Zusty','string','Application name','Shown in emails, invoices and the admin header.',1,0,1),
   ('general','app_tagline','Shoot. Connect. Grow.','string','Tagline','Brand tagline used on onboarding.',1,0,2),
-  ('general','support_email','support@zustee.com','string','Support email','Reply-to address for outbound mail.',1,0,3),
+  ('general','support_email','support@zusty.app','string','Support email','Reply-to address for outbound mail.',1,0,3),
   ('general','support_phone','+91 90000 00000','string','Support phone','Displayed on the Help & Support screen.',1,0,4),
   ('general','company_name','Zuste Technologies Pvt. Ltd.','string','Legal entity','Printed on invoices.',1,0,5),
   ('general','company_address','Mumbai, Maharashtra, India','text','Registered address','Printed on invoices.',1,0,6),
@@ -237,7 +237,7 @@ INSERT INTO `settings` (`group_key`, `setting_key`, `value`, `type`, `label`, `d
   ('referral','referrer_reward','200','decimal','Referrer reward','Wallet credit for the inviter.',1,0,2),
   ('referral','referred_reward','200','decimal','Invitee reward','Wallet credit for the new user.',1,0,3),
   ('referral','qualify_on','first_paid_booking','string','Qualification event','When the reward is released.',1,0,4),
-  ('referral','share_base_url','https://zuste.app/invite/','string','Invite link base','Prefix for referral share links.',1,0,5),
+  ('referral','share_base_url','https://zusty.app/invite/','string','Invite link base','Prefix for referral share links.',1,0,5),
 
   -- Payments
   ('payment','razorpay_enabled','0','boolean','Razorpay enabled','Enable the Razorpay gateway.',1,0,1),
@@ -266,7 +266,7 @@ INSERT INTO `settings` (`group_key`, `setting_key`, `value`, `type`, `label`, `d
   ('mail','encryption','ssl','string','Encryption','tls | ssl | none',0,0,4),
   ('mail','username','','string','SMTP username','Usually the full mailbox address.',0,0,5),
   ('mail','password','','secret','SMTP password','Stored encrypted.',0,1,6),
-  ('mail','from_address','no-reply@zustee.com','string','From address','Envelope sender.',0,0,7),
+  ('mail','from_address','no-reply@zusty.app','string','From address','Envelope sender.',0,0,7),
   ('mail','from_name','Zusty','string','From name','Display name on outgoing mail.',0,0,8),
 
   -- SMS
@@ -287,7 +287,7 @@ INSERT INTO `settings` (`group_key`, `setting_key`, `value`, `type`, `label`, `d
   ('security','api_rate_window','60','integer','Rate limit window (s)','Sliding window size.',0,0,8),
   ('security','password_min_length','8','integer','Minimum password length','Enforced on registration and reset.',1,0,9),
   ('security','force_https','1','boolean','Force HTTPS','Redirect and set HSTS.',0,0,10),
-  ('security','allowed_origins','["https://zustee.com","https://www.zustee.com","https://app.zustee.com"]','json','CORS origins','Origins allowed to call the API.',0,0,11),
+  ('security','allowed_origins','["https://zusty.app"]','json','CORS origins','Origins allowed to call the API.',0,0,11),
 
   -- Uploads
   ('upload','max_image_mb','5','integer','Max image size (MB)','Per-file limit for images.',1,0,1),
@@ -304,7 +304,7 @@ INSERT INTO `settings` (`group_key`, `setting_key`, `value`, `type`, `label`, `d
   ('app','android_latest_version','1.0.0','string','Android latest version','Latest published build.',1,0,2),
   ('app','ios_min_version','1.0.0','string','iOS minimum version','Below this the app forces an update.',1,0,3),
   ('app','ios_latest_version','1.0.0','string','iOS latest version','Latest published build.',1,0,4),
-  ('app','android_store_url','https://play.google.com/store/apps/details?id=com.zuste.app','string','Play Store URL','Update link.',1,0,5),
+  ('app','android_store_url','https://play.google.com/store/apps/details?id=com.zuste.zuste','string','Play Store URL','Update link.',1,0,5),
   ('app','ios_store_url','https://apps.apple.com/app/id0000000000','string','App Store URL','Update link.',1,0,6),
   ('app','force_update','0','boolean','Force update','Blocks the app until updated.',1,0,7),
   ('app','creator_signup_enabled','1','boolean','Creator signup enabled','Allows new creator registrations.',1,0,8),
@@ -316,7 +316,7 @@ INSERT INTO `settings` (`group_key`, `setting_key`, `value`, `type`, `label`, `d
   ('seo','site_keywords','influencer marketing, creator marketplace, brand collaboration, book influencers India','string','Meta keywords','Comma separated.',1,0,3),
   ('seo','og_image','/uploads/branding/og-image.png','file','Open Graph image','Social share preview.',1,0,4),
   ('seo','twitter_handle','@zusteapp','string','Twitter handle','Used in Twitter cards.',1,0,5),
-  ('seo','canonical_base','https://zustee.com','string','Canonical base URL','Root for canonical links.',1,0,6),
+  ('seo','canonical_base','https://zusty.app','string','Canonical base URL','Root for canonical links.',1,0,6),
 
   -- Social links
   ('social','instagram','https://instagram.com/zusteapp','string','Instagram','Footer link.',1,0,1),

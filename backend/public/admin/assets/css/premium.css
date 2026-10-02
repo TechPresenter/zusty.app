@@ -1,0 +1,1216 @@
+/* =====================================================================
+   Zusty Admin — premium component layer
+   Loaded AFTER admin.css and themes.css. Everything here either upgrades
+   an existing component in place or adds a new one; nothing is renamed,
+   so every existing view keeps working untouched.
+
+   Written by hand. No Tailwind, no Bootstrap, no template — the panel
+   ships `script-src 'self'` and runs on shared hosting with no build
+   step, so the stylesheet has to be the artefact, not an output.
+   ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   1. Typography
+   A modular scale at 1.25, with line-heights that tighten as size grows
+   — headings set at body line-height look loose, and body set at heading
+   line-height is hard to read in a paragraph.
+   --------------------------------------------------------------------- */
+:root {
+  --font: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Menlo, monospace;
+
+  --fs-2xs: .6875rem;   /* 11px — table meta, timestamps */
+  --fs-xs:  .75rem;     /* 12px — labels, badges */
+  --fs-sm:  .8125rem;   /* 13px — dense table text */
+  --fs-base: .9375rem;  /* 15px — body */
+  --fs-md:  1.0625rem;  /* 17px */
+  --fs-lg:  1.3125rem;  /* 21px — card titles */
+  --fs-xl:  1.625rem;   /* 26px — page titles */
+  --fs-2xl: 2.0625rem;  /* 33px — KPI values */
+  --fs-3xl: 2.5rem;     /* 40px — display */
+
+  --lh-tight: 1.15;
+  --lh-snug: 1.35;
+  --lh: 1.6;
+
+  --tracking-tight: -.02em;
+  --tracking-wide: .06em;
+}
+
+body {
+  font-family: var(--font);
+  font-size: var(--fs-base);
+  line-height: var(--lh);
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+.display,
+.h1, .h2, .h3 {
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--lh-tight);
+  font-weight: 700;
+}
+
+.display { font-size: var(--fs-3xl); font-weight: 800; }
+.h1 { font-size: var(--fs-xl); }
+.h2 { font-size: var(--fs-lg); }
+.h3 { font-size: var(--fs-md); font-weight: 650; line-height: var(--lh-snug); }
+
+.eyebrow {
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+}
+
+/* Tabular figures everywhere a number is compared against another
+   number — without this, digits shift width and columns visibly jitter
+   as a live counter ticks. */
+.num, .stat__value, .kpi__value, .table td.num, .mono {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+.mono { font-family: var(--font-mono); font-size: .9em; }
+
+/* ---------------------------------------------------------------------
+   2. Buttons
+   --------------------------------------------------------------------- */
+.btn {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  border-radius: var(--r-md);
+  transition: transform var(--t-fast) var(--ease-out),
+              box-shadow var(--t) var(--ease-out),
+              background-color var(--t) var(--ease-out),
+              border-color var(--t) var(--ease-out),
+              color var(--t) var(--ease-out);
+}
+
+.btn:hover:not(:disabled) { transform: translateY(-1px); }
+.btn:active:not(:disabled) { transform: translateY(0) scale(.985); transition-duration: var(--t-fast); }
+.btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.btn--primary {
+  background: var(--grad-primary);
+  color: var(--on-primary);
+  border: none;
+  box-shadow: var(--e-primary), var(--e-inset);
+}
+
+.btn--primary:hover:not(:disabled) {
+  box-shadow: 0 12px 32px color-mix(in oklab, var(--primary) 40%, transparent), var(--e-inset);
+}
+
+.btn--secondary {
+  background: var(--grad-secondary);
+  color: var(--on-secondary);
+  border: none;
+  box-shadow: 0 8px 24px color-mix(in oklab, var(--secondary) 30%, transparent), var(--e-inset);
+}
+
+/* Soft — a tinted wash rather than a fill. The workhorse for secondary
+   actions that still need to read as actions. */
+.btn--soft {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border: 1px solid transparent;
+}
+
+.btn--soft:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--primary) 18%, transparent);
+}
+
+.btn--glass {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  color: var(--on-surface);
+  box-shadow: var(--e2);
+}
+
+.btn--outline {
+  background: transparent;
+  border: 1.5px solid var(--outline-variant);
+  color: var(--on-surface);
+}
+
+.btn--outline:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.btn--ghost { background: transparent; border: none; color: var(--on-surface-variant); }
+.btn--ghost:hover:not(:disabled) { background: var(--surface-container); color: var(--on-surface); }
+
+.btn--danger {
+  background: linear-gradient(135deg, var(--error) 0%, color-mix(in oklab, var(--error) 75%, black) 100%);
+  color: var(--on-error);
+  border: none;
+  box-shadow: 0 8px 24px color-mix(in oklab, var(--error) 28%, transparent);
+}
+
+.btn--success {
+  background: linear-gradient(135deg, var(--success) 0%, color-mix(in oklab, var(--success) 75%, black) 100%);
+  color: var(--on-success);
+  border: none;
+}
+
+/* Dark theme only. --success and --error are light in dark mode, so the
+   label on these two fills is dark (see --on-success / --on-error in
+   themes.css). The 75% black mix that gives the light-theme button its
+   depth drags the far end of the gradient into the mid-tone band where
+   neither a dark nor a light label reaches 4.5:1 — measured 3.98:1 under
+   the "Reject" label on /admin/kyc/142. A shallower mix keeps the same
+   gradient, hue and shape and puts both buttons over AA. */
+[data-theme='dark'] .btn--danger {
+  background: linear-gradient(135deg, var(--error) 0%, color-mix(in oklab, var(--error) 88%, black) 100%);
+}
+
+[data-theme='dark'] .btn--success {
+  background: linear-gradient(135deg, var(--success) 0%, color-mix(in oklab, var(--success) 88%, black) 100%);
+}
+
+/* Ripple. Origin is set by admin.js from the pointer position; without
+   it the ripple starts centred, which reads as a pulse rather than a
+   response to where the finger landed. */
+.btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(circle at var(--ripple-x, 50%) var(--ripple-y, 50%),
+      color-mix(in oklab, white 35%, transparent) 0%, transparent 60%);
+  opacity: 0;
+  transform: scale(.4);
+}
+
+.btn:active::after { animation: ripple 480ms var(--ease-out); }
+
+@keyframes ripple {
+  0%   { opacity: .7; transform: scale(.4); }
+  100% { opacity: 0;  transform: scale(2.4); }
+}
+
+/* Loading — the label stays in the DOM so the button keeps its width and
+   the layout does not jump when a request starts. */
+.btn--loading { color: transparent !important; pointer-events: none; }
+
+.btn--loading::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid color-mix(in oklab, currentColor 30%, transparent);
+  border-top-color: var(--on-primary);
+  border-radius: 50%;
+  animation: spin 640ms linear infinite;
+}
+
+.btn--outline.btn--loading::before,
+.btn--ghost.btn--loading::before,
+.btn--soft.btn--loading::before { border-top-color: var(--primary); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Floating action button. */
+.fab {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 40;
+  width: 3.5rem;
+  height: 3.5rem;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: var(--r-full);
+  background: var(--grad-primary);
+  color: var(--on-primary);
+  box-shadow: var(--e3), var(--e-primary);
+  cursor: pointer;
+  transition: transform var(--t) var(--ease-spring), box-shadow var(--t) var(--ease-out);
+}
+
+.fab:hover { transform: scale(1.08) rotate(90deg); box-shadow: var(--e4); }
+
+/* Split button. */
+.btn-split { display: inline-flex; border-radius: var(--r-md); overflow: hidden; box-shadow: var(--e1); }
+.btn-split .btn { border-radius: 0; box-shadow: none; transform: none !important; }
+.btn-split .btn:first-child { padding-right: .75rem; }
+.btn-split .btn + .btn {
+  padding-inline: .5rem;
+  border-left: 1px solid color-mix(in oklab, black 12%, transparent);
+}
+
+/* ---------------------------------------------------------------------
+   3. Cards and surfaces
+   --------------------------------------------------------------------- */
+.card {
+  position: relative;
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--r-lg);
+  box-shadow: var(--e1);
+  transition: box-shadow var(--t) var(--ease-out),
+              transform var(--t) var(--ease-out),
+              border-color var(--t) var(--ease-out);
+}
+
+.card--hover:hover { transform: translateY(-2px); box-shadow: var(--e3); border-color: color-mix(in oklab, var(--primary) 30%, var(--outline-variant)); }
+.card--flush { padding: 0; overflow: hidden; }
+.card--glass { background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border-color: var(--glass-border); }
+.card--gradient { background: var(--grad-surface); }
+
+/* A coloured rule along the top, tinted by --tone. Cheapest way to give
+   each module its own identity without a bespoke card per screen. */
+.card--accent::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: linear-gradient(90deg, var(--tone, var(--primary)), color-mix(in oklab, var(--tone, var(--primary)) 40%, transparent));
+}
+
+.card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.125rem 1.25rem;
+  border-bottom: 1px solid var(--outline-variant);
+}
+
+.card__title { display: flex; align-items: center; gap: .625rem; font-size: var(--fs-md); font-weight: 650; margin: 0; }
+
+.card__icon {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--r);
+  background: color-mix(in oklab, var(--tone, var(--primary)) 14%, transparent);
+  color: var(--tone, var(--primary));
+  flex-shrink: 0;
+}
+
+.card__actions { display: flex; align-items: center; gap: .25rem; }
+.card__body { padding: 1.25rem; }
+
+/* ---------------------------------------------------------------------
+   4. KPI cards
+   Each is themed by a single --tone, so no two read alike while the
+   layout stays identical — variety from colour and content, not from
+   thirteen different card shapes.
+   --------------------------------------------------------------------- */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 1rem;
+}
+
+.kpi {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+  padding: 1.125rem;
+  border-radius: var(--r-lg);
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  box-shadow: var(--e1);
+  text-decoration: none;
+  color: inherit;
+  transition: transform var(--t) var(--ease-out), box-shadow var(--t) var(--ease-out), border-color var(--t) var(--ease-out);
+}
+
+/* A soft wash of the tone, strongest at the top-right where the icon
+   sits, fading before it reaches the value so the number stays legible. */
+.kpi::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(120% 100% at 100% 0%,
+      color-mix(in oklab, var(--tone, var(--primary)) 16%, transparent) 0%,
+      transparent 55%);
+  transition: opacity var(--t) var(--ease-out);
+}
+
+.kpi:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--e3);
+  border-color: color-mix(in oklab, var(--tone, var(--primary)) 40%, var(--outline-variant));
+}
+
+.kpi:hover::before { opacity: 1.4; }
+.kpi:focus-visible { outline: none; box-shadow: var(--focus-ring), var(--e2); }
+
+/* Sheen on hover — one pass, not a loop. A looping shine on a dashboard
+   full of cards is a distraction, not a delight. */
+.kpi::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--grad-sheen);
+  transform: translateX(-120%);
+  opacity: 0;
+}
+
+.kpi:hover::after { animation: sheen 720ms var(--ease-out); }
+
+@keyframes sheen {
+  0%   { transform: translateX(-120%); opacity: 1; }
+  100% { transform: translateX(120%);  opacity: 0; }
+}
+
+.kpi__top { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }
+.kpi__label { font-size: var(--fs-xs); font-weight: 650; letter-spacing: .03em; text-transform: uppercase; color: var(--on-surface-variant); }
+
+.kpi__icon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex-shrink: 0;
+  border-radius: var(--r-md);
+  background: linear-gradient(135deg,
+      color-mix(in oklab, var(--tone, var(--primary)) 92%, white),
+      var(--tone, var(--primary)));
+  color: #fff;
+  box-shadow: 0 6px 16px color-mix(in oklab, var(--tone, var(--primary)) 32%, transparent);
+  transition: transform var(--t) var(--ease-spring);
+}
+
+.kpi:hover .kpi__icon { transform: scale(1.08) rotate(-6deg); }
+
+.kpi__value {
+  font-size: var(--fs-2xl);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: var(--tracking-tight);
+  color: var(--on-surface);
+}
+
+.kpi__meta { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+
+.kpi__trend {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  padding: .1875rem .5rem;
+  border-radius: var(--r-full);
+}
+
+.kpi__trend--up   { color: var(--success); background: color-mix(in oklab, var(--success) 14%, transparent); }
+.kpi__trend--down { color: var(--error);   background: color-mix(in oklab, var(--error) 14%, transparent); }
+.kpi__trend--flat { color: var(--on-surface-variant); background: var(--surface-container); }
+
+.kpi__caption { font-size: var(--fs-2xs); color: var(--on-surface-variant); }
+
+/* Sparkline — an inline SVG the widget renderer fills. */
+.kpi__spark { display: block; width: 100%; height: 2rem; overflow: visible; }
+.kpi__spark path { fill: none; stroke: var(--tone, var(--primary)); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.kpi__spark .area { fill: color-mix(in oklab, var(--tone, var(--primary)) 18%, transparent); stroke: none; }
+
+/* Progress ring — conic-gradient, so no SVG and no JS geometry.
+   --pct is set inline by the renderer. */
+.kpi__ring {
+  position: relative;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: conic-gradient(var(--tone, var(--primary)) calc(var(--pct, 0) * 1%), var(--surface-container) 0);
+  display: grid;
+  place-items: center;
+}
+
+.kpi__ring::before {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: var(--surface-lowest);
+}
+
+.kpi__ring span { position: relative; font-size: var(--fs-2xs); font-weight: 750; }
+
+.kpi__bar { height: 5px; border-radius: var(--r-full); background: var(--surface-container); overflow: hidden; }
+.kpi__bar i {
+  display: block;
+  height: 100%;
+  width: calc(var(--pct, 0) * 1%);
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--tone, var(--primary)), color-mix(in oklab, var(--tone, var(--primary)) 60%, white));
+  transition: width var(--t-slow) var(--ease-out);
+}
+
+/* Size variants for the dashboard grid. */
+.kpi--wide { grid-column: span 2; }
+.kpi--tall { grid-row: span 2; }
+
+/* ---------------------------------------------------------------------
+   5. Forms
+   --------------------------------------------------------------------- */
+.input, .select, .textarea {
+  font-family: inherit;
+  font-size: var(--fs-base);
+  color: var(--on-surface);
+  background: var(--surface-lowest);
+  border: 1.5px solid var(--outline-variant);
+  border-radius: var(--r-md);
+  transition: border-color var(--t) var(--ease-out),
+              box-shadow var(--t) var(--ease-out),
+              background-color var(--t) var(--ease-out);
+}
+
+.input:hover:not(:disabled), .select:hover:not(:disabled), .textarea:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--primary) 40%, var(--outline-variant));
+}
+
+.input:focus, .select:focus, .textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: var(--focus-ring);
+  background: var(--surface-lowest);
+}
+
+.input[aria-invalid='true'], .textarea[aria-invalid='true'], .select[aria-invalid='true'] {
+  border-color: var(--error);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--error) 20%, transparent);
+}
+
+.input:disabled, .select:disabled, .textarea:disabled {
+  background: var(--surface-container);
+  color: var(--on-surface-variant);
+  cursor: not-allowed;
+}
+
+/* Floating label. The placeholder must be a single space — `:placeholder-shown`
+   is what drives the label position, and an empty placeholder never
+   counts as shown. */
+.field--float { position: relative; }
+
+.field--float > .input,
+.field--float > .textarea {
+  padding-top: 1.375rem;
+  padding-bottom: .5rem;
+}
+
+.field--float > .field__label {
+  position: absolute;
+  left: .875rem;
+  top: .875rem;
+  margin: 0;
+  pointer-events: none;
+  font-size: var(--fs-base);
+  color: var(--on-surface-variant);
+  transform-origin: left top;
+  transition: transform var(--t) var(--ease-out), color var(--t) var(--ease-out);
+}
+
+.field--float > .input:not(:placeholder-shown) + .field__label,
+.field--float > .input:focus + .field__label,
+.field--float > .textarea:not(:placeholder-shown) + .field__label,
+.field--float > .textarea:focus + .field__label {
+  transform: translateY(-.6875rem) scale(.78);
+  color: var(--primary);
+  font-weight: 650;
+}
+
+.field__hint { font-size: var(--fs-xs); color: var(--on-surface-variant); margin-top: .375rem; }
+
+.field__error {
+  display: flex;
+  align-items: center;
+  gap: .375rem;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--error);
+  margin-top: .375rem;
+  animation: shake 340ms var(--ease-out);
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-3px); }
+  40%, 80% { transform: translateX(3px); }
+}
+
+/* Upload drop zone. */
+.dropzone {
+  display: grid;
+  place-items: center;
+  gap: .5rem;
+  padding: 2rem 1.25rem;
+  text-align: center;
+  border: 2px dashed var(--outline-variant);
+  border-radius: var(--r-lg);
+  background: var(--surface-low);
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  transition: border-color var(--t) var(--ease-out), background-color var(--t) var(--ease-out), transform var(--t) var(--ease-out);
+}
+
+.dropzone:hover, .dropzone.is-dragging {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+  transform: scale(1.01);
+}
+
+.dropzone__icon { width: 2.5rem; height: 2.5rem; opacity: .7; }
+
+/* Switch. The track is the input's adjacent sibling — nothing may sit
+   between them or the :checked selector breaks. */
+.switch { display: inline-flex; align-items: center; gap: .625rem; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+
+.switch__track {
+  position: relative;
+  width: 2.5rem;
+  height: 1.4rem;
+  flex-shrink: 0;
+  border-radius: var(--r-full);
+  background: var(--surface-highest);
+  border: 1px solid var(--outline-variant);
+  transition: background var(--t) var(--ease-out), border-color var(--t) var(--ease-out);
+}
+
+.switch__track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--e1);
+  transition: transform var(--t) var(--ease-spring);
+}
+
+.switch input:checked + .switch__track { background: var(--grad-primary); border-color: transparent; }
+.switch input:checked + .switch__track::after { transform: translateX(1.1rem); }
+.switch input:focus-visible + .switch__track { box-shadow: var(--focus-ring); }
+.switch input:disabled + .switch__track { opacity: .5; cursor: not-allowed; }
+
+/* Stepper. */
+.stepper { display: flex; align-items: center; gap: 0; margin-bottom: 1.5rem; }
+.stepper__step { display: flex; align-items: center; gap: .625rem; flex: 1; }
+
+.stepper__dot {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  background: var(--surface-container);
+  color: var(--on-surface-variant);
+  border: 2px solid transparent;
+  transition: all var(--t) var(--ease-out);
+}
+
+.stepper__step.is-active .stepper__dot { background: var(--grad-primary); color: var(--on-primary); box-shadow: var(--e-primary); }
+.stepper__step.is-done .stepper__dot { background: var(--success); color: #fff; }
+.stepper__line { flex: 1; height: 2px; background: var(--outline-variant); }
+.stepper__step.is-done + .stepper__step .stepper__line,
+.stepper__step.is-done .stepper__line { background: var(--success); }
+
+/* ---------------------------------------------------------------------
+   6. Tables
+   --------------------------------------------------------------------- */
+.table-wrap {
+  overflow-x: auto;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--outline-variant);
+  background: var(--surface-lowest);
+  /* Scroll the table inside its own container. Without this a wide table
+     pushes the whole page sideways, which is the single most common way
+     an admin panel breaks on a laptop. */
+  -webkit-overflow-scrolling: touch;
+}
+
+.table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--fs-sm); }
+
+.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: .75rem 1rem;
+  text-align: left;
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+  background: var(--surface-container);
+  border-bottom: 1px solid var(--outline-variant);
+  white-space: nowrap;
+}
+
+.table thead th:first-child { border-top-left-radius: var(--r-lg); }
+.table thead th:last-child  { border-top-right-radius: var(--r-lg); }
+
+.table tbody td {
+  padding: .8125rem 1rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--outline-variant) 55%, transparent);
+  vertical-align: middle;
+}
+
+.table tbody tr { transition: background-color var(--t-fast) var(--ease-out); }
+.table tbody tr:hover { background: var(--surface-low); }
+.table tbody tr:last-child td { border-bottom: none; }
+.table--compact tbody td { padding: .5625rem .875rem; }
+
+/* Inline row actions, revealed on hover. Kept visible on focus-within so
+   they are reachable by keyboard, and always visible on touch where
+   there is no hover. */
+.table .row-actions { display: flex; gap: .25rem; opacity: 0; transition: opacity var(--t) var(--ease-out); }
+.table tr:hover .row-actions,
+.table tr:focus-within .row-actions { opacity: 1; }
+
+@media (hover: none) {
+  .table .row-actions { opacity: 1; }
+}
+
+/* ---------------------------------------------------------------------
+   7. Badges and chips
+   --------------------------------------------------------------------- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .3125rem;
+  padding: .1875rem .5625rem;
+  border-radius: var(--r-full);
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  line-height: 1.5;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.chip--success { color: var(--success); background: color-mix(in oklab, var(--success) 13%, transparent); border-color: color-mix(in oklab, var(--success) 24%, transparent); }
+.chip--warning { color: var(--warning); background: color-mix(in oklab, var(--warning) 13%, transparent); border-color: color-mix(in oklab, var(--warning) 24%, transparent); }
+.chip--error   { color: var(--error);   background: color-mix(in oklab, var(--error) 13%, transparent);   border-color: color-mix(in oklab, var(--error) 24%, transparent); }
+.chip--info    { color: var(--info);    background: color-mix(in oklab, var(--info) 13%, transparent);    border-color: color-mix(in oklab, var(--info) 24%, transparent); }
+.chip--primary { color: var(--primary); background: var(--primary-soft); border-color: color-mix(in oklab, var(--primary) 24%, transparent); }
+.chip--neutral { color: var(--on-surface-variant); background: var(--surface-container); border-color: var(--outline-variant); }
+
+/* A live indicator: the dot pulses, the chip does not. Animating the
+   whole chip drags the eye away from the number beside it. */
+.chip--pulse::before {
+  content: '';
+  width: .375rem;
+  height: .375rem;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 1.8s var(--ease-in-out) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: .4; transform: scale(.75); }
+}
+
+/* ---------------------------------------------------------------------
+   8. Navigation
+   --------------------------------------------------------------------- */
+.sidebar {
+  background: var(--surface-lowest);
+  border-right: 1px solid var(--outline-variant);
+  transition: width var(--t-slow) var(--ease-out), transform var(--t-slow) var(--ease-out);
+}
+
+.sidebar__label {
+  padding: .875rem 1rem .375rem;
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+  opacity: .75;
+}
+
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin: .0625rem .5rem;
+  padding: .5625rem .75rem;
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  color: var(--on-surface-variant);
+  text-decoration: none;
+  transition: background-color var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out),
+              transform var(--t-fast) var(--ease-out);
+}
+
+.nav-item:hover { background: var(--surface-container); color: var(--on-surface); transform: translateX(2px); }
+.nav-item .ic { flex-shrink: 0; opacity: .8; transition: opacity var(--t) var(--ease-out), transform var(--t) var(--ease-spring); }
+.nav-item:hover .ic { opacity: 1; transform: scale(1.1); }
+
+.nav-item--active {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 650;
+}
+
+.nav-item--active .ic { opacity: 1; color: var(--primary); }
+
+/* The active marker: a rounded bar on the leading edge. */
+.nav-item--active::before {
+  content: '';
+  position: absolute;
+  left: -.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 1.25rem;
+  border-radius: 0 var(--r-full) var(--r-full) 0;
+  background: var(--grad-primary);
+}
+
+.nav-item__badge {
+  margin-left: auto;
+  min-width: 1.25rem;
+  padding: 0 .375rem;
+  border-radius: var(--r-full);
+  font-size: var(--fs-2xs);
+  font-weight: 750;
+  text-align: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--error), color-mix(in oklab, var(--error) 70%, black));
+  box-shadow: 0 2px 6px color-mix(in oklab, var(--error) 40%, transparent);
+}
+
+/* Collapsed rail. */
+[data-collapsed='true'] .sidebar__label,
+[data-collapsed='true'] .nav-item span:not(.nav-item__badge),
+[data-collapsed='true'] .wordmark__sub { opacity: 0; pointer-events: none; }
+
+[data-collapsed='true'] .nav-item { justify-content: center; padding-inline: .5rem; }
+
+[data-collapsed='true'] .nav-item__badge {
+  position: absolute;
+  top: .25rem;
+  right: .25rem;
+  margin: 0;
+  min-width: .875rem;
+  font-size: 9px;
+  padding: 0 .1875rem;
+}
+
+/* ---------------------------------------------------------------------
+   9. Topbar
+   --------------------------------------------------------------------- */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .75rem 1.25rem;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--outline-variant);
+}
+
+.searchbar {
+  position: relative;
+  flex: 1;
+  max-width: 30rem;
+}
+
+.searchbar .input { padding-left: 2.375rem; border-radius: var(--r-full); background: var(--surface-container); border-color: transparent; }
+.searchbar .input:focus { background: var(--surface-lowest); border-color: var(--primary); }
+
+.searchbar__icon {
+  position: absolute;
+  left: .8125rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--on-surface-variant);
+  pointer-events: none;
+}
+
+.searchbar__kbd {
+  position: absolute;
+  right: .625rem;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: .0625rem .375rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--outline-variant);
+  background: var(--surface-lowest);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--on-surface-variant);
+}
+
+/* Breadcrumbs — derived from the URL in partials/topbar.php. */
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: .375rem;
+  margin-bottom: .125rem;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  color: var(--on-surface-variant);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.breadcrumbs a { color: inherit; text-decoration: none; transition: color var(--t-fast) var(--ease-out); }
+.breadcrumbs a:hover { color: var(--primary); }
+.breadcrumbs__sep { opacity: .45; }
+.breadcrumbs__current { color: var(--primary); font-weight: 700; }
+
+/* Responsive visibility. Named for the width at which the element is
+   HIDDEN, matching the existing `.hidden-sm` the layout already used. */
+@media (max-width: 640px)  { .hidden-sm { display: none !important; } }
+@media (max-width: 900px)  { .hidden-md { display: none !important; } }
+@media (max-width: 1200px) { .hidden-lg { display: none !important; } }
+
+/* ---------------------------------------------------------------------
+   10. Dropdowns and popovers
+   --------------------------------------------------------------------- */
+.popover {
+  position: absolute;
+  z-index: 50;
+  min-width: 13rem;
+  padding: .375rem;
+  border-radius: var(--r-lg);
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  box-shadow: var(--e3);
+  transform-origin: top right;
+  animation: popover-in 160ms var(--ease-out);
+}
+
+@keyframes popover-in {
+  from { opacity: 0; transform: translateY(-6px) scale(.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.popover__item {
+  display: flex;
+  align-items: center;
+  gap: .625rem;
+  width: 100%;
+  padding: .5rem .625rem;
+  border: none;
+  border-radius: var(--r);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--on-surface);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-out);
+}
+
+.popover__item:hover { background: var(--surface-container); }
+.popover__item.is-active { background: var(--primary-soft); color: var(--primary); font-weight: 650; }
+.popover__divider { height: 1px; margin: .375rem .25rem; background: var(--outline-variant); }
+
+/* ---------------------------------------------------------------------
+   11. Theme picker
+   --------------------------------------------------------------------- */
+.theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; padding: .5rem; }
+
+.theme-swatch {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: .375rem;
+  padding: .5rem;
+  border: 1.5px solid var(--outline-variant);
+  border-radius: var(--r-md);
+  background: var(--surface-lowest);
+  cursor: pointer;
+  transition: transform var(--t) var(--ease-out), border-color var(--t) var(--ease-out), box-shadow var(--t) var(--ease-out);
+}
+
+.theme-swatch:hover { transform: translateY(-2px); box-shadow: var(--e2); }
+.theme-swatch.is-active { border-color: var(--primary); box-shadow: var(--focus-ring); }
+
+.theme-swatch__colors { display: flex; height: 1.5rem; border-radius: var(--r-sm); overflow: hidden; }
+.theme-swatch__colors i { flex: 1; }
+.theme-swatch__name { font-size: 10px; font-weight: 650; text-align: center; color: var(--on-surface-variant); }
+
+.mode-toggle { display: flex; gap: .25rem; padding: .25rem; border-radius: var(--r-md); background: var(--surface-container); }
+
+.mode-toggle button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .375rem;
+  padding: .375rem .5rem;
+  border: none;
+  border-radius: var(--r);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  transition: background-color var(--t) var(--ease-out), color var(--t) var(--ease-out);
+}
+
+.mode-toggle button.is-active { background: var(--surface-lowest); color: var(--primary); box-shadow: var(--e1); }
+
+/* ---------------------------------------------------------------------
+   12. Loading, empty and error states
+   --------------------------------------------------------------------- */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r);
+  background: var(--surface-container);
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent,
+      color-mix(in oklab, var(--surface-bright) 70%, transparent), transparent);
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+
+.skeleton--text  { height: .75rem; margin-bottom: .5rem; }
+.skeleton--title { height: 1.25rem; width: 45%; margin-bottom: .75rem; }
+.skeleton--avatar{ width: 2.5rem; height: 2.5rem; border-radius: 50%; }
+.skeleton--card  { height: 7rem; }
+
+.empty {
+  display: grid;
+  place-items: center;
+  gap: .625rem;
+  padding: 2.5rem 1.25rem;
+  text-align: center;
+  color: var(--on-surface-variant);
+}
+
+.empty__icon {
+  display: grid;
+  place-items: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: var(--r-full);
+  background: var(--surface-container);
+  color: var(--on-surface-variant);
+  opacity: .8;
+}
+
+.empty__title { font-size: var(--fs-md); font-weight: 650; color: var(--on-surface); }
+
+/* ---------------------------------------------------------------------
+   13. Callouts
+   --------------------------------------------------------------------- */
+.callout {
+  display: flex;
+  gap: .75rem;
+  padding: .875rem 1rem;
+  border-radius: var(--r-md);
+  border: 1px solid color-mix(in oklab, var(--callout, var(--info)) 26%, transparent);
+  background: color-mix(in oklab, var(--callout, var(--info)) 9%, transparent);
+  border-left: 3px solid var(--callout, var(--info));
+  font-size: var(--fs-sm);
+  color: var(--on-surface);
+}
+
+.callout--info    { --callout: var(--info); }
+.callout--success { --callout: var(--success); }
+.callout--warning { --callout: var(--warning); }
+.callout--error   { --callout: var(--error); }
+
+/* ---------------------------------------------------------------------
+   14. Toasts and dialogs
+   --------------------------------------------------------------------- */
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: .625rem;
+  padding: .8125rem 1rem;
+  border-radius: var(--r-md);
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  border-left: 3px solid var(--tone, var(--info));
+  box-shadow: var(--e3);
+  animation: toast-in 260ms var(--ease-spring);
+}
+
+.toast--success { --tone: var(--success); }
+.toast--error   { --tone: var(--error); }
+.toast--warning { --tone: var(--warning); }
+.toast--info    { --tone: var(--info); }
+.toast__icon    { color: var(--tone, var(--info)); flex-shrink: 0; }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(1.5rem) scale(.96); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+.toast--out { animation: toast-out 200ms var(--ease-in-out) forwards; }
+
+@keyframes toast-out {
+  to { opacity: 0; transform: translateX(1.5rem) scale(.96); }
+}
+
+.dialog {
+  border-radius: var(--r-xl);
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  box-shadow: var(--e4);
+  animation: dialog-in 220ms var(--ease-spring);
+}
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(1.5rem) scale(.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.dialog-backdrop {
+  background: color-mix(in oklab, #000 45%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: fade-in 180ms var(--ease-out);
+}
+
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---------------------------------------------------------------------
+   15. Page entrance
+   One short fade-and-rise on the content region. Staggering every child
+   was tried and rejected: on a dashboard of 40 widgets it turns every
+   page load into a two-second wave.
+   --------------------------------------------------------------------- */
+.content { animation: page-in 260ms var(--ease-out); }
+
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in  { animation: fade-in 260ms var(--ease-out); }
+.slide-up { animation: page-in 300ms var(--ease-out); }
+
+/* ---------------------------------------------------------------------
+   16. Charts
+   Colours come from the theme's chart ramp; the renderer resolves them
+   at paint time and repaints on zuste:themechange.
+   --------------------------------------------------------------------- */
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; overflow: visible; }
+.chart .grid line { stroke: var(--outline-variant); stroke-width: 1; stroke-dasharray: 3 4; }
+.chart .axis text { fill: var(--on-surface-variant); font-size: 10px; font-weight: 600; }
+.chart .series-line { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.chart .series-area { opacity: .16; }
+.chart .bar { transition: opacity var(--t-fast) var(--ease-out); }
+.chart .bar:hover { opacity: .8; }
+
+.chart__tooltip {
+  position: absolute;
+  z-index: 5;
+  padding: .5rem .625rem;
+  border-radius: var(--r-md);
+  background: var(--inverse-surface);
+  color: var(--inverse-on-surface);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  pointer-events: none;
+  box-shadow: var(--e3);
+  white-space: nowrap;
+  animation: fade-in 120ms var(--ease-out);
+}
+
+.chart__legend { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: .75rem; }
+
+.chart__legend button {
+  display: inline-flex;
+  align-items: center;
+  gap: .375rem;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  transition: opacity var(--t) var(--ease-out);
+}
+
+.chart__legend button[aria-pressed='false'] { opacity: .4; }
+.chart__legend i { width: .625rem; height: .625rem; border-radius: 3px; flex-shrink: 0; }
+
+/* ---------------------------------------------------------------------
+   17. Responsive
+   --------------------------------------------------------------------- */
+@media (max-width: 1024px) {
+  .kpi-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .kpi--wide { grid-column: span 1; }
+}
+
+@media (max-width: 768px) {
+  :root { --fs-2xl: 1.75rem; --fs-xl: 1.375rem; }
+
+  .kpi-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .75rem; }
+  .kpi { padding: .875rem; }
+  .kpi__icon { width: 2rem; height: 2rem; }
+  .theme-grid { grid-template-columns: repeat(2, 1fr); }
+  .topbar { padding: .625rem .875rem; }
+  .searchbar__kbd { display: none; }
+
+  /* Row actions cannot hide behind hover on touch. */
+  .table .row-actions { opacity: 1; }
+}
+
+@media (max-width: 480px) {
+  .kpi-grid { grid-template-columns: 1fr 1fr; }
+  .card__header { padding: .875rem 1rem; }
+  .card__body { padding: 1rem; }
+}
+
+/* ---------------------------------------------------------------------
+   18. Print
+   --------------------------------------------------------------------- */
+@media print {
+  .sidebar, .topbar, .fab, .toasts, .btn, .row-actions { display: none !important; }
+  .content { animation: none; }
+  .card, .kpi { box-shadow: none; border: 1px solid #ddd; break-inside: avoid; }
+  .table thead th { position: static; }
+}

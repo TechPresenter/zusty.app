@@ -1,0 +1,125 @@
+# =====================================================================
+# Zusty — web root configuration (Apache / LiteSpeed, Hostinger business)
+#
+# This file lives in the document root. Everything above it (app/, config/,
+# routes/, storage/, database/, .env) must NOT be web-accessible; see
+# docs/DEPLOYMENT.md for the directory layout that guarantees that.
+# =====================================================================
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # ---------------------------------------------------------------
+    # Force HTTPS (Hostinger terminates TLS at the proxy)
+    # ---------------------------------------------------------------
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+    RewriteCond %{HTTP_HOST} !^localhost [NC]
+    RewriteCond %{HTTP_HOST} !^127\.0\.0\.1 [NC]
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # ---------------------------------------------------------------
+    # Preserve the Authorization header. Many CGI/FastCGI setups strip
+    # it, which would break every Bearer-token request.
+    # ---------------------------------------------------------------
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # ---------------------------------------------------------------
+    # Block dotfiles and sensitive paths outright
+    # ---------------------------------------------------------------
+    RewriteRule (^|/)\. - [F,L]
+    RewriteRule ^(app|config|routes|database|storage|scripts|languages|vendor)/ - [F,L]
+
+    # ---------------------------------------------------------------
+    # Serve real files and directories as-is
+    # ---------------------------------------------------------------
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # ---------------------------------------------------------------
+    # Admin panel front controller
+    # ---------------------------------------------------------------
+    RewriteRule ^admin(/.*)?$ admin/index.php [L,QSA]
+
+    # ---------------------------------------------------------------
+    # Everything else goes to the API front controller
+    # ---------------------------------------------------------------
+    RewriteRule ^ index.php [L,QSA]
+</IfModule>
+
+# =====================================================================
+# Security headers (Response::securityHeaders() also sets these; the
+# duplication means static assets are protected too)
+# =====================================================================
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()"
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+    Header unset X-Powered-By
+    Header unset Server
+</IfModule>
+
+# =====================================================================
+# PHP hardening
+# =====================================================================
+<IfModule mod_php.c>
+    php_flag display_errors off
+    php_flag expose_php off
+    php_value upload_max_filesize 64M
+    php_value post_max_size 68M
+    php_value max_execution_time 120
+    php_value memory_limit 256M
+</IfModule>
+
+# LiteSpeed / PHP-FPM equivalent (Hostinger business uses LiteSpeed)
+<IfModule lsapi_module>
+    php_flag display_errors off
+    php_value upload_max_filesize 64M
+    php_value post_max_size 68M
+</IfModule>
+
+# =====================================================================
+# Never serve source, config or backup files
+# =====================================================================
+<FilesMatch "\.(env|ini|log|sh|sql|json|lock|md|yml|yaml|bak|old|dist|example)$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "^(composer\.(json|lock)|package(-lock)?\.json|\.env.*|\.git.*)$">
+    Require all denied
+</FilesMatch>
+
+# Directory listings are never useful here.
+Options -Indexes -MultiViews
+
+# =====================================================================
+# Compression and caching for the Flutter web build and static assets
+# =====================================================================
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/css text/javascript
+    AddOutputFilterByType DEFLATE application/javascript application/json application/xml
+    AddOutputFilterByType DEFLATE image/svg+xml font/woff2
+</IfModule>
+
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType image/jpeg           "access plus 1 year"
+    ExpiresByType image/png            "access plus 1 year"
+    ExpiresByType image/webp           "access plus 1 year"
+    ExpiresByType image/svg+xml        "access plus 1 year"
+    ExpiresByType font/woff2           "access plus 1 year"
+    ExpiresByType text/css             "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    # API responses must never be cached by an intermediary.
+    ExpiresByType application/json     "access plus 0 seconds"
+</IfModule>
+
+# Default document
+DirectoryIndex index.php index.html
+
+ErrorDocument 404 /index.php

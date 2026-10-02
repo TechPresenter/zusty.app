@@ -1,0 +1,305 @@
+{
+    "success": true,
+    "message": "OK",
+    "data": {
+        "app": {
+            "name": "Zusty",
+            "tagline": "Shoot. Connect. Grow.",
+            "currency": "INR",
+            "currency_symbol": "₹",
+            "locale": "en",
+            "timezone": "Asia/Kolkata",
+            "support_email": "support@zustee.com",
+            "support_phone": "+91 90000 00000"
+        },
+        "branding": {
+            "logo_url": "/uploads/branding/zuste-logo.png",
+            "logo_dark_url": "/uploads/branding/zuste-logo-dark.png",
+            "primary_color": "#00b815",
+            "secondary_color": "#e52e2e",
+            "tertiary_color": "#142f9f"
+        },
+        "update": {
+            "force_update": false,
+            "min_version": "1.0.0",
+            "latest_version": "1.0.0",
+            "store_url": "https://play.google.com/store/apps/details?id=com.zuste.app",
+            "update_message": "A newer version of Zusty is available with important improvements."
+        },
+        "maintenance": {
+            "enabled": false,
+            "message": "We are performing scheduled maintenance. Please try again shortly."
+        },
+        "features": {
+            "wallet_enabled": true,
+            "referral_enabled": true,
+            "counter_offers_enabled": true,
+            "creator_signup_enabled": true,
+            "brand_signup_enabled": true,
+            "chat_realtime": true,
+            "coupons_at_checkout": true,
+            "dynamic_homepage": false,
+            "creator_video_calls": false,
+            "instant_payouts": false
+        },
+        "ai": {
+            "enabled": false,
+            "bio_writer": false,
+            "campaign_brief": false,
+            "creator_match": false,
+            "daily_limit": 20
+        },
+        "auth": {
+            "version": "cf1a04764dabc3ce",
+            "platform": "android",
+            "methods": [
+                {
+                    "key": "email_password",
+                    "enabled": true,
+                    "label": "Email or phone",
+                    "identifier_mode": "email_or_phone",
+                    "password_min_length": 8,
+                    "forgot_password_enabled": true,
+                    "reset_token_ttl_minutes": 90,
+                    "order": 10
+                },
+                {
+                    "key": "mobile_otp",
+                    "enabled": true,
+                    "label": "Continue with OTP",
+                    "login_enabled": false,
+                    "channels": [
+                        "sms"
+                    ],
+                    "default_country_code": "+91",
+                    "allowed_country_codes": [
+                        "+91"
+                    ],
+                    "phone_digits": 10,
+                    "otp_length": 6,
+                    "otp_ttl_seconds": 300,
+                    "resend_after_seconds": 45,
+                    "max_resends": 3,
+                    "max_attempts": 5,
+                    "order": 20
+                },
+                {
+                    "key": "google",
+                    "enabled": true,
+                    "label": "Google",
+                    "exchange": "firebase",
+                    "client_id": "258907426555-ld4t5ru7oaktkl1u783q7v9pvr0so9vj.apps.googleusercontent.com",
+                    "server_client_id": "258907426555-vf459h2r7no5pg17mfvtt3fko6kn2r3f.apps.googleusercontent.com",
+                    "scopes": [
+                        "email",
+                        "profile"
+                    ],
+                    "order": 30
+                },
+                {
+                    "key": "apple",
+                    "enabled": true,
+                    "label": "Apple",
+                    "exchange": "firebase",
+                    "platforms": [
+                        "ios",
+                        "web"
+                    ],
+                    "service_id": "",
+                    "redirect_uri": "",
+                    "scopes": [
+                        "email",
+                        "name"
+                    ],
+                    "order": 40
+                },
+                {
+                    "key": "facebook",
+                    "enabled": false,
+                    "label": "Facebook",
+                    "exchange": "firebase",
+                    "app_id": "",
+                    "order": 50
+                },
+                {
+                    "key": "guest",
+                    "enabled": false,
+                    "label": "Continue as guest",
+                    "order": 60
+                }
+            ],
+            "guest": {
+                "enabled": false,
+                "browse_routes": [
+                    "home",
+                    "explore",
+                    "creators",
+                    "search",
+                    "pages",
+                    "blogs",
+                    "faqs"
+                ],
+                "prompt_on": [
+                    "book",
+                    "message",
+                    "favorite",
+                    "wallet",
+                    "profile",
+                    "apply"
+                ],
+                "session_days": 14,
+                "upgrade_endpoint": "/auth/guest/upgrade"
+            },
+            "firebase": {
+                "enabled": true,
+                "project_id": "zuste-eec8f",
+                "api_key": "AIzaSyCcicdkI8jmCjkODqCxd4Jmxn_tvGgaJlQ",
+                "app_id": "1:258907426555:android:b27f3a588bdafccf29ea5e",
+                "messaging_sender_id": "258907426555",
+                "auth_domain": "zuste-eec8f.firebaseapp.com",
+                "storage_bucket": "zuste-eec8f.firebasestorage.app"
+            },
+            "signup": {
+                "creator_enabled": true,
+                "brand_enabled": true,
+                "default_role": "brand",
+                "role_choice_visible": false,
+                "require_terms_accept": false,
+                "terms_url": "http://localhost:8000/terms",
+                "privacy_url": "http://localhost:8000/privacy"
+            },
+            "session": {
+                "access_ttl_seconds": 3600,
+                "refresh_ttl_seconds": 2592000
+            },
+            "ui": {
+                "divider_label": "OR CONTINUE WITH",
+                "signup_divider_label": "OR SIGN UP WITH",
+                "show_social_divider": true
+            }
+        },
+        "popups": [
+            {
+                "id": 1517,
+                "type": "modal",
+                "title": "10% off your first booking",
+                "content": "New to Zusty? Use FIRSTBOOK10 at checkout for 10% off, up to Rs 2,500.",
+                "image_url": "https://picsum.photos/seed/zuste-popup-1517/800/500",
+                "background": "#632CE5",
+                "text_color": "#FFFFFF",
+                "cta_label": "Find creators",
+                "cta_action": "screen",
+                "cta_value": "explore",
+                "placement": "home",
+                "trigger": "delay",
+                "trigger_value": 5,
+                "frequency": "once",
+                "is_dismissible": true
+            }
+        ],
+        "menus": {
+            "app_drawer": [
+                {
+                    "id": 1,
+                    "label": "My Bookings",
+                    "icon": "calendar_today",
+                    "link_type": "screen",
+                    "link_value": "/bookings",
+                    "badge_text": null,
+                    "badge_color": null,
+                    "open_external": false,
+                    "children": []
+                },
+                {
+                    "id": 2,
+                    "label": "My Wallet",
+                    "icon": "account_balance_wallet",
+                    "link_type": "screen",
+                    "link_value": "/wallet",
+                    "badge_text": null,
+                    "badge_color": null,
+                    "open_external": false,
+                    "children": []
+                },
+                {
+                    "id": 3,
+                    "label": "Notifications",
+                    "icon": "notifications",
+                    "link_type": "screen",
+                    "link_value": "/notifications",
+                    "badge_text": null,
+                    "badge_color": null,
+                    "open_external": false,
+                    "children": []
+                },
+                {
+                    "id": 4,
+                    "label": "Saved Creators",
+                    "icon": "bookmark",
+                    "link_type": "screen",
+                    "link_value": "/saved",
+                    "badge_text": null,
+                    "badge_color": null,
+                    "open_external": false,
+                    "children": []
+                },
+                {
+                    "id": 5,
+                    "label": "Invite & Earn",
+                    "icon": "person_add",
+                    "link_type": "screen",
+                    "link_value": "/invite",
+                    "badge_text": null,
+                    "badge_color": null,
+                    "open_external": false,
+                    "children": []
+                },
+                {
+                    "id": 6,
+                    "label": "Help & Support",
+                    "icon": "help",
+                    "link_type": "screen",
+                    "link_value": "/support",
+                    "badge_text": null,
+                    "badge_color": null,
+                    "open_external": false,
+                    "children": []
+                },
+                {
+                    "id": 7,
+                    "label": "Edit Profile",
+                    "icon": "person",
+                    "link_type": "screen",
+                    "link_value": "/profile/edit",
+                    "badge_text": null,
+                    "badge_color": null,
+                    "open_external": false,
+                    "children": []
+                }
+            ]
+        },
+        "commission": {
+            "platform_fee_percent": 10,
+            "commission_percent": 10,
+            "tax_percent": 18,
+            "tax_label": "GST"
+        },
+        "booking": {
+            "min_amount": 1000,
+            "max_amount": 2000000,
+            "request_expiry_hours": 72,
+            "free_cancellation_days": 3
+        },
+        "social": {
+            "instagram": "https://instagram.com/zusteapp",
+            "youtube": "https://youtube.com/@zusteapp",
+            "linkedin": "https://linkedin.com/company/zuste",
+            "twitter": "https://twitter.com/zusteapp",
+            "facebook": "https://facebook.com/zusteapp"
+        },
+        "legal": {
+            "terms_url": "http://localhost:8000/terms",
+            "privacy_url": "http://localhost:8000/privacy"
+        }
+    }
+}

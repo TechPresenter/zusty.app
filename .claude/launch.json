@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "zuste-backend",
+      "runtimeExecutable": "php",
+      "runtimeArgs": [
+        "-S",
+        "localhost:8000",
+        "-t",
+        "backend/public",
+        "backend/scripts/serve.php"
+      ],
+      "port": 8000,
+      "url": "http://localhost:8000"
+    },
+    {
+      "name": "zuste-web",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-Command",
+        "Set-Location mobile; flutter run -d web-server --web-port 8080 --web-hostname 127.0.0.1"
+      ],
+      "port": 8080,
+      "url": "http://127.0.0.1:8080"
+    }
+  ]
+}

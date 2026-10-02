@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive launcher icon (Android 8+). The whole artwork lives in the
+  background layer: it fills the 72dp viewport every launcher mask is cut
+  from, and its margins continue the picture seamlessly, so circles,
+  squircles and rounded squares all show the icon without a seam. The
+  foreground is empty, so a launcher's parallax never slides one half of the
+  picture over the other.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@mipmap/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

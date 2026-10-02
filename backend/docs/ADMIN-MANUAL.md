@@ -1,0 +1,550 @@
+# Admin Panel Manual
+
+For operators. Every module in the sidebar, what it does, and the decisions it asks
+you to make.
+
+**URL** — `https://yourdomain.com/admin`
+**Sign-in** — email and password, plus a 6-digit code if two-factor is enabled on your
+account.
+
+Five failed attempts lock an account for 15 minutes. Both numbers are configurable
+under Settings → Security.
+
+---
+
+## Reading the panel
+
+The sidebar is grouped by job, not by database table. **You only see the modules your
+role permits** — an empty-looking sidebar means a narrow role, not a broken install.
+
+Conventions that hold everywhere:
+
+- **List screens** — search, filters, sort, per-page, bulk actions, and export. Filters
+  survive in the URL, so a filtered list is shareable and bookmarkable.
+- **Destructive actions** always confirm, and most delete softly into the recycle bin.
+- **Every change is logged.** Who, what, when, and from which IP — visible under
+  Access → Activity Log.
+- **Ctrl/⌘ + K** opens global search from any screen.
+
+---
+
+## Overview
+
+### Dashboard
+
+The landing screen: **105 widgets** across KPI cards, charts, lists, tables, activity
+feeds, progress meters and quick actions.
+
+- **Customise** — drag to reorder, resize, hide. The layout saves per admin, so your
+  dashboard is yours.
+- **Date range** — every widget respects the range picker.
+- **Auto-refresh** — live widgets poll; the rest load once.
+
+Widgets you have no permission to see are never sent to the browser, not merely hidden
+in CSS.
+
+Numbers come from `analytics_daily` roll-up tables written by the nightly
+`analytics:rollup` job, not from scanning raw rows — which is why the dashboard stays
+fast as data grows. **If the dashboard looks stale, check that cron job first.**
+
+### Analytics
+
+Deeper than the dashboard: revenue, bookings, users, creators and traffic over time,
+with comparison against the previous period. Every chart exports to CSV or Excel.
+
+---
+
+## Marketplace
+
+### Users
+
+Every account, brand and creator. Search by name, email, phone or ID.
+
+Per user you can: view the full profile and activity, verify or unverify, suspend or
+reactivate, adjust the wallet (with a mandatory reason, written to the ledger), impersonate
+for support, force a password reset, and export.
+
+**Suspension is immediate.** The user's tokens are revoked, so open apps are signed out
+on their next request.
+
+**KYC** lives under this module (`/admin/kyc`). Submitted documents are decrypted for
+review only when opened, and each decision — approve or reject with a reason — is
+recorded against the reviewer.
+
+### Privacy requests
+
+`/admin/privacy-requests`, read-only. Users download their data and delete their
+accounts themselves, from Settings → Privacy & data in the apps, after confirming with
+their password or a one-time code. This screen is your record of both.
+
+- **Account deletions** — when, brand or creator, the reason they chose and anything
+  they wrote, how they confirmed, and how many records were kept. A deletion row has no
+  name or contact details, because the erasure removed them. "Why people leave"
+  totals the reasons.
+- **Data exports** — who asked, when, the archive size, downloads used, when the link
+  expires, and the requesting IP. If someone says "I never asked for this", this is
+  where you check.
+
+A deleted account becomes an anonymous **Deleted user** everywhere: bookings, payments,
+invoices and reviews stay, as tax law requires, without the name. It cannot be
+restored, so there is nothing to undo here. The export link lifetime, download limit
+and cooldown are under Settings → Security, and expired archives are deleted by the
+`privacy:purge-exports` job (System → Jobs).
+
+### Creators
+
+Creator profiles and the approval queue. Status runs
+`draft → pending_review → approved / rejected / suspended`.
+
+The sidebar badge counts creators awaiting review. Approving publishes the profile to
+search; rejecting requires a reason, which the creator sees.
+
+Also here: featured flags, search boost, category assignment, package and portfolio
+review, and per-creator earnings.
+
+### Categories
+
+The taxonomy behind search and browsing. Drag to reorder — that order is what the app
+shows. A category with creators attached cannot be deleted; move them first.
+
+### App lists
+
+Every option list the apps render — sort orders, platforms, languages, genders, age
+bands, experience levels, response windows, campaign types, deliverables, industries,
+support topics. Each list holds ordered terms with an optional icon, colour and
+metadata.
+
+These used to be hard-coded in the Flutter source, where changing one meant a store
+release. Now the apps fetch the whole set in one call and cache it, so an edit here
+reaches Android, iOS and Web without a code change.
+
+Renaming a term's **label** is safe; changing its **value** is not — existing rows
+still hold the old value. Add a new term and retire the old one instead.
+
+### Bookings
+
+The operational heart. Every booking with its full status history, participants,
+deliverables, payment and messages.
+
+Operator actions: force a status change (recorded with your name and reason), release
+or refund escrow, resolve a dispute, and cancel with a fee override.
+
+The sidebar badge counts open disputes. **Escrow decisions are irreversible** — read
+the deliverables and the message thread before releasing or refunding.
+
+### Reviews
+
+Moderate reviews. Approve, reject, hide or delete; reply as the platform. Rejecting
+recomputes the creator's average rating immediately.
+
+---
+
+## Finance
+
+### Payments
+
+Every gateway transaction with its status, method, fees and webhook trail. Where a
+webhook failed signature verification, you see that it was recorded and ignored — the
+raw payload is retained for investigation.
+
+Refunds are initiated here and reconcile against the wallet ledger.
+
+### Wallets
+
+Balance and locked (escrow) balance per user, with the full append-only ledger.
+
+Manual adjustments require a reason and are written as ledger rows like any other
+movement. **Nothing in this panel edits a balance directly** — the ledger is the
+source of truth, and the balance is derived from it.
+
+### Withdrawals
+
+The payout queue. Review the request, check the bank account (decrypted on view only),
+approve or reject with a reason, and mark as paid once the transfer settles.
+
+The sidebar badge counts pending requests. Approving debits the wallet; the money is
+committed at that moment.
+
+### Settlements
+
+Platform earnings, commission collected, GST, and what is owed to creators, by period.
+Exports for your accountant.
+
+---
+
+## Content
+
+Ten modules sharing one CRUD engine, so they behave identically: **Pages, Blog,
+Banners, Home Sections, FAQs, Testimonials, Redirects, Menus, Sitemap, Media**.
+
+- **Pages** — legal and informational pages, with SEO fields and slugs. Six of
+  them are also public web pages at the site root: `/about`, `/terms`, `/privacy`,
+  `/refund-policy`, `/community-guidelines` and `/contact`. The app's sign-up screen
+  links to `/terms` and `/privacy`, and the Google Play listing links to `/privacy`.
+  Switching a page off takes it off the web too. `/account-deletion`, also linked
+  from the Play listing, is generated from the same "what we delete / what we keep"
+  copy as the app's deletion screen.
+- **Blog** — posts with categories, cover images, scheduling and view counts.
+- **Banners** — app and web placements with date windows and click tracking.
+- **Home Sections** — what appears on the app home screen, and in what order.
+- **FAQs** — grouped, orderable, with helpful-vote counts from the app.
+- **Testimonials** — quotes with an approve step.
+- **Redirects** — old URL → new URL, 301 or 302. Useful after a slug change.
+- **Menus** — app drawer and footer navigation, built as a nested tree.
+- **Sitemap** — regenerate `sitemap.xml` and ping search engines.
+- **Media** — the upload library, foldered, with type and size filters. Files are
+  validated by real MIME type rather than filename, and images are resized on upload
+  when `gd` or `imagick` is available.
+
+Anything with a slug carries `meta_title`, `meta_description` and `og_image`, which the
+sitemap and the public pages both use.
+
+---
+
+## Marketing
+
+- **Campaigns** — email and push campaigns: audience segment, content, schedule, then
+  open and click statistics. Sending goes through the queue, so `queue:dispatch` must
+  be running.
+- **Subscribers** — the marketing list, with source, status and export.
+- **Coupons** — percentage or fixed discounts with usage limits, validity windows,
+  minimum booking amount and per-user caps. Redemption history per coupon.
+- **Popups** — in-app promotional popups with targeting rules, display frequency and
+  impression/click counts.
+
+---
+
+## Engagement
+
+- **Notifications** — send to a segment or an individual across push, email and SMS;
+  edit the seeded templates; review delivery history. Templates use placeholders that
+  are substituted per recipient.
+- **Support** — the ticket queue. Assign, reply, change priority and status, and close.
+  The badge counts open tickets.
+- **Reports** — user reports on creators, bookings, reviews and messages. Investigate,
+  action and resolve. The badge counts open reports.
+- **Contact Inbox** — submissions from the public contact form. The badge counts unread.
+
+---
+
+## Workflow
+
+- **Approvals** — items requiring a second pair of eyes before they take effect.
+  Configure which actions need approval and who can grant it. Each item shows what
+  changes, who requested it, and the approval trail.
+- **Automation** — trigger → condition → action rules, e.g. "when a booking is
+  disputed, notify the finance team and flag the creator." Rules are evaluated in
+  order; each records when it last fired.
+
+---
+
+## AI
+
+**Settings → AI** is where AI is switched on for the app:
+
+1. **Provider & API key.** Pick the provider (for example OpenAI), paste its API key,
+   choose a model and **Save provider**. A new key is tested straight away; use
+   **Test connection** to check again later. The key is stored encrypted and is never
+   sent to the app — the app asks the server, and the server calls the provider.
+2. **App features & limits.** Turn on **AI features enabled**, then choose which
+   features the app offers: the **bio writer** for creators, the **campaign brief
+   writer** and **creator matching** for brands. Set **requests per account per day**
+   and a **monthly budget** in USD; requests stop for the month once spend reaches it.
+
+The "Live in the app" line on that card shows exactly what installed apps are offering
+right now. Apps pick up a change the next time they open or come back to the
+foreground.
+
+- **Overview** — usage, cost and activity across providers, with a read-only summary
+  of the setup above.
+- **Providers** — 7 providers: Anthropic, OpenAI, Google Gemini, Azure OpenAI, Mistral,
+  Groq and OpenRouter, served by 5 adapters (the last three share the
+  OpenAI-compatible one). Paste an API key, choose a default model, set a monthly spend
+  cap, then **Test connection** — which makes a real one-token request rather than
+  merely checking the key's shape.
+
+  Keys are encrypted at rest with AES-256-GCM and are never rendered back to the
+  browser; the field shows a masked placeholder, and leaving it blank on save keeps the
+  stored key.
+
+  **All seven ship disabled with no keys.** Nothing calls out until you configure it.
+
+  Pricing is stored per model, per million tokens, and drives the cost figures. The
+  Anthropic and OpenAI catalogues are seeded with published pricing; add models for
+  other providers with the pricing from their own documentation.
+
+- **Prompts** — the prompt library used by AI-assisted features, versioned and editable.
+  `bio_writer`, `campaign_brief` and `creator_match` drive the app features; edit the
+  wording freely. Length and output-format rules the app depends on are added by the
+  server, so an edit cannot break what the app receives. Deactivating a prompt hides
+  its feature in the app.
+- **Usage Logs** — every AI call with provider, model, tokens, cost, latency and
+  outcome. Filterable, exportable.
+
+---
+
+## Productivity
+
+- **Global Search** — one box across users, creators, bookings, payments and content.
+  Ctrl/⌘ + K from anywhere.
+- **Saved Filters** — name a filter combination and pin it to the sidebar. Private to
+  you unless shared.
+- **Recycle Bin** — soft-deleted rows from every module that supports it. Restore or
+  purge permanently. Purging is final.
+- **Revisions** — content history with a side-by-side diff and one-click restore.
+- **Import CSV** — bulk import with column mapping, a dry-run validation pass that
+  reports errors per row before anything is written, and a full result report.
+
+---
+
+## Developer
+
+Diagnostics. Restricted to the `developer.*` permissions, which only **Super Admin** and
+**Admin** hold by default.
+
+- **Overview** — PHP version, extensions, database size, cache driver, disk.
+- **API Logs** — every API request: endpoint, status, duration, query count, memory,
+  user. The place to look when the app reports something the panel says is fine.
+- **Query Monitor** — slow queries collapsed by normalised shape with occurrence
+  counts, so one slow query run 400 times reads as one row with a count of 400 rather
+  than 400 rows. Threshold under Settings → Security.
+- **Cache** — inspect and clear.
+- **API Tester** — issue authenticated requests against your own API from the panel.
+
+  On the local built-in PHP server this times out, because that server handles one
+  request at a time and the tester's request is the second. The panel detects it and
+  says so. It works normally on real hosting.
+
+---
+
+## Access
+
+- **Admin Users** — create admins, assign a role, grant or revoke individual
+  permissions on top of the role, force 2FA, suspend.
+- **Roles** — 7 roles by level: **Super Admin (100)**, Admin (90), Manager (70),
+  Finance (60), Moderator (50), Content Manager (40), Support (30). 84 permissions in
+  25 groups, edited as a matrix.
+
+  Level matters beyond permissions: **an admin can never edit or delete an account at
+  an equal or higher level.** A Manager cannot demote an Admin, and no one can delete
+  the last Super Admin.
+
+- **Activity Log** — every admin action with before/after values, IP and user agent.
+  Filter by admin, module, action or date. This is your audit trail; it is not editable
+  from the panel.
+
+---
+
+## Authentication & Login
+
+**Login Methods** (`/admin/login-methods`) — every way into the platform, on one
+screen: Email & Password, Mobile OTP, Google, Apple, Facebook and Guest access.
+
+### Switching a method off is real
+
+A disabled method is **refused by the API**, not merely hidden in the app. A
+request using it is answered `403 auth_method_disabled` and recorded in the
+sign-in history. That includes Google and Apple: the server inspects which
+provider issued the Firebase token, so a disabled provider's tokens are rejected
+rather than accepted because they happen to be valid.
+
+Two consequences worth knowing:
+
+- **Existing sessions keep working** until their access token expires (Settings →
+  Security → access token TTL, one hour by default). When switching a method off
+  you can tick **"Also sign out everyone using it"** to revoke those sessions
+  immediately.
+- **Password recovery is the one exception.** With recovery off, the endpoint
+  still answers `200`, because a `403` would reveal which email addresses exist.
+
+### Credentials
+
+Client IDs, secrets, redirect URIs and the Apple `.p8` are stored encrypted with
+AES-256-GCM and **never rendered back** — the field shows "Stored — leave blank
+to keep it", and saving with it blank keeps the stored value. Use *Remove stored
+value* to clear one, which also switches the method off.
+
+Nothing is duplicated: Google and Apple credentials live in the same records the
+Integrations hub already used, SMS gateway settings stay under Settings → SMS,
+password policy under Settings → Security, and SMTP under Settings → Email. This
+screen edits them in place rather than keeping a second copy that could drift.
+
+### Connection tests
+
+Each test proves what it honestly can:
+
+| Method | What the test actually proves |
+|---|---|
+| **Apple** | Real proof. Signs a client-secret JWT with your `.p8` and presents it to Apple, which confirms whether the Service ID, Team ID, Key ID and key belong together. No side effect. |
+| **Facebook** | Real proof. Requests an app access token, which needs both the app ID and the secret. |
+| **Google** | Partial, and says so. Checks the client ID is well-formed, that Google is reachable, and that a Firebase project is set. **Google publishes no way to confirm a client ID without a real sign-in**, so the test does not claim to. |
+| **Mobile OTP** | Checks SMS is on and a provider and key are configured. Send a real code from Settings → SMS to prove delivery. |
+| **Email & Password** | Checks the password policy and that outgoing mail is configured, since recovery depends on it. |
+
+### What reaches the apps, and what cannot
+
+Changes to enable flags, client IDs, redirect URIs, OTP timers, country codes,
+button order, labels, terms links and the Firebase client options are published
+through `GET /api/v1/app/config` and reach Android, iOS and web **on the next
+launch or resume, with no redeploy**.
+
+Some values cannot work that way, and the screen marks them **Build-time**:
+
+- Android package name and signing SHA-1/SHA-256 — the keystore signs the APK
+- iOS bundle identifier and the Sign in with Apple entitlement
+- `google-services.json` / `GoogleService-Info.plist`
+- Authorised JavaScript origins and console-side redirect URIs
+
+These are stored so you can copy them into the Google and Apple consoles, and so
+the panel can flag a mismatch. **Editing one here does not change an installed
+app** — that needs a new build.
+
+### Guest access
+
+Off by default. When on, someone can browse without an account: they get a real
+session, and favourites and follows they build up are kept.
+
+Everything transactional is refused with `guest_upgrade_required`, which the app
+uses to raise the sign-up sheet. When they do sign up, the **same account row is
+converted in place** — so nothing they did as a guest is lost. Unconverted, idle
+guests are soft-deleted by the `auth:purge-guests` job after the retention you set.
+
+### Sign-in activity
+
+The Overview tab shows 24-hour success, failure and refusal counts per method,
+plus the ten most recent app sign-ins. The full, filterable, exportable history
+is **Security → Login History**, filtered to `actor_type=user` — the same screen
+that has always shown admin sign-ins.
+
+---
+
+## Security
+
+- **Overview** — posture at a glance: 2FA coverage, recent failed sign-ins, active
+  sessions, allow-list state.
+- **Login History** — every attempt, successful or not, with IP, device and location.
+- **IP Allow List** — restrict admin sign-in by exact IP, CIDR range or wildcard, IPv4
+  and IPv6.
+
+  Two guards exist because this is the easiest way to lock yourself out: **the first
+  rule you add must cover your current IP**, and **you cannot disable the last rule
+  that covers you.** While the list is empty, every IP is permitted — an empty list
+  means "not configured", not "deny all".
+
+- **Sessions** — active admin sessions with device and last activity. Revoke any, or
+  all others at once.
+
+Enable two-factor on your own account before anyone else's. Enrolment shows a QR code
+generated on the server — the shared secret is never sent to a third-party chart
+service — with recovery codes shown once, at enrolment.
+
+---
+
+## Integrations
+
+**58 services in 16 categories**: SEO & Search, Analytics & Tracking, Push
+Notifications, Email, WhatsApp, SMS Gateways, Payments, Social Login, Cloud Storage,
+Maps & Location, AI Services, Monitoring & Errors, CDN & Performance, Security,
+Platform Operations, and Authentication & Login.
+
+> The three entries under **Authentication & Login** — Email & Password, Mobile OTP
+> and Guest Access — carry no credentials of their own. They exist here for the
+> enable flag, status, connection test and activity log, all of which the hub
+> already provides. Configure them under
+> [Authentication & Login](#authentication--login).
+
+Each integration offers, where the service supports it: enable/disable, API key and
+secret management, OAuth, webhook configuration with a copyable callback URL,
+**Test connection**, **Sync now**, an auto-sync schedule, a status indicator, error
+logs, usage statistics, last-sync time, and a link to the provider's documentation.
+
+Things worth knowing:
+
+- **Secrets are encrypted at rest and never rendered back.** A blank secret field on
+  save means "keep what is stored" — it does not clear the value. Use the explicit
+  clear action for that.
+- **Some integrations mirror into Settings.** SMTP, Razorpay, Stripe, Firebase and
+  others write both an encrypted credential blob and the `settings` rows the existing
+  services already read, so connecting from either screen works and the two never
+  disagree.
+- **Some delegate.** Where a full module already owns a service, the integration card
+  links to it rather than duplicating the configuration.
+- **Test connection means different things by service.** Most make a real authenticated
+  request. A few can only validate configuration — AWS S3 and SNS, for instance, are
+  reported honestly as "configuration valid" rather than being given a fake green tick.
+- **Auto-sync** runs through the `integrations:sync` cron job every 30 minutes. Each
+  integration runs independently, so one failure never stops the rest.
+
+---
+
+## System
+
+### Settings
+
+**184 settings in 20 groups.** Fifteen are edited here as tabs — General, Branding,
+Bookings, Fees & tax, Wallet, Referrals, Payments, Firebase, Email, SMS, Uploads, App
+releases, SEO, Social links, Security. The rest are owned by their own modules: AI
+settings live under AI, cache under Developer → Cache, KYC under Users → KYC.
+
+The ones that change behaviour most:
+
+| Setting | Effect |
+|---|---|
+| General → Maintenance mode | API returns `503`; the panel stays usable |
+| Fees & tax → Commission rate | Applied to every new booking quote |
+| Fees & tax → GST | Applied on top of the platform fee |
+| Bookings → Auto-expire hours | How long a creator has to respond |
+| Bookings → Escrow release days | When `escrow:release` matures a hold |
+| Wallet → Minimum withdrawal | Floor on payout requests |
+| Security → Max login attempts, lockout minutes | Sign-in lockout |
+| Security → Slow query threshold | What Developer → Query Monitor records |
+| App releases → Minimum version | Forces an app update |
+
+Secrets in settings are stored encrypted and shown masked.
+
+### System
+
+Operations:
+
+- **Health** — database, cache, queue depth, disk, cron freshness.
+- **Jobs** — every cron job with last run, duration, outcome and next due. Run any
+  job manually, or disable one. **If notifications are not arriving, check
+  `queue:dispatch` here first** — it is the job whose absence is silent.
+- **Backups** — take one now, download, restore, and see the retention window.
+  Restoring overwrites the current database and asks you to confirm.
+- **Logs** — application and system logs with level filters, and a clear action.
+- **Optimize** — `OPTIMIZE TABLE` across the schema. Safe, occasionally useful after
+  large deletions.
+
+---
+
+## Daily routine
+
+1. Dashboard — anything anomalous in today's numbers?
+2. Badges — pending creators, disputes, withdrawals, tickets, reports, contact messages.
+3. System → Jobs — every job green, especially `queue:dispatch`.
+4. Security → Login History — unexpected sign-ins or repeated failures.
+5. Withdrawals and KYC — the two queues where people are waiting on you.
+
+## Weekly
+
+- Review Activity Log for anything you did not expect.
+- Confirm a backup exists **and restore one to a scratch database** — an untested
+  backup is a hope, not a backup.
+- Integrations → check for services showing errors.
+- Access → Admin Users — remove anyone who has left, narrow anyone over-permissioned.
+
+---
+
+## When something looks wrong
+
+| Symptom | Look here first |
+|---|---|
+| Nothing is being emailed or pushed | System → Jobs, `queue:dispatch` |
+| Dashboard numbers are stale | System → Jobs, `analytics:rollup` |
+| A payment shows unpaid but the user paid | Payments → the webhook trail |
+| Escrow did not release | System → Jobs, `escrow:release`; then the booking's status history |
+| The panel is slow | Developer → Query Monitor |
+| The app reports an error the panel does not show | Developer → API Logs |
+| An integration silently stopped working | Integrations → its error log and last sync |
+| Someone changed something unexpectedly | Access → Activity Log |

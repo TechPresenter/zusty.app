@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Launch screen before Flutter draws its first frame (Android 5-11): the
+  Zusty mark, wordmark and tagline centred on white. Android 12+ uses the
+  system splash configured in values-v31/styles.xml instead.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/white" />
+    <item>
+        <bitmap
+            android:gravity="center"
+            android:src="@drawable/splash_logo" />
+    </item>
+</layer-list>

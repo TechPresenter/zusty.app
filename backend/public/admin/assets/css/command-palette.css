@@ -1,0 +1,315 @@
+/* =====================================================================
+   Zusty admin — command palette
+   ---------------------------------------------------------------------
+   Every value here is a token from themes.css. There is not one literal
+   colour in this file, which is what lets the palette inherit all 13
+   skins and both colour modes for free — including Cyber Neon and
+   Midnight, where a hardcoded white panel would be unreadable.
+   ===================================================================== */
+
+/* The page behind must not scroll while the palette is open. */
+html.has-palette {
+  overflow: hidden;
+}
+
+.palette {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;                       /* above .dialog (1000) — the palette
+                                          can be opened from inside a modal */
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+
+  /* Not centred: a palette that sits slightly high leaves the results
+     list room to grow downward without the panel jumping. */
+  padding: clamp(3rem, 12vh, 9rem) 1rem 1rem;
+}
+
+.palette__scrim {
+  position: absolute;
+  inset: 0;
+  /* Matches .dialog-backdrop exactly, so a palette opened over a modal
+     does not double-darken to a different shade. */
+  background: color-mix(in oklab, #000 45%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  opacity: 0;
+  transition: opacity var(--t) var(--ease-out);
+}
+
+.palette.is-open .palette__scrim {
+  opacity: 1;
+}
+
+.palette__panel {
+  position: relative;
+  width: min(40rem, 100%);
+  max-height: min(30rem, 70vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--e4);
+
+  /* Rises slightly as it fades in; the distance is small on purpose so
+     it reads as instant rather than animated. */
+  opacity: 0;
+  transform: translateY(-0.5rem) scale(0.985);
+  transition:
+    opacity var(--t) var(--ease-out),
+    transform var(--t) var(--ease-spring);
+}
+
+.palette.is-open .palette__panel {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---------------------------------------------------------------------
+   Head
+   --------------------------------------------------------------------- */
+
+.palette__head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid var(--outline-variant);
+  flex: none;
+}
+
+.palette__head-icon {
+  display: inline-flex;
+  color: var(--on-surface-variant);
+  flex: none;
+}
+
+.palette__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 1.0625rem;
+  color: var(--on-surface);
+}
+
+.palette__input::placeholder {
+  color: var(--on-surface-variant);
+}
+
+/* The palette owns focus while it is open, so a ring around the input
+   inside it is noise. */
+.palette__input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Chrome and Safari draw their own clear button on type="search". */
+.palette__input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.palette__kbd,
+.palette__foot kbd {
+  font: inherit;
+  font-size: 0.6875rem;
+  line-height: 1;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--outline-variant);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  background: var(--surface-container);
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+
+.palette__kbd {
+  cursor: pointer;
+  flex: none;
+}
+
+/* ---------------------------------------------------------------------
+   List
+   --------------------------------------------------------------------- */
+
+.palette__list {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;        /* stops the page scrolling when the
+                                          list hits its end */
+  padding: 0.375rem;
+}
+
+.palette__group-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.625rem 0.375rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+}
+
+.palette__count {
+  margin-left: auto;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.7;
+}
+
+.palette__row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out);
+}
+
+/* One highlight, driven by JS, so the keyboard and the mouse can never
+   disagree about which row Enter would open. `:hover` deliberately does
+   not style anything here. */
+.palette__row.is-active {
+  background: var(--primary-soft);
+}
+
+.palette__row.is-active .palette__label {
+  color: var(--primary);
+}
+
+.palette__row:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.palette__row--ghost {
+  cursor: default;
+  pointer-events: none;
+}
+
+.palette__row--more .palette__label {
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.palette__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+  border-radius: var(--r-md);
+  background: var(--surface-container);
+  color: var(--on-surface-variant);
+}
+
+.palette__row.is-active .palette__icon {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.palette__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;                        /* lets the ellipsis below work */
+  flex: 1;
+}
+
+.palette__label,
+.palette__sub {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette__label {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--on-surface);
+}
+
+.palette__sub {
+  font-size: 0.8125rem;
+  color: var(--on-surface-variant);
+}
+
+.palette__empty {
+  padding: 2.5rem 1rem;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------------
+   Foot
+   --------------------------------------------------------------------- */
+
+.palette__foot {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--outline-variant);
+  background: var(--surface-lowest);
+  font-size: 0.75rem;
+  color: var(--on-surface-variant);
+  flex: none;
+}
+
+.palette__foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* On a phone the shortcut legend is dead weight — there is no keyboard. */
+@media (max-width: 40rem) {
+  .palette {
+    padding: 0.75rem;
+    align-items: stretch;
+  }
+
+  .palette__panel {
+    max-height: none;
+    width: 100%;
+  }
+
+  .palette__foot {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   Motion
+   --------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .palette__scrim,
+  .palette__panel {
+    transition-duration: 1ms;
+  }
+
+  .palette__panel {
+    transform: none;
+  }
+}

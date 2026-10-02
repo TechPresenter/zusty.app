@@ -1,0 +1,9 @@
+# robots.txt for https://zustee.com
+# Written by the Zusty admin panel on 2026-08-04T16:36:20+05:30.
+# Edits made here by hand are replaced the next time it is written.
+
+User-agent: *
+Disallow: /admin
+Disallow: /api
+
+Sitemap: https://zustee.com/sitemap.xml

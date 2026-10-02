@@ -1,0 +1,35 @@
+# Signed release files and other build outputs: large, and rebuilt from source.
+/release/
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# backend
+# ---------------------------------------------------------------------------
+
+# Secrets. The *.example files are the templates to copy.
+/backend/.env
+/backend/.env.*
+!/backend/.env.example
+/backend/firebase*.json
+!/backend/firebase.example.json
+
+# Runtime data: logs, cache, data exports, backups, KYC files. scripts/install.php
+# recreates these folders and storage/.htaccess on every install.
+/backend/storage/
+
+# User uploads. The .htaccess (no code execution) and the branding defaults
+# that the settings point at ship with the code.
+/backend/public/uploads/*
+!/backend/public/uploads/.htaccess
+!/backend/public/uploads/branding/
+
+/backend/vendor/
+
+# ---------------------------------------------------------------------------
+# mobile: mobile/.gitignore and mobile/android/.gitignore cover the Flutter
+# build outputs, the upload keystore and android/key.properties.
+# ---------------------------------------------------------------------------

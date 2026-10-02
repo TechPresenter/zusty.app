@@ -1,0 +1,271 @@
+/* ---------------------------------------------------------------------
+   Rich content editor.
+
+   Every colour here is a theme token, never a literal. The panel ships
+   thirteen skins in light and dark, and a hardcoded #fff would be invisible
+   in eleven of them. Radii and shadows come from the same place, so the
+   editor is indistinguishable from the rest of the panel's chrome.
+   --------------------------------------------------------------------- */
+
+.z-editor {
+  border: 1px solid var(--outline-variant);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+
+/* The whole control takes the focus ring, because the element that actually
+   holds focus is the surface inside it and a ring on that alone reads as a
+   detached box. */
+.z-editor:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 18%, transparent);
+}
+
+/* The textarea still submits the form; it is hidden, never removed. */
+.z-editor__origin {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* ---- toolbar ------------------------------------------------------- */
+
+.z-editor__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  background: var(--surface-container);
+  border-bottom: 1px solid var(--outline-variant);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.z-editor__sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 5px;
+  background: var(--outline-variant);
+  flex: 0 0 auto;
+}
+
+.z-editor__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  transition: background .13s ease, color .13s ease;
+}
+
+.z-editor__btn svg { width: 17px; height: 17px; }
+
+.z-editor__btn:hover {
+  background: color-mix(in oklab, var(--on-surface) 8%, transparent);
+  color: var(--on-surface);
+}
+
+.z-editor__btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.z-editor__btn.is-active {
+  background: var(--primary-container);
+  color: var(--primary);
+}
+
+.z-editor__btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ---- editing surface ------------------------------------------------ */
+
+.z-editor__surface {
+  padding: 14px 16px;
+  min-height: 200px;
+  max-height: 70vh;
+  overflow-y: auto;
+  color: var(--on-surface);
+  line-height: 1.65;
+  outline: none;
+}
+
+.z-editor__surface > :first-child { margin-top: 0; }
+.z-editor__surface > :last-child { margin-bottom: 0; }
+
+.z-editor__surface p { margin: 0 0 .85em; }
+
+.z-editor__surface h1,
+.z-editor__surface h2,
+.z-editor__surface h3,
+.z-editor__surface h4 {
+  margin: 1.3em 0 .5em;
+  line-height: 1.25;
+  font-weight: 650;
+  color: var(--on-surface);
+}
+
+.z-editor__surface h1 { font-size: 1.7rem; }
+.z-editor__surface h2 { font-size: 1.4rem; }
+.z-editor__surface h3 { font-size: 1.18rem; }
+.z-editor__surface h4 { font-size: 1.04rem; }
+
+.z-editor__surface ul,
+.z-editor__surface ol { margin: 0 0 .9em; padding-left: 1.5em; }
+
+.z-editor__surface li { margin-bottom: .3em; }
+
+.z-editor__surface blockquote {
+  margin: 0 0 .9em;
+  padding: .5em 0 .5em 1em;
+  border-left: 3px solid var(--primary);
+  color: var(--on-surface-variant);
+  font-style: italic;
+}
+
+.z-editor__surface pre {
+  margin: 0 0 .9em;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--surface-highest);
+  color: var(--on-surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .86rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.z-editor__surface code {
+  padding: .12em .38em;
+  border-radius: 5px;
+  background: var(--surface-highest);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .88em;
+}
+
+.z-editor__surface pre code { padding: 0; background: none; }
+
+.z-editor__surface a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.z-editor__surface img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: .3em 0;
+}
+
+.z-editor__surface hr {
+  border: 0;
+  border-top: 1px solid var(--outline-variant);
+  margin: 1.4em 0;
+}
+
+.z-editor__surface table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 .9em;
+  font-size: .92rem;
+}
+
+.z-editor__surface th,
+.z-editor__surface td {
+  border: 1px solid var(--outline-variant);
+  padding: 7px 10px;
+  text-align: left;
+}
+
+.z-editor__surface th {
+  background: var(--surface-container);
+  font-weight: 600;
+}
+
+/* Alignment is a class, not an inline style — see editor.js. The server's
+   sanitiser strips `style`, so style-based alignment would vanish on save. */
+.z-ta-left { text-align: left; }
+.z-ta-center { text-align: center; }
+.z-ta-right { text-align: right; }
+.z-ta-justify { text-align: justify; }
+
+/* ---- source view ---------------------------------------------------- */
+
+.z-editor__source {
+  display: block;
+  width: 100%;
+  min-height: 200px;
+  padding: 14px 16px;
+  border: 0;
+  background: var(--surface-lowest);
+  color: var(--on-surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .84rem;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+
+.z-editor.is-source .z-editor__bar .z-editor__btn:not(.is-active) { opacity: .45; }
+
+/* ---- footer --------------------------------------------------------- */
+
+.z-editor__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  background: var(--surface-container);
+  border-top: 1px solid var(--outline-variant);
+  font-size: .75rem;
+  color: var(--on-surface-variant);
+}
+
+.z-editor__count { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.z-editor__hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- small screens -------------------------------------------------- */
+
+@media (max-width: 640px) {
+  .z-editor__bar { padding: 5px 6px; }
+  .z-editor__btn { width: 28px; height: 28px; }
+  .z-editor__sep { margin: 0 3px; }
+  .z-editor__hint { display: none; }
+  .z-editor__surface { padding: 12px; min-height: 160px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .z-editor,
+  .z-editor__btn { transition: none; }
+}
+
+/* Printing an admin page should show the content, not the chrome. */
+@media print {
+  .z-editor__bar,
+  .z-editor__foot { display: none; }
+
+  .z-editor {
+    border: 0;
+    box-shadow: none;
+  }
+
+  .z-editor__surface { max-height: none; overflow: visible; }
+}

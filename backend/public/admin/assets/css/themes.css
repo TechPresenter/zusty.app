@@ -1,0 +1,446 @@
+/* =====================================================================
+   Zusty Admin — premium theme system
+   13 themes × light / dark / system, no build step, no dependency.
+
+   ARCHITECTURE
+   ------------
+   A theme declares only what makes it *that* theme: four brand colours,
+   a tint, and a chart ramp. Everything else — surfaces, borders, hovers,
+   focus rings, gradients, shadows — is derived from those seeds by
+   `color-mix(in oklab, …)` in ONE shared block further down.
+
+   Why derive rather than hand-write 13 palettes: a hand-maintained set
+   drifts. Someone adjusts a hover in Emerald and forgets the other
+   twelve, and six months later no two themes behave alike. Deriving
+   means a change to the surface formula lands everywhere at once, and a
+   new theme is five lines rather than eighty.
+
+   oklab, not sRGB: mixing in sRGB darkens and desaturates through the
+   middle of a blend, so a 6% tint of a saturated hue reads muddy. oklab
+   is perceptually uniform, so every theme's surfaces sit at the same
+   apparent lightness regardless of hue.
+
+   ADDING A THEME
+   --------------
+   Add a `[data-skin="name"]` block with the seven seed tokens, then add
+   it to THEMES in theme-engine.js. Nothing else.
+   ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   1. Theme seeds
+   --------------------------------------------------------------------- */
+
+/* Vibrant Influence — the house palette, and the default. */
+[data-skin='vibrant'] {
+  --seed-primary:   #b80049;
+  --seed-secondary: #632ce5;
+  --seed-tertiary:  #006a34;
+  --seed-accent:    #e2165f;
+  --tint:           #b80049;
+  --chart: #b80049, #632ce5, #006a34, #e2165f, #7c4dff, #00a152, #ff6b9d, #9d7bff;
+}
+
+[data-skin='purple'] {
+  --seed-primary:   #7c3aed;
+  --seed-secondary: #db2777;
+  --seed-tertiary:  #0891b2;
+  --seed-accent:    #a855f7;
+  --tint:           #7c3aed;
+  --chart: #7c3aed, #db2777, #0891b2, #a855f7, #f472b6, #22d3ee, #c084fc, #6366f1;
+}
+
+[data-skin='royal'] {
+  --seed-primary:   #1d4ed8;
+  --seed-secondary: #0891b2;
+  --seed-tertiary:  #7c3aed;
+  --seed-accent:    #3b82f6;
+  --tint:           #1d4ed8;
+  --chart: #1d4ed8, #0891b2, #7c3aed, #3b82f6, #38bdf8, #8b5cf6, #60a5fa, #06b6d4;
+}
+
+[data-skin='emerald'] {
+  --seed-primary:   #059669;
+  --seed-secondary: #0d9488;
+  --seed-tertiary:  #ca8a04;
+  --seed-accent:    #10b981;
+  --tint:           #059669;
+  --chart: #059669, #0d9488, #ca8a04, #10b981, #34d399, #14b8a6, #a3e635, #22c55e;
+}
+
+[data-skin='orange'] {
+  --seed-primary:   #ea580c;
+  --seed-secondary: #d97706;
+  --seed-tertiary:  #0891b2;
+  --seed-accent:    #fb923c;
+  --tint:           #ea580c;
+  --chart: #ea580c, #d97706, #0891b2, #fb923c, #fbbf24, #f97316, #fdba74, #06b6d4;
+}
+
+[data-skin='crimson'] {
+  --seed-primary:   #be123c;
+  --seed-secondary: #9f1239;
+  --seed-tertiary:  #0f766e;
+  --seed-accent:    #f43f5e;
+  --tint:           #be123c;
+  --chart: #be123c, #9f1239, #0f766e, #f43f5e, #fb7185, #14b8a6, #e11d48, #fda4af;
+}
+
+[data-skin='teal'] {
+  --seed-primary:   #0f766e;
+  --seed-secondary: #0284c7;
+  --seed-tertiary:  #7c3aed;
+  --seed-accent:    #14b8a6;
+  --tint:           #0f766e;
+  --chart: #0f766e, #0284c7, #7c3aed, #14b8a6, #2dd4bf, #38bdf8, #5eead4, #818cf8;
+}
+
+[data-skin='indigo'] {
+  --seed-primary:   #4338ca;
+  --seed-secondary: #7c3aed;
+  --seed-tertiary:  #0891b2;
+  --seed-accent:    #6366f1;
+  --tint:           #4338ca;
+  --chart: #4338ca, #7c3aed, #0891b2, #6366f1, #818cf8, #a78bfa, #22d3ee, #4f46e5;
+}
+
+/* Rose Gold — warm metallic. Deliberately lower-chroma than Crimson so
+   the two read as different themes rather than two reds. */
+[data-skin='rosegold'] {
+  --seed-primary:   #b76e79;
+  --seed-secondary: #a1683f;
+  --seed-tertiary:  #6b7280;
+  --seed-accent:    #d8a0a8;
+  --tint:           #b76e79;
+  --chart: #b76e79, #a1683f, #6b7280, #d8a0a8, #e8c4b8, #c9a227, #9ca3af, #8d5524;
+}
+
+/* Cyber Neon — designed for dark mode; the light variant stays usable
+   but the theme is at its best with data-theme="dark". */
+[data-skin='cyber'] {
+  --seed-primary:   #06b6d4;
+  --seed-secondary: #d946ef;
+  --seed-tertiary:  #84cc16;
+  --seed-accent:    #22d3ee;
+  --tint:           #06b6d4;
+  --chart: #22d3ee, #d946ef, #84cc16, #06b6d4, #f0abfc, #a3e635, #67e8f9, #c026d3;
+}
+
+[data-skin='midnight'] {
+  --seed-primary:   #334155;
+  --seed-secondary: #0ea5e9;
+  --seed-tertiary:  #8b5cf6;
+  --seed-accent:    #475569;
+  --tint:           #1e293b;
+  --chart: #475569, #0ea5e9, #8b5cf6, #64748b, #38bdf8, #a78bfa, #94a3b8, #0284c7;
+}
+
+/* Aurora — the one intentionally multi-hue theme. */
+[data-skin='aurora'] {
+  --seed-primary:   #8b5cf6;
+  --seed-secondary: #10b981;
+  --seed-tertiary:  #f59e0b;
+  --seed-accent:    #ec4899;
+  --tint:           #8b5cf6;
+  --chart: #8b5cf6, #10b981, #f59e0b, #ec4899, #06b6d4, #a3e635, #f472b6, #38bdf8;
+}
+
+/* Corporate — restrained, for organisations that want the panel to
+   recede. The only theme with a near-neutral tint. */
+[data-skin='corporate'] {
+  --seed-primary:   #1e40af;
+  --seed-secondary: #475569;
+  --seed-tertiary:  #047857;
+  --seed-accent:    #2563eb;
+  --tint:           #334155;
+  --chart: #1e40af, #475569, #047857, #2563eb, #64748b, #0891b2, #7c3aed, #b45309;
+}
+
+/* ---------------------------------------------------------------------
+   2. Derivation — one formula, every theme
+   --------------------------------------------------------------------- */
+:root,
+[data-skin] {
+  /* Brand */
+  --primary: var(--seed-primary, #b80049);
+  --primary-container: color-mix(in oklab, var(--primary) 82%, white);
+  --on-primary: #ffffff;
+  --primary-hover: color-mix(in oklab, var(--primary) 88%, black);
+  --primary-soft: color-mix(in oklab, var(--primary) 12%, transparent);
+  --primary-fixed: color-mix(in oklab, var(--primary) 18%, white);
+  --on-primary-fixed: color-mix(in oklab, var(--primary) 78%, black);
+
+  --secondary: var(--seed-secondary, #632ce5);
+  --secondary-container: color-mix(in oklab, var(--secondary) 82%, white);
+  --on-secondary: #ffffff;
+  --secondary-soft: color-mix(in oklab, var(--secondary) 12%, transparent);
+
+  --tertiary: var(--seed-tertiary, #006a34);
+  --tertiary-container: color-mix(in oklab, var(--tertiary) 82%, white);
+  --on-tertiary: #ffffff;
+  --tertiary-fixed: color-mix(in oklab, var(--tertiary) 20%, white);
+
+  --accent: var(--seed-accent, #e2165f);
+  --accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
+
+  /* Semantic — deliberately NOT themed. Success must read as success in
+     every skin; tying it to the brand hue would make a green theme's
+     error state ambiguous. */
+  --success: #059669;
+  --success-container: #d1fae5;
+  --on-success: #ffffff;
+  --warning: #b45309;
+  --warning-container: #fef3c7;
+  --on-warning: #ffffff;
+  --error: #dc2626;
+  --error-container: #fee2e2;
+  --on-error: #ffffff;
+  --on-error-container: #7f1d1d;
+  --info: #0284c7;
+  --info-container: #e0f2fe;
+
+  /* Surfaces — a tinted neutral ramp. The tint percentage climbs slowly
+     so containers separate without any of them reading as coloured. */
+  --surface-lowest: #ffffff;
+  --surface: color-mix(in oklab, var(--tint, var(--primary)) 2%, #ffffff);
+  --surface-low: color-mix(in oklab, var(--tint, var(--primary)) 4%, #ffffff);
+  --surface-container: color-mix(in oklab, var(--tint, var(--primary)) 6%, #ffffff);
+  --surface-high: color-mix(in oklab, var(--tint, var(--primary)) 9%, #ffffff);
+  --surface-highest: color-mix(in oklab, var(--tint, var(--primary)) 12%, #ffffff);
+  --surface-variant: color-mix(in oklab, var(--tint, var(--primary)) 10%, #ffffff);
+  --surface-dim: color-mix(in oklab, var(--tint, var(--primary)) 14%, #ffffff);
+  --surface-bright: #ffffff;
+
+  --on-surface: color-mix(in oklab, var(--tint, var(--primary)) 22%, #14100f);
+  --on-surface-variant: color-mix(in oklab, var(--tint, var(--primary)) 26%, #5a5450);
+  --outline: color-mix(in oklab, var(--tint, var(--primary)) 24%, #8d8681);
+  --outline-variant: color-mix(in oklab, var(--tint, var(--primary)) 16%, #ded9d5);
+
+  --inverse-surface: color-mix(in oklab, var(--tint, var(--primary)) 20%, #2b2724);
+  --inverse-on-surface: color-mix(in oklab, var(--tint, var(--primary)) 6%, #ffffff);
+
+  /* Glass — used sparingly: the topbar, dropdowns, and modal scrims. */
+  --glass-bg: color-mix(in oklab, var(--surface) 72%, transparent);
+  --glass-border: color-mix(in oklab, white 40%, transparent);
+  --glass-blur: saturate(180%) blur(20px);
+
+  /* Gradients */
+  --grad-primary: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+  --grad-secondary: linear-gradient(135deg, var(--secondary) 0%, var(--primary) 100%);
+  --grad-tertiary: linear-gradient(135deg, var(--tertiary) 0%, var(--secondary) 100%);
+  --grad-surface: linear-gradient(160deg,
+      color-mix(in oklab, var(--primary) 5%, var(--surface-lowest)) 0%,
+      var(--surface-lowest) 60%);
+  --grad-sheen: linear-gradient(105deg,
+      transparent 40%,
+      color-mix(in oklab, white 55%, transparent) 50%,
+      transparent 60%);
+
+  /* Elevation — tinted rather than grey, so shadows belong to the theme. */
+  --shadow-color: color-mix(in oklab, var(--tint, var(--primary)) 40%, #0b0a0a);
+  --e1: 0 1px 2px color-mix(in oklab, var(--shadow-color) 6%, transparent),
+        0 1px 3px color-mix(in oklab, var(--shadow-color) 5%, transparent);
+  --e2: 0 4px 16px color-mix(in oklab, var(--shadow-color) 8%, transparent),
+        0 1px 4px color-mix(in oklab, var(--shadow-color) 5%, transparent);
+  --e3: 0 12px 32px color-mix(in oklab, var(--shadow-color) 13%, transparent),
+        0 4px 12px color-mix(in oklab, var(--shadow-color) 7%, transparent);
+  --e4: 0 24px 56px color-mix(in oklab, var(--shadow-color) 18%, transparent),
+        0 8px 20px color-mix(in oklab, var(--shadow-color) 9%, transparent);
+  --e-primary: 0 8px 24px color-mix(in oklab, var(--primary) 32%, transparent);
+  --e-inset: inset 0 1px 0 color-mix(in oklab, white 60%, transparent);
+
+  /* Focus — one ring, every control. */
+  --focus-ring: 0 0 0 3px color-mix(in oklab, var(--primary) 28%, transparent);
+
+  /* Motion. Durations are short on purpose: a dashboard is used all day,
+     and animation that reads as luxurious once reads as slow by the
+     fiftieth interaction. */
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-in-out: cubic-bezier(.65, 0, .35, 1);
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+  --t-fast: 120ms;
+  --t: 200ms;
+  --t-slow: 320ms;
+}
+
+/* ---------------------------------------------------------------------
+   3. Dark mode — the same derivation, inverted
+   --------------------------------------------------------------------- */
+[data-theme='dark'] {
+  --primary: color-mix(in oklab, var(--seed-primary, #b80049) 72%, white);
+  --primary-container: color-mix(in oklab, var(--seed-primary, #b80049) 55%, black);
+  --on-primary: #ffffff;
+  --primary-hover: color-mix(in oklab, var(--primary) 88%, white);
+  --primary-soft: color-mix(in oklab, var(--primary) 18%, transparent);
+  --primary-fixed: color-mix(in oklab, var(--seed-primary, #b80049) 40%, black);
+  --on-primary-fixed: color-mix(in oklab, var(--seed-primary, #b80049) 40%, white);
+
+  --secondary: color-mix(in oklab, var(--seed-secondary, #632ce5) 74%, white);
+  --secondary-container: color-mix(in oklab, var(--seed-secondary, #632ce5) 52%, black);
+  --secondary-soft: color-mix(in oklab, var(--secondary) 18%, transparent);
+
+  --tertiary: color-mix(in oklab, var(--seed-tertiary, #006a34) 74%, white);
+  --tertiary-container: color-mix(in oklab, var(--seed-tertiary, #006a34) 52%, black);
+  --tertiary-fixed: color-mix(in oklab, var(--seed-tertiary, #006a34) 40%, black);
+
+  --accent: color-mix(in oklab, var(--seed-accent, #e2165f) 76%, white);
+  --accent-soft: color-mix(in oklab, var(--accent) 20%, transparent);
+
+  --success: #34d399;
+  --success-container: color-mix(in oklab, #059669 34%, black);
+  --warning: #fbbf24;
+  --warning-container: color-mix(in oklab, #b45309 34%, black);
+  --error: #f87171;
+  --error-container: color-mix(in oklab, #dc2626 32%, black);
+  --on-error-container: #fecaca;
+  --info: #38bdf8;
+  --info-container: color-mix(in oklab, #0284c7 32%, black);
+
+  /* On-colours for the dark palette.
+     A dark theme's semantic and brand colours have to be LIGHT — that is
+     the only way they read against a near-black surface. Text placed ON
+     one of those fills therefore has to be dark. Leaving these undeclared
+     let the light-theme #ffffff above win by cascade order, which put
+     white on a light green / light red button fill: measured 1.92:1 on
+     .btn--success and 2.77:1 on .btn--danger, both far below the 4.5:1
+     AA threshold and below even the 3:1 large-text floor.
+     Tones are deliberately deeper than the usual Material tone-20: the
+     filled buttons darken their far gradient stop, and a tone-20 text
+     colour loses AA against that end. */
+  --on-tertiary: color-mix(in oklab, var(--seed-tertiary, #006a34) 30%, black);
+  --on-success: #00210f;
+  --on-warning: #291800;
+  --on-error: #2d0000;
+
+  /* Dark surfaces are built off a near-black that carries the tint, so a
+     Purple dark theme is genuinely purple-black rather than grey. */
+  --surface-lowest: color-mix(in oklab, var(--tint, var(--primary)) 6%, #0a0a0d);
+  --surface: color-mix(in oklab, var(--tint, var(--primary)) 7%, #101014);
+  --surface-low: color-mix(in oklab, var(--tint, var(--primary)) 8%, #14141a);
+  --surface-container: color-mix(in oklab, var(--tint, var(--primary)) 10%, #1a1a21);
+  --surface-high: color-mix(in oklab, var(--tint, var(--primary)) 12%, #212129);
+  --surface-highest: color-mix(in oklab, var(--tint, var(--primary)) 14%, #292932);
+  --surface-variant: color-mix(in oklab, var(--tint, var(--primary)) 12%, #24242c);
+  --surface-dim: color-mix(in oklab, var(--tint, var(--primary)) 5%, #08080b);
+  --surface-bright: color-mix(in oklab, var(--tint, var(--primary)) 14%, #2e2e38);
+
+  --on-surface: color-mix(in oklab, var(--tint, var(--primary)) 8%, #f4f2f5);
+  --on-surface-variant: color-mix(in oklab, var(--tint, var(--primary)) 14%, #b8b3bd);
+  --outline: color-mix(in oklab, var(--tint, var(--primary)) 18%, #6f6b75);
+  --outline-variant: color-mix(in oklab, var(--tint, var(--primary)) 16%, #35323b);
+
+  --inverse-surface: color-mix(in oklab, var(--tint, var(--primary)) 8%, #f4f2f5);
+  --inverse-on-surface: color-mix(in oklab, var(--tint, var(--primary)) 12%, #1a1a21);
+
+  --glass-bg: color-mix(in oklab, var(--surface-container) 68%, transparent);
+  --glass-border: color-mix(in oklab, white 12%, transparent);
+
+  --grad-surface: linear-gradient(160deg,
+      color-mix(in oklab, var(--primary) 10%, var(--surface-container)) 0%,
+      var(--surface-container) 60%);
+  --grad-sheen: linear-gradient(105deg,
+      transparent 40%,
+      color-mix(in oklab, white 12%, transparent) 50%,
+      transparent 60%);
+
+  /* Shadows go near-black in dark mode: a tinted shadow over a dark
+     surface reads as a glow, not as depth. */
+  --shadow-color: #000000;
+  --e1: 0 1px 2px rgba(0, 0, 0, .40), 0 1px 3px rgba(0, 0, 0, .30);
+  --e2: 0 4px 16px rgba(0, 0, 0, .45), 0 1px 4px rgba(0, 0, 0, .30);
+  --e3: 0 12px 32px rgba(0, 0, 0, .55), 0 4px 12px rgba(0, 0, 0, .35);
+  --e4: 0 24px 56px rgba(0, 0, 0, .65), 0 8px 20px rgba(0, 0, 0, .40);
+  --e-inset: inset 0 1px 0 color-mix(in oklab, white 8%, transparent);
+}
+
+/* Cyber Neon earns its name only in the dark: glows instead of shadows. */
+[data-skin='cyber'][data-theme='dark'] {
+  --e-primary: 0 0 24px color-mix(in oklab, var(--primary) 55%, transparent),
+               0 0 48px color-mix(in oklab, var(--primary) 25%, transparent);
+  --focus-ring: 0 0 0 3px color-mix(in oklab, var(--primary) 45%, transparent),
+                0 0 16px color-mix(in oklab, var(--primary) 35%, transparent);
+}
+
+/* ---------------------------------------------------------------------
+   4. Fallback for browsers without color-mix()
+   --------------------------------------------------------------------- */
+@supports not (color: color-mix(in oklab, red, blue)) {
+  :root {
+    --primary: #b80049;
+    --primary-container: #e2165f;
+    --secondary: #632ce5;
+    --tertiary: #006a34;
+    --accent: #e2165f;
+    --surface: #fff8f7;
+    --surface-lowest: #ffffff;
+    --surface-low: #fff0f1;
+    --surface-container: #ffe9ea;
+    --surface-high: #ffe1e4;
+    --surface-highest: #fadbde;
+    --surface-variant: #fadbde;
+    --on-surface: #28171a;
+    --on-surface-variant: #5b3f43;
+    --outline: #8f6f73;
+    --outline-variant: #e4bdc2;
+    --glass-bg: #fff8f7;
+    --primary-soft: rgba(184, 0, 73, .12);
+    --focus-ring: 0 0 0 3px rgba(184, 0, 73, .28);
+    --e1: 0 1px 2px rgba(40, 23, 26, .04), 0 1px 3px rgba(40, 23, 26, .04);
+    --e2: 0 4px 20px rgba(40, 23, 26, .06);
+    --e3: 0 12px 32px rgba(40, 23, 26, .10);
+    --e4: 0 24px 56px rgba(40, 23, 26, .14);
+  }
+
+  /* Glass degrades to a solid panel rather than an unreadable haze. */
+  .glass { backdrop-filter: none !important; }
+}
+
+/* ---------------------------------------------------------------------
+   5. Reduced motion
+   Honoured globally: the micro-interactions are decoration, and someone
+   who has asked the OS for less movement means it.
+   --------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 1ms;
+    --t: 1ms;
+    --t-slow: 1ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   6. Chart palette
+   Exposed as individual custom properties so the SVG chart renderer can
+   read them with getComputedStyle and repaint on a theme change.
+   --------------------------------------------------------------------- */
+[data-skin] {
+  --chart-1: #b80049;
+  --chart-2: #632ce5;
+  --chart-3: #006a34;
+  --chart-4: #e2165f;
+  --chart-5: #7c4dff;
+  --chart-6: #00a152;
+  --chart-7: #ff6b9d;
+  --chart-8: #9d7bff;
+}
+
+[data-skin='purple']    { --chart-1:#7c3aed; --chart-2:#db2777; --chart-3:#0891b2; --chart-4:#a855f7; --chart-5:#f472b6; --chart-6:#22d3ee; --chart-7:#c084fc; --chart-8:#6366f1; }
+[data-skin='royal']     { --chart-1:#1d4ed8; --chart-2:#0891b2; --chart-3:#7c3aed; --chart-4:#3b82f6; --chart-5:#38bdf8; --chart-6:#8b5cf6; --chart-7:#60a5fa; --chart-8:#06b6d4; }
+[data-skin='emerald']   { --chart-1:#059669; --chart-2:#0d9488; --chart-3:#ca8a04; --chart-4:#10b981; --chart-5:#34d399; --chart-6:#14b8a6; --chart-7:#a3e635; --chart-8:#22c55e; }
+[data-skin='orange']    { --chart-1:#ea580c; --chart-2:#d97706; --chart-3:#0891b2; --chart-4:#fb923c; --chart-5:#fbbf24; --chart-6:#f97316; --chart-7:#fdba74; --chart-8:#06b6d4; }
+[data-skin='crimson']   { --chart-1:#be123c; --chart-2:#9f1239; --chart-3:#0f766e; --chart-4:#f43f5e; --chart-5:#fb7185; --chart-6:#14b8a6; --chart-7:#e11d48; --chart-8:#fda4af; }
+[data-skin='teal']      { --chart-1:#0f766e; --chart-2:#0284c7; --chart-3:#7c3aed; --chart-4:#14b8a6; --chart-5:#2dd4bf; --chart-6:#38bdf8; --chart-7:#5eead4; --chart-8:#818cf8; }
+[data-skin='indigo']    { --chart-1:#4338ca; --chart-2:#7c3aed; --chart-3:#0891b2; --chart-4:#6366f1; --chart-5:#818cf8; --chart-6:#a78bfa; --chart-7:#22d3ee; --chart-8:#4f46e5; }
+[data-skin='rosegold']  { --chart-1:#b76e79; --chart-2:#a1683f; --chart-3:#6b7280; --chart-4:#d8a0a8; --chart-5:#e8c4b8; --chart-6:#c9a227; --chart-7:#9ca3af; --chart-8:#8d5524; }
+[data-skin='cyber']     { --chart-1:#22d3ee; --chart-2:#d946ef; --chart-3:#84cc16; --chart-4:#06b6d4; --chart-5:#f0abfc; --chart-6:#a3e635; --chart-7:#67e8f9; --chart-8:#c026d3; }
+[data-skin='midnight']  { --chart-1:#475569; --chart-2:#0ea5e9; --chart-3:#8b5cf6; --chart-4:#64748b; --chart-5:#38bdf8; --chart-6:#a78bfa; --chart-7:#94a3b8; --chart-8:#0284c7; }
+[data-skin='aurora']    { --chart-1:#8b5cf6; --chart-2:#10b981; --chart-3:#f59e0b; --chart-4:#ec4899; --chart-5:#06b6d4; --chart-6:#a3e635; --chart-7:#f472b6; --chart-8:#38bdf8; }
+[data-skin='corporate'] { --chart-1:#1e40af; --chart-2:#475569; --chart-3:#047857; --chart-4:#2563eb; --chart-5:#64748b; --chart-6:#0891b2; --chart-7:#7c3aed; --chart-8:#b45309; }

@@ -1,0 +1,69 @@
+# =====================================================================
+# Zusty — crontab for the application user
+#
+# Install (as the `zustee` user, NOT root):
+#   crontab deploy/cron/zustee-crontab
+#   crontab -l                            # verify
+#
+# The schedules below match the `schedule_hint` recorded in the
+# `scheduled_jobs` table, which is what the admin panel displays. If you change
+# one here, change it there too or the panel will describe a cadence that is not
+# actually running.
+#
+# Every job is idempotent and takes a lock, so an overlapping run is a no-op
+# rather than a double-charge. Verify with:
+#   php scripts/cron.php --list
+# =====================================================================
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+
+APP=/var/www/zustee/backend
+PHP=/usr/bin/php8.2
+
+# --- every minute ----------------------------------------------------
+# Outbound email, push and SMS. The single most latency-sensitive job:
+# a password-reset email waits for this tick.
+* * * * * cd $APP && $PHP scripts/cron.php queue:dispatch >> storage/logs/cron.log 2>&1
+
+# --- every 5 minutes -------------------------------------------------
+*/5 * * * * cd $APP && $PHP scripts/cron.php automation:run    >> storage/logs/cron.log 2>&1
+*/5 * * * * cd $APP && $PHP scripts/cron.php marketing:dispatch >> storage/logs/cron.log 2>&1
+
+# --- every 15 minutes ------------------------------------------------
+# Bookings a creator never answered. Late expiry means a brand's money sits
+# in escrow longer than promised, so do not stretch this interval.
+*/15 * * * * cd $APP && $PHP scripts/cron.php bookings:expire >> storage/logs/cron.log 2>&1
+
+# --- every 30 minutes ------------------------------------------------
+*/30 * * * * cd $APP && $PHP scripts/cron.php integrations:sync >> storage/logs/cron.log 2>&1
+
+# --- hourly ----------------------------------------------------------
+# Escrow release moves real money to creators. It is idempotent and
+# double-entry, but check storage/logs/cron.log if payouts look stalled.
+0 * * * * cd $APP && $PHP scripts/cron.php escrow:release        >> storage/logs/cron.log 2>&1
+0 * * * * cd $APP && $PHP scripts/cron.php bookings:autocomplete >> storage/logs/cron.log 2>&1
+
+# --- nightly ---------------------------------------------------------
+# Ordered so each job runs after whatever it depends on:
+#   00:10 analytics rollup  (reads yesterday, before anything mutates it)
+#   00:30 creator stats     (ratings, completion rate, search boost)
+#   01:20 KYC expiry        (may suspend accounts; after stats are settled)
+#   02:00 database backup   (after every nightly mutation has finished)
+#   03:00 token prune
+#   04:00 guest purge
+10 0 * * * cd $APP && $PHP scripts/cron.php analytics:rollup   >> storage/logs/cron.log 2>&1
+30 0 * * * cd $APP && $PHP scripts/cron.php creators:refresh   >> storage/logs/cron.log 2>&1
+20 1 * * * cd $APP && $PHP scripts/cron.php kyc:expiry         >> storage/logs/cron.log 2>&1
+ 0 2 * * * cd $APP && $PHP scripts/cron.php backup:database    >> storage/logs/cron.log 2>&1
+ 0 3 * * * cd $APP && $PHP scripts/cron.php tokens:prune       >> storage/logs/cron.log 2>&1
+ 0 4 * * * cd $APP && $PHP scripts/cron.php auth:purge-guests  >> storage/logs/cron.log 2>&1
+
+# --- weekly ----------------------------------------------------------
+0 4 * * 0 cd $APP && $PHP scripts/cron.php logs:rotate >> storage/logs/cron.log 2>&1
+
+# --- monitoring ------------------------------------------------------
+# Alerts if the queue has not ticked in 10 minutes, which means cron itself
+# has stopped and nothing else will tell you.
+*/10 * * * * cd $APP && $PHP scripts/heartbeat.php >> storage/logs/cron.log 2>&1

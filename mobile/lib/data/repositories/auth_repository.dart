@@ -1,0 +1,280 @@
+import '../../core/network/api_endpoints.dart';
+import '../../core/storage/key_value_cache.dart';
+import '../../core/storage/secure_store.dart';
+import '../../models/user.dart';
+import 'base_repository.dart';
+
+/// The result of a successful sign-in or registration.
+class AuthResult {
+  const AuthResult({
+    required this.user,
+    required this.tokens,
+    this.isNewAccount = false,
+  });
+
+  final User user;
+  final AuthTokens? tokens;
+  final bool isNewAccount;
+}
+
+/// Authentication and session management (`/auth/*`).
+class AuthRepository extends BaseRepository {
+  AuthRepository(super.client, this._store, this._cache);
+
+  final SecureStore _store;
+  final KeyValueCache _cache;
+
+  bool get hasCompletedOnboarding => _cache.hasCompletedOnboarding;
+
+  Future<void> completeOnboarding() => _cache.setOnboardingComplete();
+
+  Future<AuthResult> login({
+    required String identifier,
+    required String password,
+  }) =>
+      _authenticate(() async {
+        final response = await client.post(
+          ApiEndpoints.login,
+          body: {'identifier': identifier, 'password': password},
+          skipAuth: true,
+        );
+        return _parse(response.dataMap);
+      });
+
+  Future<AuthResult> register({
+    required String name,
+    required String email,
+    required String password,
+    required UserRole role,
+    String? phone,
+    String? referralCode,
+    bool acceptTerms = true,
+  }) =>
+      _authenticate(() async {
+        final response = await client.post(
+          ApiEndpoints.register,
+          body: {
+            'name': name,
+            'email': email,
+            'password': password,
+            // The server validates `account_type`, not `role`. Unknown keys are
+            // dropped silently by the validator, so sending `role` meant every
+            // sign-up was created as the default brand.
+            'account_type': role.name,
+            // Required by the server whenever the operator has "require
+            // accepting the terms" on, which is the default. Omitting it 422'd
+            // every registration.
+            'accept_terms': acceptTerms,
+            if (phone != null && phone.isNotEmpty) 'phone': phone,
+            if (referralCode != null && referralCode.isNotEmpty)
+              'referral_code': referralCode,
+          },
+          skipAuth: true,
+        );
+        return _parse(response.dataMap, isNew: true);
+      });
+
+  /// Exchanges a Firebase ID token (Google / Apple / phone) for Zusty JWTs.
+  Future<AuthResult> signInWithFirebase(String idToken, {UserRole? role}) =>
+      _authenticate(() async {
+        final response = await client.post(
+          ApiEndpoints.firebaseSignIn,
+          body: {
+            'id_token': idToken,
+            if (role != null) 'account_type': role.name,
+          },
+          skipAuth: true,
+        );
+        final data = response.dataMap;
+        return _parse(data, isNew: data['is_new_account'] == true);
+      });
+
+  /// Verifies a one-time code and, for `purpose: login`, returns a session.
+  Future<AuthResult> verifyOtp({
+    required String destination,
+    required String code,
+    String purpose = 'login',
+  }) =>
+      _authenticate(() async {
+        final response = await client.post(
+          ApiEndpoints.verifyOtp,
+          body: {
+            'destination': destination,
+            'code': code,
+            'purpose': purpose,
+          },
+          skipAuth: true,
+        );
+        return _parse(response.dataMap);
+      });
+
+  /// Starts a guest session so someone can browse without an account.
+  ///
+  /// Throws when the operator has switched guest access off; the caller should
+  /// read `auth.guest.enabled` from the app config and not offer the button.
+  Future<AuthResult> signInAsGuest() => _authenticate(() async {
+        final response = await client.post(
+          ApiEndpoints.guestSignIn,
+          skipAuth: true,
+        );
+        return _parse(response.dataMap);
+      });
+
+  /// Turns the current guest session into a real account, in place.
+  Future<AuthResult> upgradeGuest({
+    required UserRole role,
+    String? name,
+    String? email,
+    String? phone,
+    String? password,
+    String? idToken,
+    String? destination,
+    String? code,
+    String? referralCode,
+  }) =>
+      _authenticate(() async {
+        final response = await client.post(
+          ApiEndpoints.guestUpgrade,
+          body: {
+            'account_type': role.name,
+            if (name != null && name.isNotEmpty) 'name': name,
+            if (email != null && email.isNotEmpty) 'email': email,
+            if (phone != null && phone.isNotEmpty) 'phone': phone,
+            if (password != null && password.isNotEmpty) 'password': password,
+            if (idToken != null && idToken.isNotEmpty) 'id_token': idToken,
+            if (destination != null && destination.isNotEmpty)
+              'destination': destination,
+            if (code != null && code.isNotEmpty) 'code': code,
+            if (referralCode != null && referralCode.isNotEmpty)
+              'referral_code': referralCode,
+          },
+        );
+        return _parse(response.dataMap, isNew: true);
+      });
+
+  /// Sends a one-time code.
+  ///
+  /// Not routed through [writeThrough]: swallowing the failure would leave the
+  /// user staring at a code entry screen for a code that was never sent.
+  Future<void> sendOtp(
+    String destination, {
+    String channel = 'sms',
+    String purpose = 'login',
+  }) async {
+    await client.post(
+      ApiEndpoints.sendOtp,
+      body: {
+        'destination': destination,
+        'channel': channel,
+        'purpose': purpose,
+      },
+      skipAuth: true,
+    );
+  }
+
+  Future<void> forgotPassword(String email) async {
+    // The server validates `email`, not `identifier`.
+    await client.post(
+      ApiEndpoints.forgotPassword,
+      body: {'email': email},
+      skipAuth: true,
+    );
+  }
+
+  Future<void> resetPassword({
+    required String token,
+    required String password,
+  }) async {
+    await client.post(
+      ApiEndpoints.resetPassword,
+      body: {
+        'token': token,
+        'password': password,
+        // The rule is `confirmed`, so the server requires the match field.
+        'password_confirmation': password,
+      },
+      skipAuth: true,
+    );
+  }
+
+  Future<void> changePassword({
+    required String current,
+    required String updated,
+  }) async {
+    await client.post(
+      ApiEndpoints.changePassword,
+      body: {
+        'current_password': current,
+        'password': updated,
+        'password_confirmation': updated,
+      },
+    );
+  }
+
+  /// Restores the signed-in user on app start. Null when there is no session.
+  Future<User?> currentUser() async {
+    if (!await _store.hasSession()) return null;
+
+    return readThrough(
+      () async {
+        final response = await client.get(ApiEndpoints.me);
+        return User.fromJson(
+          response.maybeMapAt('user') ?? response.dataMap,
+        );
+      },
+      'profile',
+      (json) => User.fromJson(asMap(json)),
+    );
+  }
+
+  Future<void> logout() async {
+    try {
+      await client.post(ApiEndpoints.logout);
+    } catch (_) {
+      // A failed server-side logout must not strand the user inside the app.
+    }
+    await _store.clear();
+    await _cache.clearAll();
+  }
+
+  /// Forgets this device's session without calling the server.
+  ///
+  /// For after an account deletion. The server has already revoked every
+  /// token and removed every device, so a logout request would only fail
+  /// against an account that no longer exists.
+  Future<void> clearLocalSession() async {
+    await _store.clear();
+    await _cache.clearAll();
+  }
+
+  /// Runs an auth call and persists the returned token pair.
+  ///
+  /// Deliberately calls [live] directly rather than going through
+  /// [writeThrough]. Every other repository may fall back to a bundled fixture
+  /// when the host is unreachable — for a list of creators that is a degraded
+  /// experience, but for authentication it would mean a failed sign-in handing
+  /// back a fabricated session and a fake token, and persisting both. The user
+  /// would appear signed in as somebody who does not exist.
+  ///
+  /// A sign-in that cannot reach the server must fail, visibly.
+  Future<AuthResult> _authenticate(Future<AuthResult> Function() live) async {
+    final result = await live();
+
+    if (result.tokens != null) {
+      await _store.save(result.tokens!);
+    }
+    await _cache.setOnboardingComplete();
+
+    return result;
+  }
+
+  static AuthResult _parse(Map<String, dynamic> data, {bool isNew = false}) {
+    final tokenMap = (data['tokens'] as Map?)?.cast<String, dynamic>() ?? data;
+
+    return AuthResult(
+      user: User.fromJson((data['user'] as Map?)?.cast<String, dynamic>() ?? {}),
+      tokens: AuthTokens.tryParse(tokenMap),
+      isNewAccount: isNew || data['is_new_account'] == true,
+    );
+  }
+}

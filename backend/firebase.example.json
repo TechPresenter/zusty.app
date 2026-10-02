@@ -1,0 +1,18 @@
+{
+    "project_id": "",
+    "web_api_key": "",
+    "storage_bucket": "",
+    "service_account_json": {},
+    "messaging_sender_id": "",
+    "auth_domain": "",
+    "app_id_web": "",
+    "app_id_android": "",
+    "app_id_ios": "",
+    "google_web_client_id": "",
+    "google_android_client_id": "",
+    "google_ios_client_id": "",
+    "google_web_redirect_uri": "",
+    "apple_service_id": "",
+    "apple_redirect_uri": "",
+    "facebook_app_id": ""
+}

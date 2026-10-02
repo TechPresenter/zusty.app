@@ -16,6 +16,10 @@ desktop.ini
 !/backend/.env.example
 /backend/firebase*.json
 !/backend/firebase.example.json
+# Firebase service-account keys wherever they land. FIREBASE_CREDENTIALS
+# defaults to ../firebase-service-account.json, which is the repository root.
+/firebase*.json
+*service-account*.json
 
 # Runtime data: logs, cache, data exports, backups, KYC files. scripts/install.php
 # recreates these folders and storage/.htaccess on every install.

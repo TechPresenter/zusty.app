@@ -152,6 +152,38 @@ final class KycService
     /** Columns that hold blind indexes — never part of any API payload. */
     private const HASH_COLUMNS = ['aadhaar_hash', 'pan_hash', 'gst_hash', 'cin_hash'];
 
+    /**
+     * Statuses in which a verification CLAIMS its identifiers for uniqueness:
+     * it was submitted and is with the review team, waiting on its owner,
+     * approved, or suspended. Drafts, rejected, expired and purged profiles do
+     * not ({@see identifierTaken()}). Public so the admin conflict list
+     * (Admin\KycController::identifierConflicts) applies the same rule.
+     */
+    public const CLAIMING_STATUSES = [
+        self::SUBMITTED, self::UNDER_REVIEW, self::INFO_REQUIRED, self::APPROVED, self::SUSPENDED,
+    ];
+
+    /** Where each blind-index domain is held: [table, hash column]. */
+    private const IDENTIFIER_HOLDERS = [
+        'aadhaar' => [['kyc_creator_details', 'aadhaar_hash']],
+        'pan'     => [['kyc_creator_details', 'pan_hash'], ['kyc_brand_details', 'pan_hash']],
+        'gstin'   => [['kyc_brand_details', 'gst_hash']],
+        'cin'     => [['kyc_brand_details', 'cin_hash']],
+    ];
+
+    /** releaseIdentifier(): field => kind => detail columns cleared. */
+    private const RELEASABLE = [
+        'aadhaar' => [self::KIND_CREATOR => ['aadhaar_last4', 'aadhaar_hash']],
+        'pan'     => [
+            self::KIND_CREATOR => ['pan_number', 'pan_hash'],
+            self::KIND_BRAND   => ['pan_number', 'pan_hash'],
+        ],
+        'gstin'   => [self::KIND_BRAND => ['gst_number', 'gst_hash']],
+        'cin'     => [self::KIND_BRAND => ['cin_number', 'cin_hash']],
+    ];
+
+    private const RELEASABLE_LABELS = ['aadhaar' => 'Aadhaar', 'pan' => 'PAN', 'gstin' => 'GSTIN', 'cin' => 'CIN'];
+
     /** URL-bearing detail fields that must be http(s), plus image fields that may also be site-relative. */
     private const WEB_URL_FIELDS   = ['website', 'portfolio_url', 'map_place_url'];
     private const IMAGE_URL_FIELDS = ['logo_url', 'cover_url', 'photo_url'];
@@ -442,6 +474,9 @@ final class KycService
             return;
         }
 
+        // A profile whose data the retention sweep erased starts over here.
+        self::reopenIfPurged($profile, $userId, $ip, $agent);
+
         if ($current !== []) {
             Database::update($table, $payload, ['profile_id' => $profileId]);
         } else {
@@ -470,6 +505,13 @@ final class KycService
      * aadhaar`, which used to encrypt and keep the whole number. That route is
      * folded in here, so no client can store a full Aadhaar any more.
      *
+     * The "other ID" number is the other way a full Aadhaar used to get in:
+     * with the type unset (or set to passport, licence, voter ID) the value
+     * skipped this method, was encrypted whole and shown unmasked to
+     * reviewers. A 12-digit Aadhaar-shaped value there is now refused,
+     * whatever the type says — no passport, licence or voter ID number has
+     * that shape.
+     *
      * @param array<string,mixed>       $data    Consumed in place.
      * @param array<string,mixed>       $current The stored detail row.
      * @param array<string,mixed>       $payload Columns to write.
@@ -489,6 +531,14 @@ final class KycService
                 }
 
                 unset($data['id_proof_number']);
+            } elseif (is_scalar($data['id_proof_number'])
+                && KycIdentifiers::looksLikeAadhaar((string) $data['id_proof_number'])) {
+                // Any separator ('.', '/', '_', ...) is ignored for this check.
+                unset($data['id_proof_number']);
+
+                $errors['id_proof_number'] = [
+                    'That looks like an Aadhaar number. Enter it in the Aadhaar field instead - only its last four digits are kept.',
+                ];
             }
         }
 
@@ -565,30 +615,39 @@ final class KycService
     }
 
     /**
-     * Is this identifier on ANOTHER user's live (non-purged) profile?
+     * Is this identifier CLAIMED by another account's verification?
+     *
+     * Only a verification that really claims it counts: one that has been
+     * submitted and is in review, waiting on its owner, approved or
+     * suspended ({@see CLAIMING_STATUSES}), on a live account. A draft, a
+     * rejected or expired profile, a purged one and a deleted account do not.
+     * This used to count drafts too, so anybody could type a company's public
+     * GSTIN (or someone's PAN) into a draft, never submit, and lock the real
+     * holder out of verification for good. Two drafts may now hold the same
+     * number; the conflict is settled where it matters — at submission and
+     * at approval ({@see identifierCollisions()}), and a reviewer can release
+     * a number from the account that should not have it
+     * ({@see releaseIdentifier()}).
      *
      * The answer never says whose — only that it is taken — so the check
      * cannot be used to discover who holds a given PAN.
      */
     private static function identifierTaken(string $domain, string $hash, int $userId): bool
     {
-        $tables = match ($domain) {
-            'aadhaar' => [['kyc_creator_details', 'aadhaar_hash']],
-            'pan'     => [['kyc_creator_details', 'pan_hash'], ['kyc_brand_details', 'pan_hash']],
-            'gstin'   => [['kyc_brand_details', 'gst_hash']],
-            'cin'     => [['kyc_brand_details', 'cin_hash']],
-            default   => [],
-        };
+        [$in, $statuses] = Database::inClause(self::CLAIMING_STATUSES);
 
-        foreach ($tables as [$table, $column]) {
+        foreach (self::IDENTIFIER_HOLDERS[$domain] ?? [] as [$table, $column]) {
             $taken = (int) Database::scalar(
                 'SELECT COUNT(*) FROM `' . $table . '` d
                    JOIN `kyc_profiles` p ON p.`id` = d.`profile_id`
-                  WHERE d.`' . $column . '` = :hash
-                    AND p.`user_id` <> :user_id
+                   JOIN `users` u ON u.`id` = p.`user_id`
+                  WHERE d.`' . $column . '` = ?
+                    AND p.`user_id` <> ?
                     AND p.`deleted_at` IS NULL
-                    AND p.`purged_at` IS NULL',
-                ['hash' => $hash, 'user_id' => $userId]
+                    AND p.`purged_at` IS NULL
+                    AND u.`deleted_at` IS NULL
+                    AND p.`status` IN ' . $in,
+                array_merge([$hash, $userId], $statuses)
             );
 
             if ($taken > 0) {
@@ -597,6 +656,148 @@ final class KycService
         }
 
         return false;
+    }
+
+    /**
+     * The identifiers on this profile that another account's verification
+     * also claims — labels such as "PAN" or "GSTIN", empty when there are none.
+     *
+     * Re-checked from what is stored at submission and at approval, so two
+     * accounts can never both be approved on one identity, whatever order
+     * their drafts were saved in. A value saved before blind indexes existed
+     * (hash column NULL) is hashed here from its decrypted value rather than
+     * getting a pass.
+     *
+     * @return list<string>
+     */
+    public static function identifierCollisions(int $profileId): array
+    {
+        $profile = Database::selectOne('SELECT `id`, `user_id`, `kind` FROM `kyc_profiles` WHERE `id` = :id', ['id' => $profileId]);
+
+        if ($profile === null) {
+            return [];
+        }
+
+        $collisions = [];
+
+        foreach (self::storedIdentifierHashes($profileId, (string) $profile['kind']) as $domain => [$hash, $label]) {
+            if (self::identifierTaken($domain, $hash, (int) $profile['user_id'])) {
+                $collisions[] = $label;
+            }
+        }
+
+        return $collisions;
+    }
+
+    /**
+     * The blind index of every identifier stored on a profile, by domain:
+     * domain => [hash, label]. A missing hash is derived from the decrypted
+     * value; an Aadhaar has only its hash (the number is never stored).
+     *
+     * @return array<string,array{0:string,1:string}>
+     */
+    private static function storedIdentifierHashes(int $profileId, string $kind): array
+    {
+        $kind  = self::normaliseKind($kind);
+        $table = $kind === self::KIND_BRAND ? 'kyc_brand_details' : 'kyc_creator_details';
+        $row   = Database::selectOne('SELECT * FROM `' . $table . '` WHERE `profile_id` = :id', ['id' => $profileId]);
+
+        if ($row === null) {
+            return [];
+        }
+
+        $hashes = [];
+
+        foreach (self::IDENTIFIERS[$kind] as $field => [$domain, $hashColumn, $label]) {
+            $hash = (string) ($row[$hashColumn] ?? '');
+
+            if ($hash === '') {
+                $plain = Crypto::decryptNullable($row[$field] ?? null);
+                $hash  = $plain === null || trim($plain) === ''
+                    ? ''
+                    : Crypto::blindIndex($domain, KycIdentifiers::normalize($plain));
+            }
+
+            if ($hash !== '') {
+                $hashes[$domain] = [$hash, $label];
+            }
+        }
+
+        if ($kind === self::KIND_CREATOR && (string) ($row['aadhaar_hash'] ?? '') !== '') {
+            $hashes['aadhaar'] = [(string) $row['aadhaar_hash'], 'Aadhaar'];
+        }
+
+        return $hashes;
+    }
+
+    /**
+     * Release an Aadhaar, PAN, GSTIN or CIN from this verification — an
+     * administrator's way out of "already linked to another account" when
+     * the account holding the number should not have it.
+     *
+     * Clears the number (for an Aadhaar: its last four digits) and its blind
+     * index on this profile, under the profile lock, and records an
+     * `identifier_released` event with the admin as actor and the reason as
+     * the note. The number itself is never written anywhere: not to the event,
+     * not to a log. The applicant sees a fixed line on their trail
+     * ({@see publicNote()}), never the reviewer's reason.
+     *
+     * [$field] is aadhaar | pan | gstin | cin.
+     */
+    public static function releaseIdentifier(int $profileId, string $field, int $adminId, string $reason): void
+    {
+        $reason = trim($reason);
+
+        if ($reason === '') {
+            throw HttpException::unprocessable('Say why the identifier is being released — it goes into the audit trail.');
+        }
+
+        if ($adminId <= 0) {
+            throw HttpException::forbidden('Only a reviewer can release an identifier.');
+        }
+
+        $columns = self::RELEASABLE[$field] ?? null;
+
+        if ($columns === null) {
+            throw HttpException::unprocessable('Choose the Aadhaar, PAN, GSTIN or CIN to release.');
+        }
+
+        self::withLockedProfile($profileId, static function (array $profile) use ($profileId, $field, $columns, $adminId, $reason): void {
+            $kind = (string) $profile['kind'];
+
+            if (!isset($columns[$kind])) {
+                throw HttpException::unprocessable(
+                    'A ' . $kind . ' verification has no ' . self::RELEASABLE_LABELS[$field] . ' to release.'
+                );
+            }
+
+            $table = $kind === self::KIND_BRAND ? 'kyc_brand_details' : 'kyc_creator_details';
+            $row   = Database::selectOne('SELECT * FROM `' . $table . '` WHERE `profile_id` = :id', ['id' => $profileId]);
+
+            $held = false;
+
+            foreach ($columns[$kind] as $column) {
+                if ($row !== null && ($row[$column] ?? null) !== null && $row[$column] !== '') {
+                    $held = true;
+                }
+            }
+
+            if (!$held) {
+                throw HttpException::conflict(
+                    'This verification holds no ' . self::RELEASABLE_LABELS[$field] . '.',
+                    'identifier_not_held'
+                );
+            }
+
+            Database::update($table, array_fill_keys($columns[$kind], null), ['profile_id' => $profileId]);
+
+            self::recordEvent($profileId, 'identifier_released', [
+                'actor_type' => 'admin',
+                'actor_id'   => $adminId,
+                'note'       => mb_substr($reason, 0, 1000),
+                'metadata'   => ['field' => $field],
+            ]);
+        });
     }
 
     private static function isWebUrl(string $value): bool
@@ -833,6 +1034,9 @@ final class KycService
             );
         }
 
+        // Checked before a byte is written, and again under the lock below.
+        self::assertWithinUploadCaps($profileId, $userId, $requirement, $replacing !== null, (int) ($file['size'] ?? 0));
+
         $stored = DocumentVault::store($file, $requirement, $userId);
 
         return Database::transaction(
@@ -842,11 +1046,29 @@ final class KycService
                 // Re-checked on the locked row: a reviewer's decision (or a
                 // second upload answering the same request) may have landed
                 // since the check above. The stored blob of a refused upload
-                // is an orphan the retention sweep removes.
+                // is deleted here, not left for the retention sweep.
                 $locked = Database::lockForUpdate('kyc_profiles', 'id', $profileId);
 
+                try {
+                    if ($locked !== null) {
+                        self::assertCanUpload($locked, $slot);
+                    }
+
+                    // The lock serialises this account's uploads, so two
+                    // parallel requests cannot both slip under a cap. No
+                    // purging in here (see assertWithinUploadCaps()): the
+                    // check before the transaction already did it.
+                    self::assertWithinUploadCaps($profileId, $userId, $requirement, $replacing !== null, (int) $stored['size'], false);
+                } catch (HttpException $e) {
+                    // A refusal (not a deadlock, which is retried with the
+                    // same blob): the stored copy goes at once.
+                    DocumentVault::purge((string) $stored['path']);
+
+                    throw $e;
+                }
+
                 if ($locked !== null) {
-                    self::assertCanUpload($locked, $slot);
+                    self::reopenIfPurged($locked, $userId, $ip, $agent);
                 }
 
                 $version  = 1;
@@ -959,11 +1181,14 @@ final class KycService
 
         Database::update('kyc_documents', [
             'deleted_at' => date('Y-m-d H:i:s'),
-            'purged_at'  => date('Y-m-d H:i:s'),
             'is_current' => 0,
         ], ['id' => $documentId]);
 
-        DocumentVault::purge((string) $document['file_path']);
+        // The bytes go, and with them the path, the stored file name, the
+        // number and the upload IP — the row stays only as the record that a
+        // document was there. (Removal used to set purged_at and keep all of
+        // those, and the retention sweep only blanks rows not yet purged.)
+        self::eraseDocument($document);
 
         if ($profile !== null) {
             self::recordEvent((int) $profile['id'], 'document_removed', [
@@ -1140,6 +1365,19 @@ final class KycService
                 );
             }
 
+            // A draft may hold a number another account also typed in; the
+            // first to submit claims it. Never says whose account it is.
+            $taken = self::identifierCollisions($profileId);
+
+            if ($taken !== []) {
+                throw new HttpException(
+                    (count($taken) === 1 ? 'This ' . $taken[0] . ' is' : 'These numbers (' . implode(', ', $taken) . ') are')
+                        . ' already linked to another account. Check it, or contact support if it is yours.',
+                    422,
+                    'kyc_identifier_taken'
+                );
+            }
+
             if (!$consent) {
                 throw ValidationException::forField(
                     'consent',
@@ -1252,6 +1490,14 @@ final class KycService
 
         if ($issues !== []) {
             $blockers[] = 'Details missing or invalid: ' . implode(', ', $issues) . '.';
+        }
+
+        // Two accounts must never both be approved on one identity.
+        $taken = self::identifierCollisions($profileId);
+
+        if ($taken !== []) {
+            $blockers[] = 'Also claimed by another account\'s verification: ' . implode(', ', $taken)
+                . '. Release it from the account that should not hold it, or reject this one.';
         }
 
         if ($profile['purged_at'] !== null) {
@@ -1393,8 +1639,8 @@ final class KycService
             ] + self::auditFields($context));
 
             return [
-                'user_id'   => $userId,
-                'reference' => (string) $profile['reference'],
+                'user_id'    => $userId,
+                'reference'  => (string) $profile['reference'],
                 'expires_on' => $expiresOn,
             ];
         });
@@ -1551,7 +1797,7 @@ final class KycService
         // Before the slot checks, so a stale page gets the state error.
         self::assertTransitionAllowed((string) $profile['status'], self::INFO_REQUIRED);
 
-        $labels  = [];
+        $labels = [];
 
         foreach (self::requirements((string) $profile['kind']) as $requirement) {
             $labels[(string) $requirement['slot']] = (string) $requirement['label'];
@@ -1572,21 +1818,33 @@ final class KycService
             }
         }
 
-        $named   = array_map(static fn (string $slot): string => $labels[$slot], $slots);
         $message = trim($message);
-        $request = 'Please upload new copies of: ' . implode(', ', $named) . '.'
-            . ($message !== '' ? ' ' . $message : '');
 
-        self::withLockedProfile($profileId, static function (array $locked) use (
-            $profileId, $adminId, $request, $slots, $context
-        ): void {
+        $named = self::withLockedProfile($profileId, static function (array $locked) use (
+            $profileId, $adminId, $slots, $labels, $message, $context
+        ): array {
             self::assertTransitionAllowed((string) $locked['status'], self::INFO_REQUIRED);
+
+            // Slots already waiting for a re-upload — documents rejected
+            // mid-review, which reviewDocument() reopened — stay requested
+            // whether or not the reviewer ticked them again: overwriting the
+            // list used to drop that flag, and an optional slot could then be
+            // resubmitted with the rejected copy still in place. Slots no
+            // longer on the checklist cannot be uploaded into, so they go.
+            $pending = array_values(array_filter(
+                self::resubmitSlots($locked),
+                static fn (string $slot): bool => isset($labels[$slot])
+            ));
+            $merged  = array_values(array_unique(array_merge($pending, $slots)));
+            $named   = array_map(static fn (string $slot): string => $labels[$slot], $merged);
+            $request = 'Please upload new copies of: ' . implode(', ', $named) . '.'
+                . ($message !== '' ? ' ' . $message : '');
 
             Database::update('kyc_profiles', [
                 'reviewed_by'      => $adminId,
                 'reviewed_at'      => date('Y-m-d H:i:s'),
                 'info_requested'   => mb_substr($request, 0, 1000),
-                'resubmit_slots'   => json_encode($slots),
+                'resubmit_slots'   => json_encode($merged),
                 // From suspended, this held the suspension reason.
                 'rejection_reason' => null,
             ], ['id' => $profileId]);
@@ -1598,8 +1856,10 @@ final class KycService
                 'actor_type' => 'admin',
                 'actor_id'   => $adminId,
                 'note'       => $request,
-                'metadata'   => ['slots' => $slots],
+                'metadata'   => ['slots' => $merged, 'requested' => $slots],
             ] + self::auditFields($context));
+
+            return $named;
         });
 
         self::notify((int) $profile['user_id'], 'kyc.resubmission_requested', [
@@ -1915,10 +2175,13 @@ final class KycService
                 'badge_revoke_reason' => null,
             ], ['id' => $profileId]);
 
+            // The badge row (creator_badges.awarded_note) and its event trail
+            // get fixed, applicant-safe text: the reviewer's own note is
+            // internal and lives only in this decision's kyc_events metadata.
             self::setTickFlags((int) $profile['user_id'], (string) $profile['kind'], true, [
                 'actor_type' => 'admin',
                 'actor_id'   => $adminId,
-                'note'       => $note !== '' ? $note : 'Blue tick granted after KYC ' . $profile['reference'] . '.',
+                'note'       => 'Blue tick granted.',
             ] + $context);
 
             // The note field is fixed text; the reviewer's own words are kept
@@ -2693,19 +2956,42 @@ final class KycService
     // -----------------------------------------------------------------
 
     /**
-     * Delete identity documents that no longer have a reason to exist.
+     * Delete identity data that no longer has a reason to exist.
      *
-     *   1. Profiles rejected, or abandoned in draft / action-needed, with no
-     *      activity for `retention_days_rejected` days: every document.
-     *   2. Replaced versions older than `purge_superseded_after_days` (counted
+     *   1. Drafts that were never submitted, with no activity for
+     *      `retention_days_draft` days (default 30).
+     *   2. Profiles rejected or left in action-needed with no activity for
+     *      `retention_days_rejected` days.
+     *   3. Profiles suspended or expired for `retention_days_closed` days (an
+     *      owner re-uploading on an expired profile keeps it alive).
+     *   4. Replaced versions older than `purge_superseded_after_days` (counted
      *      from when they were replaced), and removed documents.
-     *   3. Profiles suspended or expired for `retention_days_closed` days.
-     *   4. Encrypted blobs under storage/kyc with no live row, older than a day
+     *   5. Documents from the pre-013 single-document flow (no profile) older
+     *      than `retention_days_rejected`, of accounts that are not verified.
+     *   6. Images the retired public uploader left in the `kyc` media folder,
+     *      older than `retention_days_rejected`, that no live document uses
+     *      (app users' uploads only — never the admin media library).
+     *   7. Encrypted blobs under storage/kyc with no live row, older than a day
      *      (an upload in flight is never that old).
+     *   8. Rows already marked purged that still carry a path, file name,
+     *      number, holder or upload IP (`purged_rows_scrubbed`).
+     *   9. Accounts deleted (users.deleted_at) whose KYC data was never erased
+     *      — a failed or pre-dated erasure at deletion (`deleted_accounts`).
      *
-     * Approved, active profiles keep their current documents. Rows are kept
-     * with `purged_at` set — the record that a document existed and when it
-     * was destroyed — only the bytes go.
+     * For 1-3 it is the identity RECORD that goes, not only the files: every
+     * file, the detail block (encrypted PAN / GSTIN / CIN, the Aadhaar's last
+     * four and every blind index, bank account, IFSC, UPI, date of birth,
+     * addresses, contacts), the identifying document columns (file name,
+     * holder, number, upload IP) and the reviewers' working notes. The profile
+     * row keeps its reference, status, dates and event trail as the minimal
+     * record, with `purged_at` set. A profile holding details but no document
+     * is swept too — that is also how a number squatted in a draft is freed.
+     * An owner who comes back starts over with their next save or upload
+     * ({@see reopenIfPurged()}).
+     *
+     * Approved, active profiles keep everything. Document rows are kept with
+     * `purged_at` set — the record that a document existed and when it was
+     * destroyed. One profile failing does not stop the run.
      *
      * [$dryRun] counts without deleting. [$userId] confines the sweep to one
      * account (an operator investigating one user, and the test suite, which
@@ -2715,17 +3001,24 @@ final class KycService
      */
     public static function runRetentionSweep(bool $dryRun = false, ?int $userId = null): array
     {
+        $draftDays      = max(1, Config::settingInt('kyc', 'retention_days_draft', 30));
         $rejectedDays   = max(1, Config::settingInt('kyc', 'retention_days_rejected', 180));
         $closedDays     = max(1, Config::settingInt('kyc', 'retention_days_closed', 90));
         $supersededDays = max(1, Config::settingInt('kyc', 'purge_superseded_after_days', 30));
 
         $result = [
-            'dry_run'            => $dryRun,
-            'rejected_profiles'  => 0,
-            'closed_profiles'    => 0,
-            'documents_purged'   => 0,
-            'superseded_purged'  => 0,
-            'orphan_files'       => 0,
+            'dry_run'              => $dryRun,
+            'draft_profiles'       => 0,
+            'rejected_profiles'    => 0,
+            'closed_profiles'      => 0,
+            'documents_purged'     => 0,
+            'details_purged'       => 0,
+            'superseded_purged'    => 0,
+            'legacy_purged'        => 0,
+            'legacy_media_purged'  => 0,
+            'purged_rows_scrubbed' => 0,
+            'deleted_accounts'     => 0,
+            'orphan_files'         => 0,
         ];
 
         $scope         = $userId === null ? '' : ' AND p.`user_id` = :scope_user';
@@ -2736,50 +3029,70 @@ final class KycService
                 COALESCE(p.`reviewed_at`, p.`created_at`),
                 COALESCE((SELECT MAX(e.`created_at`) FROM `kyc_events` e WHERE e.`profile_id` = p.`id`), p.`created_at`))';
 
-        $stale = Database::select(
-            "SELECT p.* FROM `kyc_profiles` p
-              WHERE p.`status` IN ('rejected', 'draft', 'info_required')
-                AND EXISTS (SELECT 1 FROM `kyc_documents` d
-                             WHERE d.`profile_id` = p.`id` AND d.`purged_at` IS NULL)
-                AND {$lastActivity} < DATE_SUB(NOW(), INTERVAL :days DAY){$scope}",
-            ['days' => $rejectedDays] + $scopeBindings
-        );
+        // When a closed profile entered its state — or its owner last acted on
+        // it, whichever is later (an expired profile is editable).
+        $closedSince = 'GREATEST(
+                COALESCE((SELECT MAX(e.`created_at`) FROM `kyc_events` e
+                           WHERE e.`profile_id` = p.`id` AND e.`to_status` = p.`status`), p.`updated_at`),
+                COALESCE((SELECT MAX(e.`created_at`) FROM `kyc_events` e
+                           WHERE e.`profile_id` = p.`id` AND e.`actor_type` = \'user\'), p.`created_at`))';
 
-        foreach ($stale as $profile) {
-            $result['rejected_profiles']++;
-            $result['documents_purged'] += self::purgeProfileDocuments(
-                $profile,
-                'Retention: ' . self::statusLabel((string) $profile['status']) . ' for over ' . $rejectedDays . ' days.',
-                $dryRun
+        // The day counts are integers from settings, inlined as literals.
+        $branches = [
+            'draft_profiles' => [
+                "p.`status` = 'draft' AND {$lastActivity} < DATE_SUB(NOW(), INTERVAL {$draftDays} DAY)",
+                static fn (array $p): string => 'Retention: draft never submitted, no activity for over ' . $draftDays . ' days.',
+            ],
+            'rejected_profiles' => [
+                "p.`status` IN ('rejected', 'info_required') AND {$lastActivity} < DATE_SUB(NOW(), INTERVAL {$rejectedDays} DAY)",
+                static fn (array $p): string => 'Retention: ' . self::statusLabel((string) $p['status']) . ' for over ' . $rejectedDays . ' days.',
+            ],
+            'closed_profiles' => [
+                "p.`status` IN ('suspended', 'expired') AND {$closedSince} < DATE_SUB(NOW(), INTERVAL {$closedDays} DAY)",
+                static fn (array $p): string => 'Retention: ' . self::statusLabel((string) $p['status']) . ' for over ' . $closedDays . ' days.',
+            ],
+        ];
+
+        // Anything left to erase: a live document or a detail row.
+        $holdsData = '(EXISTS (SELECT 1 FROM `kyc_documents` d WHERE d.`profile_id` = p.`id` AND d.`purged_at` IS NULL)
+                    OR EXISTS (SELECT 1 FROM `kyc_creator_details` c WHERE c.`profile_id` = p.`id`)
+                    OR EXISTS (SELECT 1 FROM `kyc_brand_details` b WHERE b.`profile_id` = p.`id`))';
+
+        foreach ($branches as $counter => [$condition, $reason]) {
+            $profiles = Database::select(
+                "SELECT p.`id`, p.`status` FROM `kyc_profiles` p
+                  WHERE p.`deleted_at` IS NULL AND {$condition} AND {$holdsData}{$scope}",
+                $scopeBindings
             );
-        }
 
-        $closed = Database::select(
-            "SELECT p.* FROM `kyc_profiles` p
-              WHERE p.`status` IN ('suspended', 'expired')
-                AND EXISTS (SELECT 1 FROM `kyc_documents` d
-                             WHERE d.`profile_id` = p.`id` AND d.`purged_at` IS NULL)
-                AND COALESCE(
-                      (SELECT MAX(e.`created_at`) FROM `kyc_events` e
-                        WHERE e.`profile_id` = p.`id` AND e.`to_status` = p.`status`),
-                      p.`updated_at`
-                    ) < DATE_SUB(NOW(), INTERVAL :days DAY){$scope}",
-            ['days' => $closedDays] + $scopeBindings
-        );
+            foreach ($profiles as $profile) {
+                try {
+                    $purged = self::purgeProfileIdentity((int) $profile['id'], $condition, $reason($profile), $dryRun);
+                } catch (\Throwable $e) {
+                    Logger::error('KYC retention failed for one profile; the sweep continues', [
+                        'profile_id' => (int) $profile['id'],
+                        'error'      => $e->getMessage(),
+                    ]);
 
-        foreach ($closed as $profile) {
-            $result['closed_profiles']++;
-            $result['documents_purged'] += self::purgeProfileDocuments(
-                $profile,
-                'Retention: ' . self::statusLabel((string) $profile['status']) . ' for over ' . $closedDays . ' days.',
-                $dryRun
-            );
+                    continue;
+                }
+
+                if ($purged === null) {
+                    continue;
+                }
+
+                $result[$counter]++;
+                $result['documents_purged'] += $purged['documents'];
+                $result['details_purged']   += $purged['details'];
+            }
         }
 
         // Replaced versions, dated by the upload that replaced them; removed
-        // documents (their blob is already gone) just get their marker.
+        // documents (their blob is already gone) just get their marker. The
+        // path, file name, number, holder and upload IP go with the bytes.
         $superseded = Database::select(
-            'SELECT d.`id`, d.`profile_id`, d.`file_path` FROM `kyc_documents` d
+            'SELECT d.`id`, d.`profile_id`, d.`file_path`, d.`front_image_url`, d.`back_image_url`, d.`selfie_url`
+               FROM `kyc_documents` d
                LEFT JOIN `kyc_documents` r ON r.`id` = d.`replaced_by`
               WHERE d.`purged_at` IS NULL
                 AND (
@@ -2792,53 +3105,359 @@ final class KycService
 
         foreach ($superseded as $document) {
             if (!$dryRun) {
-                DocumentVault::purge((string) $document['file_path']);
-                Database::update('kyc_documents', ['purged_at' => date('Y-m-d H:i:s')], ['id' => (int) $document['id']]);
+                self::eraseDocument($document);
             }
 
             $result['superseded_purged']++;
         }
 
-        $result['orphan_files'] = DocumentVault::purgeOrphans($dryRun, 86400, $userId);
+        // Rows already marked purged that still hold a path, the stored file
+        // name, a number, a holder or an upload IP: documents removed by their
+        // owner before removal blanked those, superseded copies purged before
+        // the path was cleared, or a purge interrupted part-way.
+        $leftovers = Database::select(
+            'SELECT `id`, `file_path`, `front_image_url`, `back_image_url`, `selfie_url` FROM `kyc_documents`
+              WHERE `purged_at` IS NOT NULL
+                AND (`file_path` IS NOT NULL OR `original_name` IS NOT NULL OR `checksum` IS NOT NULL
+                     OR `document_number` IS NOT NULL OR `holder_name` IS NOT NULL OR `uploaded_ip` IS NOT NULL
+                     OR `front_image_url` IS NOT NULL OR `back_image_url` IS NOT NULL OR `selfie_url` IS NOT NULL)'
+                . ($userId === null ? '' : ' AND `user_id` = :scope_user'),
+            $scopeBindings
+        );
+
+        if (!$dryRun) {
+            foreach ($leftovers as $document) {
+                self::eraseDocument($document);
+            }
+        }
+
+        $result['purged_rows_scrubbed'] = count($leftovers);
+        $result['legacy_purged']        = self::purgeLegacyDocuments($rejectedDays, $dryRun, $userId);
+        $result['legacy_media_purged']  = self::purgeLegacyMedia($rejectedDays, $dryRun, $userId);
+        $result['deleted_accounts']     = self::purgeDeletedAccounts($dryRun, $userId);
+        $result['orphan_files']         = DocumentVault::purgeOrphans($dryRun, 86400, $userId);
 
         return $result;
     }
 
     /**
-     * Destroy every stored file of one profile and mark the rows.
+     * Destroy one document's bytes and blank every column that identifies it:
+     * the vault path, the stored file name, checksum, document number,
+     * holder name, the retired flow's public image URLs and the upload IP.
+     * The row itself stays, with `purged_at` set, as the record that the
+     * document existed. Idempotent.
      *
-     * @param array<string,mixed> $profile
-     * @return int Documents purged.
+     * @param array<string,mixed> $document `id`, `file_path` and, when known,
+     *                                      the legacy image URL columns.
      */
-    private static function purgeProfileDocuments(array $profile, string $reason, bool $dryRun = false): int
+    private static function eraseDocument(array $document): void
     {
+        DocumentVault::purge((string) ($document['file_path'] ?? ''));
+
+        foreach (['front_image_url', 'back_image_url', 'selfie_url'] as $column) {
+            DocumentVault::purgeLegacyPublicFile((string) ($document[$column] ?? ''));
+        }
+
+        Database::execute(
+            'UPDATE `kyc_documents`
+                SET `purged_at` = COALESCE(`purged_at`, NOW()),
+                    `file_path` = NULL, `original_name` = NULL, `checksum` = NULL,
+                    `document_number` = NULL, `holder_name` = NULL,
+                    `front_image_url` = NULL, `back_image_url` = NULL, `selfie_url` = NULL,
+                    `uploaded_ip` = NULL
+              WHERE `id` = :id',
+            ['id' => (int) $document['id']]
+        );
+    }
+
+    /**
+     * Replaced copies of an account's documents that are past the
+     * `purge_superseded_after_days` window, erased now rather than at the next
+     * retention run — what the upload caps call before refusing an upload, so
+     * an install where the nightly job has not run does not lock a user out
+     * of a slot. [$profileId] / [$slot] narrow it to one document slot.
+     *
+     * @return int Copies erased.
+     */
+    private static function purgeAgedSuperseded(int $userId, ?int $profileId = null, ?string $slot = null): int
+    {
+        $days     = max(1, Config::settingInt('kyc', 'purge_superseded_after_days', 30));
+        $where    = '';
+        $bindings = ['days' => $days, 'u' => $userId];
+
+        if ($profileId !== null) {
+            $where          .= ' AND d.`profile_id` = :p';
+            $bindings['p']   = $profileId;
+        }
+
+        if ($slot !== null) {
+            $where          .= ' AND d.`slot` = :s';
+            $bindings['s']   = $slot;
+        }
+
         $documents = Database::select(
-            'SELECT `id`, `file_path` FROM `kyc_documents`
-              WHERE `profile_id` = :id AND `purged_at` IS NULL',
-            ['id' => (int) $profile['id']]
+            'SELECT d.`id`, d.`file_path` FROM `kyc_documents` d
+               LEFT JOIN `kyc_documents` r ON r.`id` = d.`replaced_by`
+              WHERE d.`user_id` = :u AND d.`purged_at` IS NULL AND d.`deleted_at` IS NULL
+                AND d.`is_current` = 0
+                AND COALESCE(r.`created_at`, d.`updated_at`) < DATE_SUB(NOW(), INTERVAL :days DAY)' . $where,
+            $bindings
         );
 
-        if ($dryRun || $documents === []) {
+        foreach ($documents as $document) {
+            self::eraseDocument($document);
+        }
+
+        if ($documents !== []) {
+            Logger::info('KYC: replaced document copies past the retention window erased before an upload', [
+                'user_id' => $userId,
+                'slot'    => $slot,
+                'copies'  => count($documents),
+            ]);
+        }
+
+        return count($documents);
+    }
+
+    /**
+     * Safety net for erasure on account deletion.
+     *
+     * Deleting an account (the user's own request, or an administrator)
+     * erases its KYC data through {@see purgeForUser()}. When that step failed
+     * — it is logged and the deletion goes ahead — or the account was deleted
+     * before the step existed, its documents, numbers and legacy public
+     * uploads stayed behind with nothing ever coming back for them. This pass
+     * finds every account with `users.deleted_at` set (more than an hour ago,
+     * so an erasure still in flight is not raced) that still holds KYC data,
+     * and erases it the same way. One account failing does not stop the rest.
+     *
+     * @return int Accounts erased (or, on a dry run, that would be).
+     */
+    private static function purgeDeletedAccounts(bool $dryRun, ?int $userId): int
+    {
+        $accounts = array_map('intval', Database::column(
+            "SELECT u.`id` FROM `users` u
+              WHERE u.`deleted_at` IS NOT NULL
+                AND u.`deleted_at` < DATE_SUB(NOW(), INTERVAL 1 HOUR)
+                AND (
+                      EXISTS (SELECT 1 FROM `kyc_profiles` p WHERE p.`user_id` = u.`id` AND p.`purged_at` IS NULL)
+                   OR EXISTS (SELECT 1 FROM `kyc_documents` d WHERE d.`user_id` = u.`id` AND d.`purged_at` IS NULL)
+                   OR EXISTS (SELECT 1 FROM `kyc_profiles` p
+                                JOIN `kyc_creator_details` c ON c.`profile_id` = p.`id` WHERE p.`user_id` = u.`id`)
+                   OR EXISTS (SELECT 1 FROM `kyc_profiles` p
+                                JOIN `kyc_brand_details` b ON b.`profile_id` = p.`id` WHERE p.`user_id` = u.`id`)
+                   OR EXISTS (SELECT 1 FROM `media` m
+                               WHERE m.`uploader_type` = 'user' AND m.`uploader_id` = u.`id`
+                                 AND (m.`folder` = 'kyc' OR m.`path` LIKE 'kyc/%'))
+                )" . ($userId === null ? '' : ' AND u.`id` = :scope_user'),
+            $userId === null ? [] : ['scope_user' => $userId]
+        ));
+
+        if ($dryRun) {
+            return count($accounts);
+        }
+
+        $erased = 0;
+
+        foreach ($accounts as $accountId) {
+            try {
+                self::purgeForUser(
+                    $accountId,
+                    'Retention: the account was deleted but its identity data had not been erased.'
+                );
+                $erased++;
+            } catch (\Throwable $e) {
+                Logger::error('KYC erasure of a deleted account failed; the sweep continues', [
+                    'user_id' => $accountId,
+                    'error'   => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $erased;
+    }
+
+    /**
+     * Erase one profile's identity record for the retention sweep, under the
+     * profile lock, re-checking on the locked row that it still qualifies
+     * ([$condition] is the branch's own SQL, aliased `p`) — an owner who
+     * resubmitted a moment ago keeps everything.
+     *
+     * Files first, then the rows (as in purgeForUser): a failure part-way
+     * leaves rows that the next run finds and finishes.
+     *
+     * @return array{documents:int,details:int}|null Null when it no longer qualified.
+     */
+    private static function purgeProfileIdentity(int $profileId, string $condition, string $reason, bool $dryRun): ?array
+    {
+        $count = static function () use ($profileId): array {
+            return [
+                'documents' => (int) Database::scalar(
+                    'SELECT COUNT(*) FROM `kyc_documents` WHERE `profile_id` = :id AND `purged_at` IS NULL',
+                    ['id' => $profileId]
+                ),
+                'details' => (int) Database::scalar('SELECT COUNT(*) FROM `kyc_creator_details` WHERE `profile_id` = :id', ['id' => $profileId])
+                    + (int) Database::scalar('SELECT COUNT(*) FROM `kyc_brand_details` WHERE `profile_id` = :id', ['id' => $profileId]),
+            ];
+        };
+
+        if ($dryRun) {
+            return $count();
+        }
+
+        return Database::transaction(static function () use ($profileId, $condition, $reason, $count): ?array {
+            if (Database::lockForUpdate('kyc_profiles', 'id', $profileId) === null) {
+                return null;
+            }
+
+            $qualifies = (int) Database::scalar(
+                "SELECT COUNT(*) FROM `kyc_profiles` p WHERE p.`id` = :id AND p.`deleted_at` IS NULL AND {$condition}",
+                ['id' => $profileId]
+            ) === 1;
+
+            if (!$qualifies) {
+                return null;
+            }
+
+            $counts    = $count();
+            $documents = Database::select(
+                'SELECT `file_path`, `front_image_url`, `back_image_url`, `selfie_url` FROM `kyc_documents`
+                  WHERE `profile_id` = :id AND (`purged_at` IS NULL OR `file_path` IS NOT NULL)',
+                ['id' => $profileId]
+            );
+
+            foreach ($documents as $document) {
+                DocumentVault::purge((string) ($document['file_path'] ?? ''));
+
+                foreach (['front_image_url', 'back_image_url', 'selfie_url'] as $column) {
+                    DocumentVault::purgeLegacyPublicFile((string) ($document[$column] ?? ''));
+                }
+            }
+
+            Database::execute(
+                'UPDATE `kyc_documents`
+                    SET `purged_at` = COALESCE(`purged_at`, NOW()),
+                        `file_path` = NULL, `original_name` = NULL, `checksum` = NULL,
+                        `document_number` = NULL, `holder_name` = NULL,
+                        `front_image_url` = NULL, `back_image_url` = NULL, `selfie_url` = NULL,
+                        `uploaded_ip` = NULL
+                  WHERE `profile_id` = :id',
+                ['id' => $profileId]
+            );
+
+            Database::execute('DELETE FROM `kyc_creator_details` WHERE `profile_id` = :id', ['id' => $profileId]);
+            Database::execute('DELETE FROM `kyc_brand_details` WHERE `profile_id` = :id', ['id' => $profileId]);
+            $notes = Database::execute('DELETE FROM `kyc_notes` WHERE `profile_id` = :id', ['id' => $profileId]);
+
+            Database::execute(
+                'UPDATE `kyc_profiles`
+                    SET `purged_at` = NOW(), `resubmit_slots` = NULL, `last_ip` = NULL, `last_user_agent` = NULL
+                  WHERE `id` = :id',
+                ['id' => $profileId]
+            );
+
+            self::recordEvent($profileId, 'documents_purged', [
+                'actor_type' => 'system',
+                'note'       => $reason,
+                'metadata'   => [
+                    'documents' => $counts['documents'],
+                    'details'   => $counts['details'] > 0,
+                    'notes'     => $notes,
+                ],
+            ]);
+
+            return $counts;
+        });
+    }
+
+    /**
+     * Documents from the pre-013 single-document flow carry no profile, so no
+     * profile branch ever reached them — and they are the rows that hold a
+     * document number and public image URLs. Purged after the rejected
+     * window, unless their account is verified.
+     *
+     * @return int Documents purged (or, on a dry run, that would be).
+     */
+    private static function purgeLegacyDocuments(int $days, bool $dryRun, ?int $userId): int
+    {
+        $documents = Database::select(
+            "SELECT d.`id`, d.`file_path`, d.`front_image_url`, d.`back_image_url`, d.`selfie_url`
+               FROM `kyc_documents` d
+               LEFT JOIN `users` u ON u.`id` = d.`user_id`
+              WHERE d.`profile_id` IS NULL
+                AND d.`purged_at` IS NULL
+                AND d.`created_at` < DATE_SUB(NOW(), INTERVAL {$days} DAY)
+                AND (u.`id` IS NULL OR u.`kyc_status` IS NULL OR u.`kyc_status` <> 'verified')"
+                . ($userId === null ? '' : ' AND d.`user_id` = :scope_user'),
+            $userId === null ? [] : ['scope_user' => $userId]
+        );
+
+        if ($dryRun) {
             return count($documents);
         }
 
         foreach ($documents as $document) {
-            DocumentVault::purge((string) $document['file_path']);
+            DocumentVault::purge((string) ($document['file_path'] ?? ''));
+
+            foreach (['front_image_url', 'back_image_url', 'selfie_url'] as $column) {
+                DocumentVault::purgeLegacyPublicFile((string) ($document[$column] ?? ''));
+            }
+
+            Database::execute(
+                'UPDATE `kyc_documents`
+                    SET `purged_at` = NOW(), `file_path` = NULL, `original_name` = NULL, `checksum` = NULL,
+                        `document_number` = NULL, `holder_name` = NULL,
+                        `front_image_url` = NULL, `back_image_url` = NULL, `selfie_url` = NULL,
+                        `uploaded_ip` = NULL
+                  WHERE `id` = :id',
+                ['id' => (int) $document['id']]
+            );
         }
 
-        Database::execute(
-            'UPDATE `kyc_documents` SET `purged_at` = NOW()
-              WHERE `profile_id` = :id AND `purged_at` IS NULL',
-            ['id' => (int) $profile['id']]
+        return count($documents);
+    }
+
+    /**
+     * ID images the retired `/me/upload folder=kyc` route wrote to the PUBLIC
+     * uploads tree, with a `media` row each. scripts/kyc_migrate_legacy.php
+     * moved the ones a document referenced into the vault and left the rest
+     * where anyone with the URL can fetch them. Removed (file and row) after
+     * the rejected window, unless a live document still points at one.
+     *
+     * Only what that route wrote: an app user's upload (`uploader_type =
+     * user`) that is not filed in the admin media library (`folder_id` NULL —
+     * the user uploader never sets it). The admin library stores its files
+     * under the folder's slug, so a library folder named "kyc" has rows with
+     * the same `folder` / `path`; those are admin content and are never
+     * touched here.
+     *
+     * @return int Media rows purged (or, on a dry run, that would be).
+     */
+    private static function purgeLegacyMedia(int $days, bool $dryRun, ?int $userId): int
+    {
+        $media = Database::select(
+            "SELECT m.`id` FROM `media` m
+              WHERE (m.`folder` = 'kyc' OR m.`path` LIKE 'kyc/%')
+                AND m.`uploader_type` = 'user'
+                AND m.`folder_id` IS NULL
+                AND m.`created_at` < DATE_SUB(NOW(), INTERVAL {$days} DAY)
+                AND NOT EXISTS (
+                      SELECT 1 FROM `kyc_documents` d
+                       WHERE d.`purged_at` IS NULL
+                         AND (d.`front_image_url` LIKE CONCAT('%', m.`path`)
+                           OR d.`back_image_url`  LIKE CONCAT('%', m.`path`)
+                           OR d.`selfie_url`      LIKE CONCAT('%', m.`path`)))"
+                . ($userId === null ? '' : ' AND m.`uploader_id` = :scope_user'),
+            $userId === null ? [] : ['scope_user' => $userId]
         );
 
-        self::recordEvent((int) $profile['id'], 'documents_purged', [
-            'actor_type' => 'system',
-            'note'       => $reason,
-            'metadata'   => ['documents' => count($documents)],
-        ]);
+        if (!$dryRun) {
+            foreach ($media as $row) {
+                UploadService::purge((int) $row['id']);
+            }
+        }
 
-        return count($documents);
+        return count($media);
     }
 
     /**
@@ -2846,8 +3465,15 @@ final class KycService
      *
      * For every profile the user has: deletes every stored file (all
      * versions), deletes the detail block (encrypted numbers, hashes, names,
-     * addresses), blanks the per-document identifying columns, removes the
-     * tick, and resets the verification flags on `users` and `creators`.
+     * addresses), blanks the per-document identifying columns, deletes the
+     * reviewers' working notes about the applicant (free text that may quote
+     * their documents), removes the tick, and resets the verification flags
+     * on `users` and `creators`.
+     *
+     * Also removes the ID images the retired `/me/upload folder=kyc` route
+     * left in the PUBLIC uploads tree (`media` rows in folder `kyc` uploaded
+     * by this user) — file and row. Account deletion leaves that folder to
+     * this module, and nothing else ever deleted them.
      *
      * Keeps the profile row — reference, kind, final status, dates — and the
      * append-only event trail, as the minimal record that a verification
@@ -2855,12 +3481,31 @@ final class KycService
      *
      * Idempotent, and a no-op for a user who never started KYC.
      *
-     * @return array{profiles:int,documents:int,files:int}
+     * @return array{profiles:int,documents:int,files:int,media:int}
      */
     public static function purgeForUser(int $userId, string $reason): array
     {
-        $summary = ['profiles' => 0, 'documents' => 0, 'files' => 0];
+        $summary = ['profiles' => 0, 'documents' => 0, 'files' => 0, 'media' => 0];
         $reason  = trim($reason) !== '' ? mb_substr(trim($reason), 0, 500) : 'Identity data erased.';
+
+        // Public legacy uploads first, one at a time: a file that cannot be
+        // removed must not stop the rest of the erasure.
+        foreach (Database::column(
+            "SELECT `id` FROM `media`
+              WHERE `uploader_type` = 'user' AND `uploader_id` = :id
+                AND (`folder` = 'kyc' OR `path` LIKE 'kyc/%')",
+            ['id' => $userId]
+        ) as $mediaId) {
+            try {
+                UploadService::purge((int) $mediaId);
+                $summary['media']++;
+            } catch (\Throwable $e) {
+                Logger::error('KYC erasure could not remove a legacy public upload', [
+                    'media_id' => (int) $mediaId,
+                    'error'    => $e->getMessage(),
+                ]);
+            }
+        }
 
         $profiles = Database::select(
             'SELECT * FROM `kyc_profiles` WHERE `user_id` = :id',
@@ -2911,6 +3556,9 @@ final class KycService
                 Database::execute('DELETE FROM `kyc_creator_details` WHERE `profile_id` = :id', ['id' => $profileId]);
                 Database::execute('DELETE FROM `kyc_brand_details` WHERE `profile_id` = :id', ['id' => $profileId]);
 
+                // Working notes, not the audit record (kyc_events stays).
+                $notes = Database::execute('DELETE FROM `kyc_notes` WHERE `profile_id` = :id', ['id' => $profileId]);
+
                 Database::update('kyc_profiles', [
                     'purged_at'            => $profile['purged_at'] ?? date('Y-m-d H:i:s'),
                     'badge_status'         => ($profile['badge_status'] ?? self::BADGE_NONE) === self::BADGE_GRANTED
@@ -2933,7 +3581,7 @@ final class KycService
                     self::recordEvent($profileId, 'purged', [
                         'actor_type' => 'system',
                         'note'       => $reason,
-                        'metadata'   => ['files' => $summary['files']],
+                        'metadata'   => ['files' => $summary['files'], 'media' => $summary['media'], 'notes' => $notes],
                     ]);
                 }
             }
@@ -3308,8 +3956,31 @@ final class KycService
             'consent_version'          => $profile['consent_version'] ?? null,
             'consent_version_required' => self::consentVersion(),
             'consent_text'             => self::consentText(),
+            // Processing consent (contract C3): asked before the first upload
+            // or detail save, and again whenever the wording's version moves.
+            'processing_consent_at'       => $profile['processing_consent_at'] ?? null,
+            'processing_consent_version'  => $profile['processing_consent_version'] ?? null,
+            'processing_consent_required' => !self::hasProcessingConsent($profile),
+            'is_purged'                => ($profile['purged_at'] ?? null) !== null,
             'badges'                   => self::badgesFor($profile),
         ];
+    }
+
+    /**
+     * A comma-separated format list as the vault will actually accept it:
+     * trimmed, lower-cased, and limited to the formats it can check by content.
+     *
+     * @return list<string>
+     */
+    public static function formatList(string $raw): array
+    {
+        return array_values(array_intersect(
+            array_values(array_unique(array_filter(array_map(
+                static fn (string $item): string => strtolower(trim($item)),
+                explode(',', $raw)
+            )))),
+            DocumentVault::supportedExtensions()
+        ));
     }
 
     /**
@@ -3374,7 +4045,7 @@ final class KycService
                     'is_required'        => (bool) $requirement['is_required'],
                     'allows_multiple'    => (bool) $requirement['allows_multiple'],
                     'requires_expiry'    => (bool) $requirement['requires_expiry'],
-                    'allowed_formats'    => explode(',', (string) $requirement['allowed_formats']),
+                    'allowed_formats'    => self::formatList((string) $requirement['allowed_formats']),
                     'max_size_mb'        => (int) $requirement['max_size_mb'],
                     'document_ids'       => array_map(static fn (array $d): int => (int) $d['id'], $docs),
                     'is_satisfied'       => count($docs) > count($rejected),
@@ -3463,7 +4134,10 @@ final class KycService
             'document_rejected'      => 'Document rejected',
             'document_downloaded'    => 'Document downloaded',
             'document_previewed'     => 'Document viewed',
-            'documents_purged'       => 'Documents deleted (retention)',
+            'documents_purged'       => 'Documents and details deleted (retention)',
+            'processing_consent_given' => 'Consent to processing given',
+            'reopened'               => 'Verification started again',
+            'identifier_released'    => 'Identity number released',
             'details_updated'        => 'Details updated',
             'note_added'             => 'Internal note added',
             'badge_granted'          => 'Blue tick granted',
@@ -3566,13 +4240,14 @@ final class KycService
 
         if (self::normaliseKind($kind) === self::KIND_BRAND) {
             $row = Database::selectOne(
-                'SELECT `company_name`, `company_type`, `gst_number`, `cin_number`, `registered_address`
+                'SELECT `company_name`, `company_type`, `gst_number`, `cin_number`, `pan_number`, `registered_address`
                    FROM `kyc_brand_details` WHERE `profile_id` = :id',
                 ['id' => $profileId]
             ) ?? [];
 
             $gst = Crypto::decryptNullable($row['gst_number'] ?? null);
             $cin = Crypto::decryptNullable($row['cin_number'] ?? null);
+            $pan = Crypto::decryptNullable($row['pan_number'] ?? null);
 
             if (trim((string) ($row['company_name'] ?? '')) === '') {
                 $issues[] = 'Company name';
@@ -3584,6 +4259,19 @@ final class KycService
 
             if ($gst === null || !KycIdentifiers::isValidGstin($gst)) {
                 $issues[] = 'GSTIN';
+            }
+
+            // The company PAN is optional, but a stored one must be a real PAN
+            // and the one the GSTIN embeds (characters 3-12) — saveDetails()
+            // checks both on entry; a value saved before that rule is caught
+            // here rather than waved through to approval.
+            if ($pan !== null && trim($pan) !== '') {
+                if (!KycIdentifiers::isValidPan($pan)) {
+                    $issues[] = 'Company PAN';
+                } elseif ($gst !== null && KycIdentifiers::isValidGstin($gst)
+                    && KycIdentifiers::panInGstin($gst) !== KycIdentifiers::normalize($pan)) {
+                    $issues[] = 'Company PAN (does not match the GSTIN)';
+                }
             }
 
             if (($row['company_type'] ?? null) !== null
@@ -3670,13 +4358,222 @@ final class KycService
         self::assertEditable($profile);
     }
 
+    /**
+     * Per-account upload caps, so one free account cannot fill the disk or
+     * bury the review queue:
+     *
+     *   * files kept at once in a multi-file slot (`kyc.max_files_per_slot`,
+     *     default 5) — a replacement swaps one, so it is not counted;
+     *   * copies of one document held at once, current plus replaced ones not
+     *     yet deleted by retention (`kyc.max_versions_per_slot`, default 10);
+     *   * total bytes the account's verification documents take up
+     *     (`kyc.max_profile_mb`, default 100 MB).
+     *
+     * Each refusal is a 422 (`kyc_upload_limit`) that says what to do.
+     *
+     * Replaced copies only leave the count when the retention job deletes
+     * them, so before refusing on the copies or storage cap the copies already
+     * past `purge_superseded_after_days` are erased on the spot
+     * ({@see purgeAgedSuperseded()}) — a user is never locked out because the
+     * nightly job has not run. [$mayPurge] is false for the re-check inside
+     * the upload's transaction: a file deleted there could not be put back if
+     * the transaction rolled back.
+     *
+     * @param array<string,mixed> $requirement
+     */
+    private static function assertWithinUploadCaps(
+        int $profileId,
+        int $userId,
+        array $requirement,
+        bool $replacing,
+        int $incomingBytes,
+        bool $mayPurge = true
+    ): void {
+        $slot  = (string) $requirement['slot'];
+        $label = (string) $requirement['label'];
+
+        if ((int) $requirement['allows_multiple'] === 1 && !$replacing) {
+            $maxFiles = max(1, Config::settingInt('kyc', 'max_files_per_slot', 5));
+            $files    = (int) Database::scalar(
+                'SELECT COUNT(*) FROM `kyc_documents`
+                  WHERE `profile_id` = :p AND `slot` = :s AND `is_current` = 1
+                    AND `deleted_at` IS NULL AND `purged_at` IS NULL',
+                ['p' => $profileId, 's' => $slot]
+            );
+
+            if ($files >= $maxFiles) {
+                throw new HttpException(
+                    'You can keep up to ' . $maxFiles . ' files in ' . $label . '. Remove one before adding another.',
+                    422,
+                    'kyc_upload_limit'
+                );
+            }
+        }
+
+        $maxVersions = max(1, Config::settingInt('kyc', 'max_versions_per_slot', 10));
+        $countCopies = static fn (): int => (int) Database::scalar(
+            'SELECT COUNT(*) FROM `kyc_documents`
+              WHERE `profile_id` = :p AND `slot` = :s AND `deleted_at` IS NULL AND `purged_at` IS NULL',
+            ['p' => $profileId, 's' => $slot]
+        );
+        $copies = $countCopies();
+
+        if ($copies >= $maxVersions && $mayPurge && self::purgeAgedSuperseded($userId, $profileId, $slot) > 0) {
+            $copies = $countCopies();
+        }
+
+        if ($copies >= $maxVersions) {
+            $days = max(1, Config::settingInt('kyc', 'purge_superseded_after_days', 30));
+
+            throw new HttpException(
+                'You already have ' . $copies . ' copies of ' . $label . ' on file, the most we keep at once. '
+                    . 'Replaced copies are deleted automatically ' . $days . ' days after they were replaced. '
+                    . 'To upload it again before then, please contact support.',
+                422,
+                'kyc_upload_limit'
+            );
+        }
+
+        $maxMb     = max(1, Config::settingInt('kyc', 'max_profile_mb', 100));
+        $usedBytes = static fn (): int => (int) Database::scalar(
+            'SELECT COALESCE(SUM(`file_size`), 0) FROM `kyc_documents`
+              WHERE `user_id` = :u AND `deleted_at` IS NULL AND `purged_at` IS NULL',
+            ['u' => $userId]
+        );
+        $used = $usedBytes();
+
+        if ($used + max(0, $incomingBytes) > $maxMb * 1024 * 1024
+            && $mayPurge && self::purgeAgedSuperseded($userId) > 0) {
+            $used = $usedBytes();
+        }
+
+        if ($used + max(0, $incomingBytes) > $maxMb * 1024 * 1024) {
+            throw new HttpException(
+                'Your verification documents already use ' . DocumentVault::humanSize($used) . ' of the '
+                    . $maxMb . ' MB allowed per account. Remove a document you no longer need before uploading more.',
+                422,
+                'kyc_upload_limit'
+            );
+        }
+    }
+
+    /**
+     * A profile whose documents and details were erased by the retention
+     * sweep (`purged_at` set) is started over by its owner's next save or
+     * upload: the marker is cleared and a `reopened` event records when the
+     * earlier data was erased. Without this, an applicant who came back after
+     * the window could upload everything again and still never be approved
+     * ("this profile's documents were purged").
+     *
+     * Only for a profile its owner may edit; never for an erased account.
+     *
+     * @param array<string,mixed> $profile
+     */
+    private static function reopenIfPurged(array $profile, int $userId, ?string $ip = null, ?string $agent = null): void
+    {
+        if (($profile['purged_at'] ?? null) === null || !self::isEditable((string) $profile['status'])) {
+            return;
+        }
+
+        $changed = Database::execute(
+            'UPDATE `kyc_profiles` SET `purged_at` = NULL WHERE `id` = :id AND `purged_at` IS NOT NULL',
+            ['id' => (int) $profile['id']]
+        );
+
+        if ($changed === 1) {
+            self::recordEvent((int) $profile['id'], 'reopened', [
+                'actor_type' => 'user',
+                'actor_id'   => $userId,
+                'note'       => 'Verification started again after its earlier documents and details were deleted.',
+                'metadata'   => ['purged_at' => $profile['purged_at']],
+                'ip'         => $ip,
+                'agent'      => $agent,
+            ]);
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Processing consent
+    // -----------------------------------------------------------------
+
+    /**
+     * Has this profile's owner agreed to the processing of their identity
+     * data under the CURRENT consent wording?
+     *
+     * @param array<string,mixed> $profile
+     */
+    public static function hasProcessingConsent(array $profile): bool
+    {
+        return ($profile['processing_consent_at'] ?? null) !== null
+            && (string) ($profile['processing_consent_version'] ?? '') === mb_substr(self::consentVersion(), 0, 20);
+    }
+
+    /**
+     * The gate in front of every upload and detail save (contract C3).
+     *
+     * Identity documents and numbers are processed only after the applicant
+     * has agreed to it — captured here, before the first upload or save, and
+     * separately from the consent given at submission (DPDP Act 2023). When
+     * no consent is on record for the current wording, [$consent] must be
+     * true: it is then recorded on the profile (`processing_consent_at`,
+     * `processing_consent_version`) with a `processing_consent_given` event.
+     * Otherwise the request is refused with a 422 keyed `consent`. Once on
+     * record, nothing more is asked until the wording's version changes.
+     *
+     * @throws ValidationException
+     */
+    public static function requireProcessingConsent(
+        int $userId,
+        string $kind,
+        bool $consent,
+        ?string $ip = null,
+        ?string $agent = null
+    ): void {
+        $profile = self::profileFor($userId, $kind);
+
+        if (self::hasProcessingConsent($profile)) {
+            return;
+        }
+
+        if (!$consent) {
+            throw ValidationException::forField('consent', 'Please agree to the processing of your documents first.');
+        }
+
+        $profileId = (int) $profile['id'];
+        $version   = mb_substr(self::consentVersion(), 0, 20);
+
+        Database::transaction(static function () use ($profileId, $userId, $version, $ip, $agent): void {
+            $locked = Database::lockForUpdate('kyc_profiles', 'id', $profileId);
+
+            // A parallel request may have recorded it a moment ago.
+            if ($locked === null || self::hasProcessingConsent($locked)) {
+                return;
+            }
+
+            Database::update('kyc_profiles', [
+                'processing_consent_at'      => date('Y-m-d H:i:s'),
+                'processing_consent_version' => $version,
+            ], ['id' => $profileId]);
+
+            self::recordEvent($profileId, 'processing_consent_given', [
+                'actor_type' => 'user',
+                'actor_id'   => $userId,
+                'note'       => 'Agreed to the processing of identity documents for verification.',
+                'metadata'   => ['consent_version' => $version],
+                'ip'         => $ip,
+                'agent'      => $agent,
+            ]);
+        });
+    }
+
     /** @param list<array<string,mixed>> $requirements */
     private static function canSubmit(array $profile, array $requirements, array $documents): bool
     {
         return self::isEditable((string) $profile['status'])
             && self::missingSlots($requirements, $documents) === []
             && self::slotsAwaitingReupload($profile, $documents) === []
-            && self::detailIssues((int) $profile['id'], (string) $profile['kind']) === [];
+            && self::detailIssues((int) $profile['id'], (string) $profile['kind']) === []
+            && self::identifierCollisions((int) $profile['id']) === [];
     }
 
     /** The consent wording version new submissions agree to. */

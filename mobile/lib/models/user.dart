@@ -110,6 +110,7 @@ class User {
     this.emailVerified = false,
     this.phoneVerified = false,
     this.kycStatus = KycStatus.notSubmitted,
+    this.identityLocked = false,
     this.referralCode,
     this.notificationPrefs = const NotificationPrefs(),
     this.walletBalance = 0,
@@ -144,6 +145,11 @@ class User {
   final bool emailVerified;
   final bool phoneVerified;
   final KycStatus kycStatus;
+
+  /// `identity_locked` from `GET /me`: the account shows the verified badge,
+  /// so its public name (name, company name) cannot be changed in the app.
+  /// Absent from older servers and from `/auth/me`, which read as unlocked.
+  final bool identityLocked;
   final String? referralCode;
   final NotificationPrefs notificationPrefs;
   final double walletBalance;
@@ -177,6 +183,7 @@ class User {
         emailVerified: Json.boolean(json['email_verified']),
         phoneVerified: Json.boolean(json['phone_verified']),
         kycStatus: KycStatus.fromString(Json.strOrNull(json['kyc_status'])),
+        identityLocked: Json.boolean(json['identity_locked']),
         referralCode: Json.strOrNull(json['referral_code']),
         notificationPrefs:
             NotificationPrefs.fromJson(Json.map(json['notification_prefs'])),
@@ -237,6 +244,7 @@ class User {
         emailVerified: emailVerified,
         phoneVerified: phoneVerified,
         kycStatus: kycStatus ?? this.kycStatus,
+        identityLocked: identityLocked,
         referralCode: referralCode,
         notificationPrefs: notificationPrefs ?? this.notificationPrefs,
         walletBalance: walletBalance ?? this.walletBalance,

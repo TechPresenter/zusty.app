@@ -328,6 +328,13 @@ final class MailService
     /**
      * Branded fallback template, styled with the Vibrant Influence palette.
      * Inline CSS only — every mail client strips <style> blocks.
+     *
+     * [$title] and [$body] are TEXT. They are escaped here, and line breaks in
+     * the body become <br>: NotificationService renders every template with no
+     * email_body of its own through this, and its values are user- and
+     * admin-written (names, reasons), so "Name on PAN <RAHUL K>" must arrive
+     * as text, never as markup. See {@see bodyHtml()} for the two formatting
+     * tags older callers already rely on.
      */
     public static function renderDefault(
         string $title,
@@ -336,10 +343,57 @@ final class MailService
         string $actionType = 'none',
         ?string $actionValue = null
     ): string {
+        return self::layout(Str::e($title), self::bodyHtml($body), $recipientName, $actionType, $actionValue);
+    }
+
+    /**
+     * The body text as HTML: everything escaped, newlines turned into <br>.
+     *
+     * Two admin callers hand over a fragment that is already escaped and uses
+     * formatting tags — the admin invite (`<strong>` around the temporary
+     * password) and the contact-form reply (nl2br(htmlspecialchars())). So
+     * existing entities are not encoded twice, and exactly `<strong>`,
+     * `</strong>` and `<br>` (in its `<br/>` / `<br />` spellings) survive,
+     * with no attributes. Every other `<` is escaped, so nothing a user or
+     * admin types can become markup.
+     */
+    private static function bodyHtml(string $body): string
+    {
+        $html = htmlspecialchars($body, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8', false);
+
+        $html = (string) preg_replace('#&lt;(/?strong|br\s*/?)&gt;#i', '<$1>', $html);
+
+        // A line break already following a <br> (nl2br output) is left alone.
+        // CRLF is one break: its "\n" is never matched on its own.
+        return (string) preg_replace(
+            '#(?<!<br />)(?<!<br/>)(?<!<br>)(\r\n|\r(?!\n)|(?<!\r)\n)#i',
+            '<br />$1',
+            $html
+        );
+    }
+
+    /**
+     * The branded shell. [$titleHtml] and [$bodyHtml] are already HTML;
+     * [$afterBodyHtml] is trusted markup placed under the body paragraph.
+     */
+    private static function layout(
+        string $titleHtml,
+        string $bodyHtml,
+        string $recipientName = '',
+        string $actionType = 'none',
+        ?string $actionValue = null,
+        string $afterBodyHtml = ''
+    ): string {
+        $title    = $titleHtml;
+        $body     = $bodyHtml;
         $appName  = Config::settingString('general', 'app_name', 'Zusty');
         $appUrl   = (string) Config::get('app.url', 'https://zustee.com');
         $support  = Config::settingString('general', 'support_email', 'support@zustee.com');
         $year     = date('Y');
+
+        // Operator settings are text too.
+        $appNameHtml = Str::e($appName);
+        $supportHtml = Str::e($support);
 
         // Absolute, because a mail client has no base URL. Flattened onto white
         // so a dark-mode client can't lose the navy ".app" against its own
@@ -373,17 +427,17 @@ final class MailService
       <tr><td style="padding:24px 32px 0">
         <p style="margin:0 0 12px;font-size:14px;color:#5B3F43">{$greeting}</p>
         <h1 style="margin:0 0 12px;font-size:22px;line-height:30px;font-weight:700;color:#28171A">{$title}</h1>
-        <p style="margin:0;font-size:15px;line-height:24px;color:#5B3F43">{$body}</p>
+        <p style="margin:0;font-size:15px;line-height:24px;color:#5B3F43">{$body}</p>{$afterBodyHtml}
       </td></tr>
       {$button}
       <tr><td style="padding:0 32px 32px">
         <div style="height:1px;background:#FADBDE;margin:8px 0 20px"></div>
         <p style="margin:0;font-size:12px;line-height:18px;color:#8F6F73">
-          Need help? Write to <a href="mailto:{$support}" style="color:#632CE5;text-decoration:none">{$support}</a>.
+          Need help? Write to <a href="mailto:{$supportHtml}" style="color:#632CE5;text-decoration:none">{$supportHtml}</a>.
         </p>
         <p style="margin:12px 0 0;font-size:11px;line-height:16px;color:#8F6F73">
-          &copy; {$year} {$appName}. All rights reserved.<br>
-          You are receiving this email because you have an account on {$appName}.
+          &copy; {$year} {$appNameHtml}. All rights reserved.<br>
+          You are receiving this email because you have an account on {$appNameHtml}.
         </p>
       </td></tr>
     </table>
@@ -396,20 +450,16 @@ HTML;
     /** OTP email with a large, copyable code. */
     public static function renderOtp(string $code, string $purpose, int $validMinutes): string
     {
-        $purposeLabel = Str::e(str_replace('_', ' ', $purpose));
-
-        $body = 'Use the verification code below to ' . $purposeLabel . '. '
+        // Plain text: the layout escapes it (this used to be pre-escaped and
+        // then string-replaced back into the rendered page).
+        $body = 'Use the verification code below to ' . str_replace('_', ' ', $purpose) . '. '
               . 'It expires in ' . $validMinutes . ' minutes. If you did not request this, you can safely ignore this email.';
 
         $codeBlock = '<div style="margin:20px 0;padding:20px;background:#FFF0F1;border-radius:16px;text-align:center">'
             . '<div style="font-size:34px;font-weight:800;letter-spacing:0.32em;color:#B80049;font-family:monospace">'
             . Str::e($code) . '</div></div>';
 
-        return str_replace(
-            '<p style="margin:0;font-size:15px;line-height:24px;color:#5B3F43">' . $body . '</p>',
-            '<p style="margin:0;font-size:15px;line-height:24px;color:#5B3F43">' . $body . '</p>' . $codeBlock,
-            self::renderDefault('Your verification code', $body)
-        );
+        return self::layout(Str::e('Your verification code'), self::bodyHtml($body), '', 'none', null, $codeBlock);
     }
 
     // -----------------------------------------------------------------

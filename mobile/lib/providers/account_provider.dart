@@ -162,6 +162,38 @@ class ProfileController {
     _ref.read(authProvider.notifier).setUser(user);
   }
 
+  /// Re-reads the signed-in account from `GET /me` and puts it in place.
+  ///
+  /// The account the app holds was restored at start-up from `/auth/me` (or
+  /// last replaced by a save), and may not say what the server says now —
+  /// `identity_locked`, the name lock that comes with the verified badge, was
+  /// missing from `/auth/me`. The profile screens call this as they open,
+  /// without waiting on it.
+  ///
+  /// Returns the account now held, or null when nothing was replaced: the
+  /// read failed, or the account changed while it was in flight — a
+  /// sign-out, another sign-in, or a save whose answer is newer than this
+  /// one. Never throws.
+  Future<User?> refresh() async {
+    final before = _ref.read(currentUserProvider);
+    if (before == null) return null;
+
+    final User fresh;
+    try {
+      fresh = await _ref.read(accountRepositoryProvider).profile();
+    } catch (_) {
+      // Offline, or the server refused: the account already held stays, and
+      // the server still enforces the lock on save.
+      return null;
+    }
+
+    final current = _ref.read(currentUserProvider);
+    if (!identical(current, before) || fresh.id != before.id) return null;
+
+    _ref.read(authProvider.notifier).setUser(fresh);
+    return fresh;
+  }
+
   Future<void> updateNotificationPrefs(NotificationPrefs prefs) async {
     await _ref
         .read(accountRepositoryProvider)

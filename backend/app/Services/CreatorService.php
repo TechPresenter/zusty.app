@@ -6,6 +6,7 @@ namespace Zuste\Services;
 
 use Zuste\Core\Database;
 use Zuste\Core\HttpException;
+use Zuste\Core\Logger;
 use Zuste\Helpers\Money;
 use Zuste\Helpers\Str;
 
@@ -225,6 +226,40 @@ final class CreatorService
     }
 
     /**
+     * Expire the creator's KYC approval if it ran past its date since the
+     * nightly sweep, so the tick (and every KYC-derived badge) is gone before
+     * anything is read for display.
+     *
+     * One indexed query when nothing has lapsed — it only finds the owner when
+     * an approved profile is past its expiry date. Never fatal to the page.
+     */
+    private static function expireLapsedTick(int|string $key, bool $isNumeric): void
+    {
+        try {
+            $userId = Database::scalar(
+                "SELECT c.`user_id` FROM `creators` c
+                  WHERE " . ($isNumeric ? 'c.`id` = :key' : 'c.`handle` = :key') . "
+                    AND c.`deleted_at` IS NULL
+                    AND EXISTS (SELECT 1 FROM `kyc_profiles` p
+                                 WHERE p.`user_id` = c.`user_id` AND p.`status` = 'approved'
+                                   AND p.`expires_on` IS NOT NULL AND p.`expires_on` < CURDATE()
+                                   AND p.`deleted_at` IS NULL)
+                  LIMIT 1",
+                ['key' => $key]
+            );
+
+            if ($userId !== null) {
+                KycService::expireIfLapsed((int) $userId);
+            }
+        } catch (\Throwable $e) {
+            Logger::warning('Could not expire a lapsed KYC approval before showing a creator profile', [
+                'creator' => (string) $key,
+                'error'   => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
      * Full public profile for the Creator Detail screen.
      *
      * @return array<string,mixed>
@@ -232,6 +267,12 @@ final class CreatorService
     public static function profile(int|string $idOrHandle, ?int $viewerId = null): array
     {
         $isNumeric = is_int($idOrHandle) || ctype_digit((string) $idOrHandle);
+
+        // An approval that lapsed since the nightly sweep is expired BEFORE the
+        // row is read: the expiry drops `creators.is_verified`, and reading the
+        // row first served the tick one more time beside a badge list that no
+        // longer had it. One indexed read when nothing has lapsed.
+        self::expireLapsedTick($isNumeric ? (int) $idOrHandle : (string) $idOrHandle, $isNumeric);
 
         $creator = Database::selectOne(
             'SELECT c.*, u.`avatar_url`, u.`name` AS `account_name`, u.`last_seen_at`, u.`created_at` AS `joined_at`,
@@ -404,8 +445,9 @@ final class CreatorService
         // The badges this creator actually holds, each carrying its own label,
         // icon, colour and award date. `is_verified` remains on the row for
         // the search and ranking code that already reads it; this is the
-        // richer view every client renders the profile from.
-        $creator['badges'] = CreatorBadgeService::forCreator($creatorId);
+        // richer view every client renders the profile from. The lapsed-KYC
+        // check already ran above, before the row was loaded.
+        $creator['badges'] = CreatorBadgeService::forCreator($creatorId, false);
 
         // -- The search card's keys, on the profile too ------------------------
         // The profile is `c.*`, so it carried `availability_status`,

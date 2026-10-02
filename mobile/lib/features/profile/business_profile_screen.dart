@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -81,6 +83,11 @@ class _BusinessProfileScreenState
   bool _identityLocked({bool listen = false}) {
     if (_identityLockedByServer) return true;
 
+    final account = listen
+        ? ref.watch(currentUserProvider)
+        : ref.read(currentUserProvider);
+    if (account?.identityLocked ?? false) return true;
+
     final kyc = listen
         ? ref.watch(kycSummaryProvider)
         : ref.read(kycSummaryProvider);
@@ -122,6 +129,23 @@ class _BusinessProfileScreenState
       },
       fireImmediately: true,
     );
+
+    unawaited(_refreshAccount());
+  }
+
+  /// Brings the signed-in account up to date with `GET /me` as the screen
+  /// opens, in the background — the form is usable meanwhile.
+  ///
+  /// The account held since start-up came from `/auth/me`, which may not
+  /// carry `identity_locked`. Refreshing it keeps the lock right here and on
+  /// every other screen that reads the account. When the lock does apply,
+  /// the business name goes back to the one on record, which is the one that
+  /// stays.
+  Future<void> _refreshAccount() async {
+    final fresh = await ref.read(profileControllerProvider).refresh();
+    if (!mounted || fresh == null || !fresh.identityLocked) return;
+
+    setState(() => _company.text = fresh.companyName ?? _company.text);
   }
 
   @override

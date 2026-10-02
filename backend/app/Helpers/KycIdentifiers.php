@@ -148,6 +148,23 @@ final class KycIdentifiers
         return preg_match('/^[2-9][0-9]{11}$/', self::normalize($aadhaar)) === 1;
     }
 
+    /**
+     * Would this value be an Aadhaar number once every separator is removed?
+     *
+     * For the guard on free-text ID fields ("Other ID number"), where a full
+     * Aadhaar must never be stored. normalize() only strips spaces and
+     * hyphens, so "2345.6789.0123", "2345/6789/0123" or "2345_6789_0123"
+     * slipped past isAadhaarShaped(). Here everything that is not a letter or
+     * a digit goes first. normalize() itself is unchanged: PAN, GSTIN and CIN
+     * callers rely on it as is.
+     */
+    public static function looksLikeAadhaar(string $value): bool
+    {
+        $compact = (string) preg_replace('/[^0-9A-Za-z]+/u', '', $value);
+
+        return preg_match('/^[2-9][0-9]{11}$/', $compact) === 1;
+    }
+
     public static function verhoeffValid(string $digits): bool
     {
         $check  = 0;

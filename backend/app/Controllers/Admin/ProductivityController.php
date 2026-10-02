@@ -42,7 +42,7 @@ final class ProductivityController extends BaseAdminController
     private const MODULES = [
         'users'         => ['label' => 'Users',              'path' => '/admin/users',                  'permission' => 'users.view'],
         'creators'      => ['label' => 'Creators',           'path' => '/admin/creators',               'permission' => 'creators.view'],
-        'kyc'           => ['label' => 'KYC queue',          'path' => '/admin/kyc',                    'permission' => 'users.kyc'],
+        'kyc'           => ['label' => 'KYC queue',          'path' => '/admin/kyc',                    'permission' => 'kyc.view'],
         'bookings'      => ['label' => 'Bookings',           'path' => '/admin/bookings',               'permission' => 'bookings.view'],
         'disputes'      => ['label' => 'Disputes',           'path' => '/admin/disputes',               'permission' => 'bookings.dispute'],
         'reviews'       => ['label' => 'Reviews',            'path' => '/admin/reviews',                'permission' => 'reviews.view'],

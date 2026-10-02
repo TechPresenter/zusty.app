@@ -34,13 +34,19 @@ $queues = [
     'all'      => 'All',
 ];
 
-// Bulk decisions only ever act on submissions waiting for one; other rows get
-// no checkbox (the controller applies the same rule to whatever is posted).
+// Bulk decisions only ever act on submissions waiting for one (submitted or
+// under review — the controller applies the same rule to whatever is posted).
+// So the selection column exists only on the queues that can hold such rows:
+// Pending, and All. Action needed (waiting on the applicant), Approved,
+// Rejected, Expired and Drafts can never be approved or rejected in bulk, so
+// they get no checkboxes at all; on All, only the waiting rows get one.
 $bulkStatuses = ['submitted', 'under_review'];
-$selectable   = count(array_filter(
+$bulkQueues   = ['pending', 'all'];
+$bulkEnabled  = $this->can('kyc.review') && in_array($queue, $bulkQueues, true);
+$selectable   = $bulkEnabled ? count(array_filter(
     $profiles,
     static fn (array $p): bool => in_array((string) $p['status'], $bulkStatuses, true)
-));
+)) : 0;
 
 // The search box and the advanced filters are separate forms; each carries
 // the other's state, so searching never drops the tab or the filters.
@@ -187,7 +193,7 @@ $searchTerm = (string) (is_scalar($filters['q'] ?? null) ? $filters['q'] : '');
     </div>
   <?php else: ?>
 
-    <?php if ($this->can('kyc.review') && $selectable > 0): ?>
+    <?php if ($bulkEnabled && $selectable > 0): ?>
       <!-- Revealed once rows are selected -->
       <div id="kyc-bulk-bar" class="card__body row gap-3"
            style="display:none;background:color-mix(in srgb, var(--primary) 8%, transparent);padding:12px 18px">
@@ -205,7 +211,7 @@ $searchTerm = (string) (is_scalar($filters['q'] ?? null) ? $filters['q'] : '');
       <table class="table">
         <thead>
           <tr>
-            <?php if ($this->can('kyc.review')): ?>
+            <?php if ($bulkEnabled): ?>
               <th style="width:36px">
                 <?php if ($selectable > 0): ?>
                   <input type="checkbox" id="kyc-select-all" onclick="Kyc.toggleAll(this)" aria-label="Select all waiting for a decision">
@@ -231,7 +237,7 @@ $searchTerm = (string) (is_scalar($filters['q'] ?? null) ? $filters['q'] : '');
                   && strtotime((string) $profile['expires_on']) < strtotime('+30 days');
             ?>
             <tr>
-              <?php if ($this->can('kyc.review')): ?>
+              <?php if ($bulkEnabled): ?>
                 <td>
                   <?php if (in_array((string) $profile['status'], $bulkStatuses, true)): ?>
                     <input type="checkbox" class="kyc-row" value="<?= (int) $profile['id'] ?>"

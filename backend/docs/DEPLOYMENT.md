@@ -96,10 +96,13 @@ hPanel → **Advanced → Cron Jobs**. Every job `php scripts/cron.php --list` r
 | `15 * * * *` | `privacy:purge-exports` | Deletes personal-data export archives whose download link has expired |
 | `10 0 * * *` | `analytics:rollup` | Rebuilds the daily analytics and settlement tables |
 | `30 0 * * *` | `creators:refresh` | Recomputes ratings, counts and category tallies |
+| `45 0 * * *` | `creators:badges` | Expires lapsed creator badges and re-syncs the KYC-derived ones |
+| `55 0 * * *` | `creators:completion` | Re-scores every creator profile's completeness, stalest first |
 | `20 1 * * *` | `kyc:expiry` | Clears verification (and the blue tick) on lapsed KYC, warns those approaching expiry at most weekly |
-| `40 1 * * *` | `kyc:retention` | Deletes KYC documents of rejected / abandoned / closed profiles, replaced versions, and orphaned encrypted files |
+| `40 1 * * *` | `kyc:retention` | Deletes KYC documents and identity details of rejected / abandoned / closed profiles and never-submitted drafts, replaced versions, and orphaned encrypted files |
 | `0 2 * * *` | `backup:database` | Nightly dump |
 | `0 3 * * *` | `tokens:prune` | Deletes expired tokens, OTPs and rate-limit buckets |
+| `0 4 * * *` | `auth:purge-guests` | Deletes expired guest sessions and their guest accounts |
 | `0 4 * * 0` | `logs:rotate` | Weekly log rotation |
 
 These are the same schedules **System → Jobs** displays, seeded in `scheduled_jobs`.

@@ -150,8 +150,15 @@ class KycController extends AsyncNotifier<KycOverview> {
   /// own fresh answer), and, with [minInterval], when the last answer is
   /// newer than that.
   Future<void> refreshQuietly({Duration? minInterval}) {
-    if (_userId == null || !state.hasValue || _writesInFlight > 0) {
-      return Future.value();
+    if (_userId == null || _writesInFlight > 0) return Future.value();
+
+    if (!state.hasValue) {
+      // A first load that failed (offline at the time) is simply tried
+      // again — there is nothing on screen to keep. One still in flight
+      // brings its own answer.
+      if (!state.hasError || state.isLoading) return Future.value();
+      return _quietRefresh ??= _reload(showLoading: true)
+          .whenComplete(() => _quietRefresh = null);
     }
 
     final last = _lastFetchedAt;

@@ -23,6 +23,7 @@ declare(strict_types=1);
  * @var array<string,mixed> $badge
  * @var int $linkTtl
  * @var bool $draftLocked   Never submitted: status and checklist only.
+ * @var bool $accountDeleted The account was deleted: kept as a record, nothing can be decided.
  * @var bool $aadhaarOnFile A current Aadhaar copy needs the masking check to approve.
  * @var array<string,string> $releasable  Identifiers this profile holds, field => label.
  * @var list<array<string,mixed>> $conflicts Other verifications holding the same numbers.
@@ -32,14 +33,16 @@ declare(strict_types=1);
 $this->extend('admin.layouts.app');
 $this->start('content');
 
-$draftLocked   = (bool) ($draftLocked ?? false);
-$aadhaarOnFile = (bool) ($aadhaarOnFile ?? false);
+$draftLocked    = (bool) ($draftLocked ?? false);
+$accountDeleted = (bool) ($accountDeleted ?? false);
+$aadhaarOnFile  = (bool) ($aadhaarOnFile ?? false);
 $releasable    = is_array($releasable ?? null) ? $releasable : [];
 $conflicts     = is_array($conflicts ?? null) ? $conflicts : [];
 
 $isBrand    = $profile['kind'] === 'brand';
 $status     = (string) $profile['status'];
-$reviewable = in_array($status, ['submitted', 'under_review', 'info_required'], true);
+// A deleted account's verification is a record: nothing on it is decided.
+$reviewable = !$accountDeleted && in_array($status, ['submitted', 'under_review', 'info_required'], true);
 $isPurged   = !empty($profile['purged_at']);
 $canApprove = in_array($status, ['submitted', 'under_review', 'suspended'], true);
 
@@ -91,6 +94,10 @@ $badgeStatus = (string) ($badge['status'] ?? 'none');
 
   <span class="chip chip--neutral mono"><?= $this->e((string) $profile['reference']) ?></span>
 
+  <?php if ($accountDeleted): ?>
+    <span class="chip chip--error">Deleted account</span>
+  <?php endif; ?>
+
   <?php if ($badgeStatus === 'granted'): ?>
     <span class="chip chip--success"><?= $this->icon('verified', 'ic ic--sm') ?> Blue tick</span>
   <?php elseif ($status === 'approved'): ?>
@@ -109,6 +116,15 @@ $badgeStatus = (string) ($badge['status'] ?? 'none');
     </span>
   <?php endif; ?>
 </div>
+
+<?php if ($accountDeleted): ?>
+  <div class="alert alert--error mb-4">
+    <strong class="small">Deleted account.</strong>
+    <span class="small">This account was deleted<?= !empty($user['deleted_at']) ? ' on ' . $this->dateTime($user['deleted_at']) : '' ?>.
+      Its verification is kept here as the audit record only: it is not in any queue and nothing can be decided on it.
+      Any identity data still held is erased by the retention job.</span>
+  </div>
+<?php endif; ?>
 
 <?php if ($isPurged): ?>
   <div class="alert alert--warning mb-4">
@@ -144,6 +160,9 @@ $badgeStatus = (string) ($badge['status'] ?? 'none');
           <div class="flex-1 truncate">
             <div class="cell-user__name">
               <a href="/admin/users/<?= (int) ($user['id'] ?? 0) ?>"><?= $this->e($user['name'] ?? 'Unknown') ?></a>
+              <?php if ($accountDeleted): ?>
+                <span class="chip chip--sm chip--error">Deleted account</span>
+              <?php endif; ?>
             </div>
             <div class="cell-user__meta"><?= $this->e($user['email'] ?? '') ?></div>
           </div>
@@ -509,7 +528,7 @@ $badgeStatus = (string) ($badge['status'] ?? 'none');
   <div class="stack gap-4">
 
     <!-- Decision -->
-    <?php if ($this->can('kyc.review') && !$isPurged): ?>
+    <?php if ($this->can('kyc.review') && !$isPurged && !$accountDeleted): ?>
       <div class="card">
         <div class="card__head"><h3 class="card__title">KYC decision</h3></div>
         <div class="card__body">

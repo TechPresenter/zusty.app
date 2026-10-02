@@ -158,7 +158,10 @@ final class Actors
     private static function purgeUserId(int $userId): void
     {
         // Most child tables cascade from users; the ones that do not are listed
-        // explicitly so a re-run never trips a foreign key.
+        // explicitly so a re-run never trips a foreign key. kyc_profiles is
+        // ON DELETE RESTRICT (migration 047: the KYC audit trail must never be
+        // cascaded away by a user delete), so it has to go before the user;
+        // its events, details and documents cascade from it.
         foreach ([
             'refresh_tokens', 'user_devices', 'wallet_transactions', 'wallets',
             'favorites', 'follows', 'search_histories', 'notifications',

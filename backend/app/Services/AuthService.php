@@ -1252,6 +1252,10 @@ final class AuthService
         $user['notification_prefs'] = json_decode((string) ($user['notification_prefs'] ?? '{}'), true) ?: [
             'push' => true, 'email' => true, 'sms' => false, 'marketing' => true,
         ];
+        // Whether the blue tick freezes the public name. It is here, not only
+        // on GET/PUT /me, because the app restores its user from /auth/me at
+        // startup and must show the name read-only from the first frame.
+        $user['identity_locked']    = IdentityLockService::isLocked($user['id']);
 
         return $user;
     }

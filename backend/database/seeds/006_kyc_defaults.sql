@@ -41,15 +41,16 @@ ON DUPLICATE KEY UPDATE
 -- ---------------------------------------------------------------------
 -- Creator (personal identity) requirements
 --
--- Required: Aadhaar (front and back) and PAN. `id_proof` is inactive: a
--- generic "government ID" slot would accept a full, unmasked Aadhaar right
--- next to the dedicated slots that recommend a masked one.
+-- Required: Aadhaar (front and back) and PAN. The Aadhaar copy must be
+-- MASKED (first 8 digits hidden); the reviewer attests it before approving.
+-- `id_proof` is inactive: a generic "government ID" slot would accept a full,
+-- unmasked Aadhaar right next to the dedicated slots.
 -- ---------------------------------------------------------------------
 INSERT INTO `kyc_requirements`
   (`kind`, `slot`, `label`, `description`, `document_type`, `is_required`, `allows_multiple`, `requires_expiry`, `allowed_formats`, `max_size_mb`, `sort_order`, `is_active`)
 VALUES
-  ('creator', 'aadhaar_front', 'Aadhaar card (front)', 'Photo or scan of the front of your Aadhaar. We recommend a masked Aadhaar (first 8 digits hidden) - download it from the UIDAI website.', 'aadhaar', 1, 0, 0, 'jpg,jpeg,png,pdf', 5, 4, 1),
-  ('creator', 'aadhaar_back',  'Aadhaar card (back)',  'Photo or scan of the back of your Aadhaar, showing the address. A masked Aadhaar is recommended.', 'aadhaar', 1, 0, 0, 'jpg,jpeg,png,pdf', 5, 6, 1),
+  ('creator', 'aadhaar_front', 'Aadhaar card (front)', 'Upload a MASKED Aadhaar: the first 8 digits hidden, only the last 4 visible. Download it from the UIDAI website (myaadhaar.uidai.gov.in). A copy showing the full number is not accepted.', 'aadhaar', 1, 0, 0, 'jpg,jpeg,png,pdf', 5, 4, 1),
+  ('creator', 'aadhaar_back',  'Aadhaar card (back)',  'The back of your masked Aadhaar, showing the address. Only the last 4 digits of the number may be visible.', 'aadhaar', 1, 0, 0, 'jpg,jpeg,png,pdf', 5, 6, 1),
   ('creator', 'pan_card',      'PAN card',            'Your personal PAN card (the 4th character of the number is P).', 'pan',            1, 0, 0, 'pdf,jpg,jpeg,png', 10, 10, 1),
   ('creator', 'id_proof',      'Government ID',       'Aadhaar, passport, driving licence, or voter ID.',               'aadhaar',        0, 0, 1, 'pdf,jpg,jpeg,png', 10, 20, 0),
   ('creator', 'selfie',        'Selfie verification', 'A clear photo of your face, holding your ID if possible.',       'selfie',         0, 0, 0, 'jpg,jpeg,png',     10, 30, 1),
@@ -77,16 +78,24 @@ VALUES
   ('kyc', 'allowed_formats',      'pdf,jpg,jpeg,png,webp,doc,docx,ppt,pptx', 'string', 'Allowed file formats', 'Comma separated extensions.',                                    0, 40),
   ('kyc', 'expiry_months',        '24',                   'integer', 'Verification validity (months)', 'Zero disables expiry entirely.',                                       0, 50),
   ('kyc', 'expiry_reminder_days', '30',                   'integer', 'Expiry reminder (days before)',  'How far ahead to warn users their verification lapses.',               0, 60),
-  ('kyc', 'auto_approve',         '0',                    'boolean', 'Auto-approve submissions',  'Approve automatically when every required document is present. Use with care.', 0, 70),
-  ('kyc', 'auto_approve_min_completeness', '100',         'integer', 'Auto-approve threshold (%)','Completeness required before auto-approval fires.',                         0, 80),
+  -- auto_approve / auto_approve_min_completeness / badge_requires_kyc are
+  -- fixed by policy (migration 047): kept for compatibility, ignored by the
+  -- code, held at 0 / 1. Every verification is approved by a person, and the
+  -- blue tick always needs a current KYC approval.
+  ('kyc', 'auto_approve',         '0',                    'boolean', 'Auto-approve submissions (disabled by policy)', 'Every verification is approved by a person. This setting is kept for compatibility and has no effect.', 0, 70),
+  ('kyc', 'auto_approve_min_completeness', '100',         'integer', 'Auto-approve threshold (disabled by policy)', 'Automatic approval is not available, so this threshold has no effect.', 0, 80),
   ('kyc', 'badges_enabled',       '1',                    'boolean', 'Show verification badges',  'Display Verified Brand / Verified Creator badges across the platform.',     1, 90),
   ('kyc', 'notify_channels',      '["in_app","email","push"]', 'json', 'Notification channels',   'Channels used for KYC status updates.',                                     0, 100),
-  ('kyc', 'whatsapp_enabled',     '0',                    'boolean', 'WhatsApp notifications',    'Requires a configured WhatsApp Business provider.',                        0, 110),
+  ('kyc', 'whatsapp_enabled',     '0',                    'boolean', 'WhatsApp notifications',    'No WhatsApp provider is connected, so this has no effect yet. KYC messages use the notification channels above.', 0, 110),
   ('kyc', 'download_link_ttl',    '300',                  'integer', 'Document link lifetime (s)','How long a signed document download URL stays valid.',                     0, 120),
-  ('kyc', 'retention_days_rejected', '180',              'integer', 'Keep rejected / abandoned documents (days)', 'Documents of profiles rejected, or left in draft / action-needed, longer than this are deleted.', 0, 130),
-  ('kyc', 'retention_days_closed', '90',                 'integer', 'Keep suspended / expired documents (days)', 'Documents of profiles suspended or expired longer than this are deleted.', 0, 140),
+  ('kyc', 'retention_days_draft', '30',                   'integer', 'Keep never-submitted drafts (days)', 'Documents and identity details of a draft that was never submitted are deleted after this many days without activity.', 0, 125),
+  ('kyc', 'retention_days_rejected', '180',              'integer', 'Keep rejected / abandoned documents (days)', 'Documents and identity details of profiles rejected, or left in action-needed, longer than this are deleted.', 0, 130),
+  ('kyc', 'retention_days_closed', '90',                 'integer', 'Keep suspended / expired documents (days)', 'Documents and identity details of profiles suspended or expired longer than this are deleted.', 0, 140),
   ('kyc', 'purge_superseded_after_days', '30',           'integer', 'Keep replaced document versions (days)', 'Older versions of a re-uploaded document are deleted after this many days.', 0, 150),
-  ('kyc', 'badge_requires_kyc',   '1',                    'boolean', 'Blue tick needs approved KYC', 'Only a profile whose KYC is approved can be given the blue tick.', 0, 160),
+  ('kyc', 'badge_requires_kyc',   '1',                    'boolean', 'Blue tick needs approved KYC (always on)', 'Fixed by policy: the blue tick is only ever granted on a KYC approval that is current. This setting is kept for compatibility and cannot be switched off.', 0, 160),
+  ('kyc', 'max_files_per_slot',   '5',                    'integer', 'Files per multi-file document (max)', 'How many files an account can keep at once in a document slot that accepts several (e.g. Additional documents).', 0, 190),
+  ('kyc', 'max_versions_per_slot', '10',                  'integer', 'Uploads kept per document (max)', 'How many copies of one document (current and replaced, not yet deleted) an account can hold. Replaced copies are deleted after the replaced-versions window.', 0, 200),
+  ('kyc', 'max_profile_mb',       '100',                  'integer', 'Verification storage per account (MB)', 'Total size of the verification documents one account can hold at a time.', 0, 210),
   ('kyc', 'consent_version',      '2026-10',              'string',  'Consent wording version', 'Change this when the consent text changes; new submissions record the version they agreed to.', 0, 170),
   ('kyc', 'consent_text',         'I consent to Zusty processing my identity documents to verify my account, as described in the Privacy Policy.', 'text', 'Consent text', 'Shown next to the consent checkbox before a user submits verification.', 1, 180)
 ON DUPLICATE KEY UPDATE
@@ -94,8 +103,16 @@ ON DUPLICATE KEY UPDATE
   `description` = VALUES(`description`),
   `type`        = VALUES(`type`);
 
+-- Held at their policy values whatever an earlier install stored.
+UPDATE `settings` SET `value` = '0' WHERE `group_key` = 'kyc' AND `setting_key` = 'auto_approve';
+UPDATE `settings` SET `value` = '1' WHERE `group_key` = 'kyc' AND `setting_key` = 'badge_requires_kyc';
+
 -- ---------------------------------------------------------------------
 -- Notification templates for every KYC event.
+--
+-- The upsert re-applies `icon` and `action_type` too: 002 seeds kyc.rejected
+-- with action 'none' and runs first, so without them the rejection notice
+-- never opened the verification screen.
 -- ---------------------------------------------------------------------
 INSERT INTO `notification_templates`
   (`code`, `name`, `category`, `title`, `body`, `email_subject`, `email_body`, `sms_body`, `icon`, `action_type`, `channels`, `is_active`)
@@ -114,7 +131,7 @@ VALUES
    'Your Zusty verification is being reviewed',
    '<p>Hi {{name}},</p><p>A member of our team is reviewing your submission ({{reference}}). We will let you know the moment it is decided.</p>',
    NULL,
-   'hourglass_top', 'kyc', '["in_app","push"]', 1),
+   'hourglass_top', 'kyc', '["in_app","email","push"]', 1),
 
   -- Approval no longer means "your badge is live": the blue tick is a
   -- separate admin decision (kyc.badge_granted). Str::interpolate() has no
@@ -197,12 +214,22 @@ VALUES
    'The blue tick on your Zusty profile was removed',
    '<p>Hi {{name}},</p><p>The verified blue tick has been removed from your profile.</p><p><strong>Reason:</strong> {{reason}}</p><p>Contact support if you believe this is a mistake.</p>',
    NULL,
-   'block', 'kyc', '["in_app","email","push"]', 1)
+   'block', 'kyc', '["in_app","email","push"]', 1),
+
+  ('kyc.document_expired', 'KYC document expired', 'account',
+   'Document expired',
+   'Your {{document}} for {{reference}} expired on {{expires_on}}. Upload a current copy from the verification screen.',
+   'A document in your Zusty verification has expired',
+   '<p>Hi {{name}},</p><p>Your <strong>{{document}}</strong> for verification {{reference}} expired on {{expires_on}}.</p><p>Upload a current copy from the verification screen in the app when you next update your verification.</p>',
+   NULL,
+   'event_busy', 'kyc', '["in_app","email","push"]', 1)
 ON DUPLICATE KEY UPDATE
   `title`         = VALUES(`title`),
   `body`          = VALUES(`body`),
   `email_subject` = VALUES(`email_subject`),
   `email_body`    = VALUES(`email_body`),
+  `icon`          = VALUES(`icon`),
+  `action_type`   = VALUES(`action_type`),
   `channels`      = VALUES(`channels`);
 
 -- ---------------------------------------------------------------------

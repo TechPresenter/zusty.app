@@ -32,6 +32,7 @@ final class CronRunner
             'analytics:rollup',
             'creators:refresh',
             'creators:badges',
+            'creators:completion',
             'kyc:expiry',
             'kyc:retention',
             'auth:purge-guests',
@@ -87,6 +88,9 @@ final class CronRunner
                 // than spending a day withdrawn.
                 'creators:badges'       => ['expired' => CreatorBadgeService::expireDue()]
                     + CreatorBadgeService::syncAllAutomatic(),
+                // Scheduled by migration 037 at 00:55; the admin Completion
+                // page promises the scores are refreshed by this run.
+                'creators:completion'   => ProfileCompletionService::recomputeAll(),
                 'kyc:expiry'            => KycService::runExpirySweep(),
                 // Identity documents are deleted once they have no reason to
                 // be kept: rejected / abandoned / closed profiles, replaced

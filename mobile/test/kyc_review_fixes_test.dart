@@ -35,6 +35,8 @@ import 'package:zuste/features/kyc/kyc_status_screen.dart';
 import 'package:zuste/features/kyc/kyc_validation.dart';
 import 'package:zuste/features/kyc/widgets/kyc_document_viewer.dart';
 import 'package:zuste/features/kyc/widgets/kyc_gate.dart';
+import 'package:zuste/features/kyc/widgets/kyc_secure_text_field.dart';
+import 'package:zuste/features/profile/business_profile_screen.dart';
 import 'package:zuste/features/profile/edit_profile_screen.dart';
 import 'package:zuste/models/kyc.dart';
 import 'package:zuste/models/notification.dart';
@@ -225,6 +227,11 @@ class _LockedAccount extends AccountRepository {
 
   final sent = <Map<String, dynamic>>[];
 
+  /// `GET /me` cannot be reached, so only the refused save can tell the
+  /// screen about the lock.
+  @override
+  Future<User> profile() async => throw const OfflineFailure();
+
   @override
   Future<User> updateProfile(Map<String, dynamic> fields) async {
     sent.add(Map.of(fields));
@@ -234,6 +241,48 @@ class _LockedAccount extends AccountRepository {
       code: 'identity_locked',
     );
   }
+}
+
+/// Answers `GET /me` with [me] — once [gate] opens, when set — and records
+/// profile saves.
+class _ProfileAccount extends AccountRepository {
+  _ProfileAccount(super.client, this.me);
+
+  final Map<String, dynamic> me;
+  Completer<void>? gate;
+  ApiFailure? failure;
+  int reads = 0;
+  final sent = <Map<String, dynamic>>[];
+
+  @override
+  Future<User> profile() async {
+    reads++;
+    final wait = gate;
+    if (wait != null) await wait.future;
+
+    final refused = failure;
+    if (refused != null) throw refused;
+    return User.fromJson(me);
+  }
+
+  @override
+  Future<User> updateProfile(Map<String, dynamic> fields) async {
+    sent.add(Map.of(fields));
+    return User.fromJson({...me, ...fields});
+  }
+}
+
+/// Signed in from the start with the account `/auth/me` restored, without
+/// the session restore the real controller kicks off.
+class _SignedIn extends AuthController {
+  _SignedIn(this.user);
+
+  final User user;
+
+  @override
+  AuthState build() => AuthState(stage: AuthStage.authenticated, user: user);
+
+  void signOut() => state = const AuthState(stage: AuthStage.unauthenticated);
 }
 
 ApiClient _client([Dio? dio]) => ApiClient(
@@ -302,9 +351,14 @@ void main() {
     // never the platform's.
     scratch = Directory.systemTemp.createTempSync('kyc_share_test');
     KycShareCache.temporaryDirectory = () async => scratch;
+    // The app-start sweep is opted into by the tests about it.
+    KycShareCache.startupSweepPending = false;
+    KycShareCache.clock = DateTime.now;
   });
 
   tearDown(() {
+    KycShareCache.startupSweepPending = false;
+    KycShareCache.clock = DateTime.now;
     if (scratch.existsSync()) scratch.deleteSync(recursive: true);
   });
 
@@ -401,15 +455,16 @@ void main() {
             'label': 'Document viewed',
             'actor_type': 'user',
           },
+          {
+            'action': 'notification_failed',
+            'label': 'Notification failed',
+            'actor_type': 'system',
+          },
           {'action': 'submitted', 'label': 'Submitted', 'actor_type': 'user'},
         ],
       ));
 
-      expect(overview.timeline.map((e) => e.action), [
-        'rejected',
-        'document_previewed',
-        'submitted',
-      ]);
+      expect(overview.timeline.map((e) => e.action), ['rejected', 'submitted']);
       expect(overview.timeline.first.actorLabel, 'Zusty team');
       expect(
         overview.timeline.map((e) => e.actorLabel),
@@ -437,10 +492,50 @@ void main() {
       expect(KycRules.otherId('passport', 'A1234567'), isNull);
       expect(KycRules.otherId('passport', 'A12'), isNotNull);
       expect(KycRules.otherId(null, 'A1234567'), contains('Choose'));
-      expect(KycRules.otherId('aadhaar', '234567890123'), contains('Choose'));
+      expect(KycRules.otherId('aadhaar', 'A1234567'), contains('Choose'));
       expect(KycRules.otherId('voter_id', 'ABC1234567'), isNull);
       expect(KycRules.otherId('driving_license', 'MH-03-2008-0012345'), isNull);
       expect(KycRules.otherId('passport', ''), isNull);
+    });
+
+    test('an Aadhaar number is never taken as the Other ID', () {
+      // identity-1 / M2: the server's rule — twelve digits, the first 2-9,
+      // once everything but letters and digits is stripped.
+      for (final aadhaar in [
+        '234567890123',
+        '2345 6789 0123',
+        '2345-6789-0123',
+        '2345.6789.0123',
+        '2345/6789/0123',
+        '2345_6789_0123',
+        ' 9999:8888:7777 ',
+        '2 3 4 5 6 7 8 9 0 1 2 3', // over 20 characters as typed
+      ]) {
+        expect(KycRules.looksLikeAadhaar(aadhaar), isTrue, reason: aadhaar);
+        // Whatever the type — and before asking for one.
+        for (final type in [null, 'passport', 'driving_license', 'voter_id']) {
+          expect(
+            KycRules.otherId(type, aadhaar),
+            KycRules.otherIdAadhaarError,
+            reason: '$type: $aadhaar',
+          );
+        }
+      }
+      expect(KycRules.otherIdAadhaarError, contains('Aadhaar field'));
+
+      for (final other in [
+        '134567890123', // starts with 1
+        '034567890123', // starts with 0
+        '23456789012', // 11 digits
+        '2345678901234', // 13 digits
+        'A23456789012', // a letter is kept, so not twelve digits
+        'A1234567',
+        '',
+      ]) {
+        expect(KycRules.looksLikeAadhaar(other), isFalse, reason: other);
+      }
+      expect(KycRules.looksLikeAadhaar(null), isFalse);
+      expect(KycRules.otherId('passport', 'A1234567'), isNull);
     });
 
     test('a verification gate is worded for where verification stands', () {
@@ -560,37 +655,88 @@ void main() {
           '${scratch.path}${Platform.pathSeparator}${KycShareCache.folderName}',
         ),
       );
+      // Named so share_plus's copy of it can be told from other shares.
+      expect(
+        sharedPath!.split(Platform.pathSeparator).last,
+        startsWith(KycShareCache.fileNamePrefix),
+      );
       // Gone once the share sheet returned.
       expect(File(sharedPath!).existsSync(), isFalse);
       expect(File(sharedPath!).parent.existsSync(), isFalse);
     });
 
-    test('the sweep removes every leftover copy and nothing else', () async {
-      Directory make(String name) =>
-          Directory('${scratch.path}${Platform.pathSeparator}$name')
-            ..createSync(recursive: true);
-      void file(Directory dir) =>
-          File('${dir.path}${Platform.pathSeparator}doc.pdf')
-              .writeAsBytesSync([1, 2, 3]);
-
-      final ours = make('kyc_share/abc');
-      final plugin = make('share_plus');
-      final legacy = make('3f2504e0-4f89-41d3-9a0c-0305e82c3301');
-      final images = make('libCachedImageData');
-      for (final dir in [ours, plugin, legacy, images]) {
-        file(dir);
+    group('the sweep', () {
+      String path(String name) => '${scratch.path}${Platform.pathSeparator}'
+          '${name.replaceAll('/', Platform.pathSeparator)}';
+      File file(String name) {
+        final created = File(path(name));
+        created.parent.createSync(recursive: true);
+        return created..writeAsBytesSync([1, 2, 3]);
       }
 
-      await KycShareCache.purge();
+      const uuid = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+      const otherUuid = '9b2c6f10-1d2e-4a3b-8c4d-5e6f7a8b9c0d';
+      final later = DateTime.now().add(const Duration(hours: 2));
 
-      expect(
-        Directory('${scratch.path}${Platform.pathSeparator}kyc_share')
-            .existsSync(),
-        isFalse,
-      );
-      expect(plugin.existsSync(), isFalse);
-      expect(legacy.existsSync(), isFalse);
-      expect(images.existsSync(), isTrue);
+      test('removes our copies every time, and leaves other shares alone',
+          () async {
+        // M1: this runs whenever the Verification screen closes. An invoice
+        // a mail app is still reading must survive it.
+        KycShareCache.clock = () => later; // Even "old" leftovers stay.
+
+        file('kyc_share/abc/doc.pdf');
+        final ourCopy = file('share_plus/${KycShareCache.fileNamePrefix}pan.pdf');
+        final invoiceCopy = file('share_plus/invoice-INV-7.pdf');
+        final invoiceTemp = file('$uuid/invoice-INV-7.pdf');
+        final images = file('libCachedImageData/a.png');
+
+        await KycShareCache.purge();
+
+        expect(Directory(path('kyc_share')).existsSync(), isFalse);
+        expect(ourCopy.existsSync(), isFalse);
+        expect(invoiceCopy.existsSync(), isTrue);
+        expect(invoiceTemp.existsSync(), isTrue);
+        expect(images.existsSync(), isTrue);
+        expect(Directory(path('share_plus')).existsSync(), isTrue);
+      });
+
+      test('clears what earlier builds left, only at app start and only once '
+          'it is an hour old', () async {
+        final ourCopy = file('share_plus/${KycShareCache.fileNamePrefix}a.pdf');
+        final unmarked = file('share_plus/aadhaar_front-20261001.jpg');
+        final legacy = file('$uuid/aadhaar_front.jpg').parent;
+        final images = file('libCachedImageData/a.png');
+        final notAFolder = file(otherUuid);
+
+        // App start, but everything is fresh: a share made moments ago
+        // may still be read by the app it went to.
+        KycShareCache.startupSweepPending = true;
+        await KycShareCache.purge();
+        expect(KycShareCache.startupSweepPending, isFalse);
+        expect(ourCopy.existsSync(), isFalse);
+        expect(unmarked.existsSync(), isTrue);
+        expect(legacy.existsSync(), isTrue);
+
+        // Two hours on, but not at app start (sign-out, leaving the
+        // Verification screen): still left alone.
+        KycShareCache.clock = () => later;
+        await KycShareCache.purge();
+        expect(unmarked.existsSync(), isTrue);
+        expect(legacy.existsSync(), isTrue);
+
+        // A folder with a file touched within the hour is kept even then.
+        final recent = file('0e8f3c52-7a41-4d9e-b1f2-3c4d5e6f7a8b/doc.pdf')
+          ..setLastModifiedSync(later.subtract(const Duration(minutes: 30)));
+
+        // The next app start, two hours on.
+        KycShareCache.startupSweepPending = true;
+        await KycShareCache.purge();
+        expect(unmarked.existsSync(), isFalse);
+        expect(legacy.existsSync(), isFalse);
+        expect(recent.existsSync(), isTrue);
+        expect(images.existsSync(), isTrue);
+        expect(notAFolder.existsSync(), isTrue);
+      });
     });
 
     testWidgets('a PDF opens in the app; sharing needs an explicit, warned tap',
@@ -880,6 +1026,45 @@ void main() {
       expect(find.widgetWithText(ZChip, 'Aadhaar'), findsNothing);
     });
 
+    testWidgets('an Aadhaar typed as the Other ID is refused in place',
+        (tester) async {
+      // identity-1 / M2.
+      await pump(tester, _overview(details: _creatorDetails));
+
+      final otherId = find.descendant(
+        of: find.ancestor(
+          of: find.text('Other ID number'),
+          matching: find.byType(KycSecureTextField),
+        ),
+        matching: find.byType(TextFormField),
+      );
+
+      await tester.enterText(otherId, '2345.6789.0123');
+      await save(tester);
+
+      expect(find.text(KycRules.otherIdAadhaarError), findsOneWidget);
+      expect(find.textContaining('Choose passport'), findsNothing);
+      expect(fake.saves, isEmpty);
+
+      // Choosing a type does not let it through either.
+      await tester.tap(find.widgetWithText(ZChip, 'Passport'));
+      await tester.pump();
+      await save(tester);
+
+      expect(find.text(KycRules.otherIdAadhaarError), findsOneWidget);
+      expect(fake.saves, isEmpty);
+
+      // A real passport number saves.
+      await tester.enterText(otherId, 'A1234567');
+      await save(tester);
+
+      expect(find.text(KycRules.otherIdAadhaarError), findsNothing);
+      expect(fake.saves.single.details, {
+        'id_proof_type': 'passport',
+        'id_proof_number': 'A1234567',
+      });
+    });
+
     testWidgets('the first save asks for processing consent and sends it',
         (tester) async {
       // documents-5 / C3.
@@ -1111,7 +1296,60 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  group('gate', () {
+    testWidgets('an applicant under review is not told to verify',
+        (tester) async {
+      // mobile-8: the server's refusal names the status; the banner's title
+      // and way out follow it.
+      final fake = _FakeKyc(
+        _client(),
+        _overview(status: 'under_review', editable: false),
+      );
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: overridesFor(fake),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: const Scaffold(
+            body: KycGateBanner(
+              failure: ForbiddenFailure(
+                message: 'Your verification is being reviewed. This usually '
+                    'takes 24-48 hours.',
+                code: 'kyc_required',
+              ),
+              footnote: 'Your application is saved on this screen.',
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.text('Your verification is under review'), findsOneWidget);
+      expect(find.text('View verification'), findsOneWidget);
+      expect(find.textContaining('being reviewed'), findsOneWidget);
+      expect(find.text('Verify'), findsNothing);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   group('identity lock', () {
+    test('GET /me identity_locked is read onto the account', () {
+      // C4: the server's own answer, which also covers a legacy tick.
+      final locked = User.fromJson(const {
+        'id': 7,
+        'name': 'Glow',
+        'account_type': 'brand',
+        'identity_locked': true,
+      });
+      expect(locked.identityLocked, isTrue);
+      expect(locked.copyWith(city: 'Pune').identityLocked, isTrue);
+
+      // /auth/me and older servers do not send it: not locked.
+      final older = User.fromJson(const {'id': 7, 'name': 'Glow'});
+      expect(older.identityLocked, isFalse);
+    });
+
     testWidgets('a refused rename restores the name and locks the field',
         (tester) async {
       // bluetick-8 / C4.
@@ -1158,6 +1396,225 @@ void main() {
       expect(find.text('Glow Skincare Co.'), findsWidgets);
       expect(find.textContaining('Locked while your account has the verified '
           'badge'), findsWidgets);
+    });
+
+    // M3: the account the app starts with comes from /auth/me, which did not
+    // carry identity_locked. The profile screens re-read GET /me as they
+    // open.
+    final lockedMe = {...MockData.currentUser, 'identity_locked': true};
+    const lockNote = 'Locked while your account has the verified badge';
+
+    ProviderContainer signedIn(_ProfileAccount account) {
+      final container = ProviderContainer(overrides: [
+        keyValueCacheProvider.overrideWithValue(cache),
+        authProvider.overrideWith(
+          () => _SignedIn(User.fromJson(MockData.currentUser)),
+        ),
+        accountRepositoryProvider.overrideWithValue(account),
+      ]);
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    test('a re-read of GET /me brings the lock onto the account', () async {
+      final account = _ProfileAccount(_client(), lockedMe);
+      final container = signedIn(account);
+      expect(container.read(currentUserProvider)!.identityLocked, isFalse);
+
+      final fresh = await container.read(profileControllerProvider).refresh();
+
+      expect(account.reads, 1);
+      expect(fresh?.identityLocked, isTrue);
+      expect(container.read(currentUserProvider), same(fresh));
+    });
+
+    test('a re-read that fails, or loses a race, changes nothing', () async {
+      final account = _ProfileAccount(_client(), lockedMe);
+      final container = signedIn(account);
+      final controller = container.read(profileControllerProvider);
+      final auth = container.read(authProvider.notifier) as _SignedIn;
+
+      // Offline: the account held stays.
+      final before = container.read(currentUserProvider);
+      account.failure = const OfflineFailure();
+      expect(await controller.refresh(), isNull);
+      expect(container.read(currentUserProvider), same(before));
+      account.failure = null;
+
+      // A save lands while the read is out: its answer is the newer one.
+      account.gate = Completer<void>();
+      final racedSave = controller.refresh();
+      final saved = User.fromJson({...MockData.currentUser, 'city': 'Pune'});
+      auth.setUser(saved);
+      account.gate!.complete();
+      expect(await racedSave, isNull);
+      expect(container.read(currentUserProvider), same(saved));
+
+      // Signed out while the read was out: the account does not come back.
+      account.gate = Completer<void>();
+      final racedSignOut = controller.refresh();
+      auth.signOut();
+      account.gate!.complete();
+      expect(await racedSignOut, isNull);
+      expect(container.read(currentUserProvider), isNull);
+
+      // Nobody signed in: nothing is read.
+      final reads = account.reads;
+      expect(await controller.refresh(), isNull);
+      expect(account.reads, reads);
+    });
+
+    List<Override> profileOverrides({required _ProfileAccount account}) => [
+          keyValueCacheProvider.overrideWithValue(cache),
+          authProvider.overrideWith(
+            () => _SignedIn(User.fromJson(MockData.currentUser)),
+          ),
+          accountRepositoryProvider.overrideWithValue(account),
+          kycRepositoryProvider.overrideWithValue(
+            _FakeKyc(_client(), _overview(kind: 'brand')),
+          ),
+          taxonomiesProvider.overrideWithValue(_taxonomies),
+          notificationsProvider.overrideWith(
+            (ref) async => Paginated(
+              items: const <AppNotification>[],
+              pagination: Pagination.empty,
+            ),
+          ),
+        ];
+
+    Finder textFieldLabelled(String label) => find.descendant(
+          of: find.ancestor(
+            of: find.text(label),
+            matching: find.byType(ZTextField),
+          ),
+          matching: find.byType(TextField),
+        );
+
+    testWidgets('Edit Profile locks the name once GET /me says so, without '
+        'holding up the form', (tester) async {
+      tester.view.physicalSize = const Size(1170, 7200);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
+
+      final account = _ProfileAccount(_client(), lockedMe)
+        ..gate = Completer<void>();
+
+      final router = GoRouter(
+        initialLocation: '/edit',
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (_, _) => const Scaffold(body: Text('route:home')),
+            routes: [
+              GoRoute(
+                path: 'edit',
+                builder: (_, _) => const EditProfileScreen(),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: profileOverrides(account: account),
+        child: MaterialApp.router(theme: AppTheme.light, routerConfig: router),
+      ));
+      await tester.pump();
+
+      // The form is up, and editable, while GET /me is still out.
+      final name = textFieldLabelled('Full name');
+      expect(account.reads, 1);
+      expect(tester.widget<TextField>(name).readOnly, isFalse);
+      await tester.enterText(name, 'Someone Famous');
+
+      account.gate!.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // Locked, with the names on record back in place.
+      expect(find.textContaining(lockNote), findsNWidgets(2));
+      expect(tester.widget<TextField>(name).readOnly, isTrue);
+      expect(
+        tester.widget<TextField>(textFieldLabelled('Company / brand name'))
+            .readOnly,
+        isTrue,
+      );
+      expect(find.text('Someone Famous'), findsNothing);
+      expect(tester.widget<TextField>(name).controller!.text, 'Priya Sharma');
+
+      // A save leaves the locked names out; the rest of the form is sent.
+      await tester.tap(find.text('Save changes'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      final sent = account.sent.single;
+      expect(sent.containsKey('name'), isFalse);
+      expect(sent.containsKey('company_name'), isFalse);
+      expect(sent['city'], 'Mumbai');
+      expect(find.text('route:home'), findsOneWidget);
+    });
+
+    testWidgets('Business Profile re-reads the account as it opens',
+        (tester) async {
+      tester.view.physicalSize = const Size(1170, 7200);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
+
+      final account = _ProfileAccount(_client(), lockedMe)
+        ..gate = Completer<void>();
+
+      final router = GoRouter(
+        initialLocation: '/business',
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (_, _) => const Scaffold(body: Text('route:home')),
+            routes: [
+              GoRoute(
+                path: 'business',
+                builder: (_, _) => const BusinessProfileScreen(),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: profileOverrides(account: account),
+        child: MaterialApp.router(theme: AppTheme.light, routerConfig: router),
+      ));
+      await tester.pump();
+
+      final company = textFieldLabelled('Business name');
+      expect(account.reads, 1);
+      expect(tester.widget<TextField>(company).readOnly, isFalse);
+      await tester.enterText(company, 'Famous FMCG Brand');
+
+      account.gate!.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // The account every screen reads now carries the lock, and this one
+      // shows the business name on record, read-only.
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(BusinessProfileScreen)),
+      );
+      expect(container.read(currentUserProvider)!.identityLocked, isTrue);
+      expect(find.textContaining(lockNote), findsOneWidget);
+      expect(tester.widget<TextField>(company).readOnly, isTrue);
+      expect(
+        tester.widget<TextField>(company).controller!.text,
+        'Glow Skincare Co.',
+      );
+
+      await tester.tap(find.text('Save changes'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      final sent = account.sent.single;
+      expect(sent.containsKey('company_name'), isFalse);
+      expect(sent['contact_person'], 'Priya Sharma');
+      expect(find.text('route:home'), findsOneWidget);
     });
   });
 }

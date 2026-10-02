@@ -7,6 +7,7 @@ namespace Zuste\Services;
 use Zuste\Core\Config;
 use Zuste\Core\Crypto;
 use Zuste\Core\Database;
+use Zuste\Core\Env;
 use Zuste\Core\HttpException;
 
 /**
@@ -23,13 +24,24 @@ use Zuste\Core\HttpException;
  *   * the plaintext SHA-256 is recorded, which detects both tampering and
  *     duplicate uploads;
  *   * uploads are validated by extension *and* by sniffed MIME type, because
- *     a filename proves nothing.
+ *     a filename proves nothing — and the check fails CLOSED: bytes the
+ *     sniffer cannot identify, an extension it has no rule for, or a host
+ *     without the fileinfo extension are all refused, never waved through;
+ *   * the client's file name is never stored (it often carries the holder's
+ *     name or the ID number itself); the document gets a generated label.
  *
  * Superseded files are retained (`is_current = 0`) rather than deleted, so an
  * audit can always reconstruct what a reviewer actually saw.
  */
 final class DocumentVault
 {
+    /**
+     * The only types ever served `inline` (rendered by a browser or the app).
+     * Anything else is sent as an opaque `application/octet-stream`
+     * attachment, whatever MIME type the row carries.
+     */
+    public const INLINE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+
     /** Directory that holds encrypted document blobs. */
     private const STORAGE_DIR = 'kyc';
 
@@ -43,7 +55,11 @@ final class DocumentVault
         'aspx', 'js', 'html', 'htm', 'svg', 'swf',
     ];
 
-    /** Extension to acceptable sniffed MIME types. */
+    /**
+     * Extension to acceptable sniffed MIME types. This is also the complete
+     * list of formats the vault supports: an extension without an entry here
+     * is refused, whatever a requirement or the settings screen allows.
+     */
     private const MIME_MAP = [
         'pdf'  => ['application/pdf'],
         'jpg'  => ['image/jpeg'],
@@ -51,9 +67,20 @@ final class DocumentVault
         'png'  => ['image/png'],
         'webp' => ['image/webp'],
         'doc'  => ['application/msword'],
-        'docx' => ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip'],
+        'docx' => ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
         'ppt'  => ['application/vnd.ms-powerpoint'],
-        'pptx' => ['application/vnd.openxmlformats-officedocument.presentationml.presentation', 'application/zip'],
+        'pptx' => ['application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+    ];
+
+    /**
+     * The OOXML main part each Office extension must declare in its
+     * `[Content_Types].xml`. Older libmagic builds report a .docx / .pptx as
+     * a bare `application/zip`; any zip archive used to pass as one. Now the
+     * archive has to actually be that kind of Office document.
+     */
+    private const OOXML_MAIN_PARTS = [
+        'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml',
+        'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml',
     ];
 
     // -----------------------------------------------------------------
@@ -73,16 +100,19 @@ final class DocumentVault
     {
         self::assertUploadOk($file);
 
-        $originalName = self::sanitiseName((string) ($file['name'] ?? 'document'));
-        $extension    = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
-        $tmpPath      = (string) ($file['tmp_name'] ?? '');
-        $size         = (int) ($file['size'] ?? 0);
+        // The client's name is read for its extension only, then discarded.
+        $clientName = self::sanitiseName((string) ($file['name'] ?? 'document'));
+        $extension  = strtolower((string) pathinfo($clientName, PATHINFO_EXTENSION));
+        $tmpPath    = (string) ($file['tmp_name'] ?? '');
+        $size       = (int) ($file['size'] ?? 0);
 
         self::assertExtensionAllowed($extension, $requirement);
         self::assertSizeAllowed($size, $requirement);
 
         $mime = self::sniffMime($tmpPath);
-        self::assertMimeMatches($extension, $mime);
+        self::assertMimeMatches($extension, $mime, $tmpPath);
+
+        $originalName = self::label((string) ($requirement['slot'] ?? 'document'), $extension);
 
         $plaintext = @file_get_contents($tmpPath);
         if ($plaintext === false || $plaintext === '') {
@@ -128,17 +158,18 @@ final class DocumentVault
      *
      * @return array{path:string,checksum:string,size:int,mime:string,extension:string,original_name:string}
      */
-    public static function storeLocalFile(string $absolutePath, int $userId): array
+    public static function storeLocalFile(string $absolutePath, int $userId, string $slot = 'document'): array
     {
-        $originalName = self::sanitiseName(basename($absolutePath));
-        $extension    = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
+        $extension = strtolower((string) pathinfo(self::sanitiseName(basename($absolutePath)), PATHINFO_EXTENSION));
 
         if ($extension === '' || in_array($extension, self::BLOCKED_EXTENSIONS, true)) {
             throw HttpException::unprocessable('That file type is not accepted.');
         }
 
         $mime = self::sniffMime($absolutePath);
-        self::assertMimeMatches($extension, $mime);
+        self::assertMimeMatches($extension, $mime, $absolutePath);
+
+        $originalName = self::label($slot, $extension);
 
         $plaintext = @file_get_contents($absolutePath);
         if ($plaintext === false || $plaintext === '') {
@@ -444,8 +475,30 @@ final class DocumentVault
             explode(',', $raw)
         )));
 
-        // Never let configuration re-enable an executable extension.
-        return array_values(array_diff($list, self::BLOCKED_EXTENSIONS));
+        // Never let configuration re-enable an executable extension, nor add
+        // one the vault has no content rule for (xml, svgz, heic, ...): an
+        // operator-typed format must not become a way past the MIME check.
+        return array_values(array_intersect(
+            array_diff($list, self::BLOCKED_EXTENSIONS),
+            self::supportedExtensions()
+        ));
+    }
+
+    /**
+     * Every extension the vault can validate by content. A requirement or the
+     * `kyc.allowed_formats` setting can narrow this list, never widen it.
+     *
+     * @return list<string>
+     */
+    public static function supportedExtensions(): array
+    {
+        return array_keys(self::MIME_MAP);
+    }
+
+    /** May a document of this stored MIME type be served inline? */
+    public static function isInlineSafe(?string $mime): bool
+    {
+        return in_array((string) $mime, self::INLINE_MIME_TYPES, true);
     }
 
     /** @param array<string,mixed> $requirement */
@@ -465,40 +518,85 @@ final class DocumentVault
         }
     }
 
+    /**
+     * The content type of the bytes, as libmagic reads them.
+     *
+     * Fails closed: a host without the fileinfo extension used to report every
+     * upload as `application/octet-stream`, which the check below then waved
+     * through. With nothing to sniff with, no identity document is accepted.
+     */
     private static function sniffMime(string $path): string
     {
-        if (function_exists('finfo_open')) {
-            $finfo = finfo_open(FILEINFO_MIME_TYPE);
-            if ($finfo !== false) {
-                $mime = finfo_file($finfo, $path);
-                finfo_close($finfo);
-                if (is_string($mime) && $mime !== '') {
-                    return $mime;
-                }
-            }
+        if (!function_exists('finfo_open')) {
+            throw HttpException::server('Document uploads are unavailable: the server cannot check file contents.');
         }
 
-        return 'application/octet-stream';
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+
+        if ($finfo === false) {
+            throw HttpException::server('Document uploads are unavailable: the server cannot check file contents.');
+        }
+
+        $mime = finfo_file($finfo, $path);
+        finfo_close($finfo);
+
+        return is_string($mime) && $mime !== '' ? $mime : 'application/octet-stream';
     }
 
     /**
      * The declared extension must agree with the sniffed content type, which is
      * what stops a script being renamed to `.pdf`.
+     *
+     * Fails closed. An extension with no rule is refused, and so are bytes the
+     * sniffer could not classify (`application/octet-stream`): "unrecognisable"
+     * is not "probably a PDF". An Office file reported as a bare zip must prove
+     * it is that kind of Office document.
      */
-    private static function assertMimeMatches(string $extension, string $mime): void
+    private static function assertMimeMatches(string $extension, string $mime, ?string $path = null): void
     {
         $expected = self::MIME_MAP[$extension] ?? null;
 
-        // Unknown-but-allowed extensions fall back to the extension check only.
-        if ($expected === null || $mime === 'application/octet-stream') {
+        if ($expected === null) {
+            throw HttpException::unprocessable('That file type is not accepted.');
+        }
+
+        if (in_array($mime, $expected, true)) {
             return;
         }
 
-        if (!in_array($mime, $expected, true)) {
-            throw HttpException::unprocessable(
-                'That file does not look like a genuine ' . strtoupper($extension) . '.'
-            );
+        if ($mime === 'application/zip' && isset(self::OOXML_MAIN_PARTS[$extension])
+            && $path !== null && self::ooxmlDeclares($path, self::OOXML_MAIN_PARTS[$extension])) {
+            return;
         }
+
+        throw HttpException::unprocessable(
+            'That file does not look like a genuine ' . strtoupper($extension) . '.'
+        );
+    }
+
+    /**
+     * Does this zip archive declare [$mainPart] in its `[Content_Types].xml`?
+     * False when it cannot be opened, or when ZipArchive is unavailable.
+     */
+    private static function ooxmlDeclares(string $path, string $mainPart): bool
+    {
+        if (!class_exists(\ZipArchive::class)) {
+            return false;
+        }
+
+        $zip = new \ZipArchive();
+
+        if ($zip->open($path, \ZipArchive::RDONLY) !== true) {
+            return false;
+        }
+
+        try {
+            $types = $zip->getFromName('[Content_Types].xml');
+        } finally {
+            $zip->close();
+        }
+
+        return is_string($types) && str_contains($types, 'ContentType="' . $mainPart . '"');
     }
 
     // -----------------------------------------------------------------
@@ -545,29 +643,57 @@ final class DocumentVault
     }
 
     /**
-     * The key document links are signed with.
+     * The name a stored document goes by: its slot, the upload date and the
+     * extension, e.g. `aadhaar_front-20261002.jpg`.
      *
-     * There used to be a hard-coded last resort ('zuste-kyc-fallback'), which
-     * meant a deployment missing both keys signed identity-document links with
-     * a secret printed in the source — anyone who had read this file could mint
-     * a valid link. With no key configured there is nothing safe to sign with,
-     * so refuse instead.
+     * The client's own file name is never kept. Scans are routinely named
+     * after their holder or their number ("Aadhaar 2345 6789 0123.jpg"), and
+     * that name used to be stored in plain text and shown to every admin who
+     * could see the queue — a full Aadhaar in a system that otherwise keeps
+     * only the last four digits.
+     */
+    public static function label(string $slot, string $extension): string
+    {
+        $slot = preg_replace('/[^a-z0-9_]+/', '', strtolower($slot)) ?: 'document';
+
+        return $slot . '-' . date('Ymd') . ($extension === '' ? '' : '.' . strtolower($extension));
+    }
+
+    /**
+     * The key document links are signed with: a dedicated key, derived.
+     *
+     * Links used to be signed with JWT_SECRET (the code read an `app.key` that
+     * was never configured and fell back silently), so rotating the JWT secret
+     * broke every live link and a leaked JWT secret could mint document links.
+     * Now the link key is derived with HKDF under its own label from:
+     *
+     *   1. APP_KEY, when an operator sets one for this purpose (.env); else
+     *   2. APP_ENCRYPTION_KEY — already required, since the documents
+     *      themselves are encrypted with it.
+     *
+     * The JWT secret is no longer involved. There used to be a hard-coded last
+     * resort ('zuste-kyc-fallback'); with no key at all there is nothing safe
+     * to sign with, so this refuses instead.
      */
     private static function signingSecret(): string
     {
-        $secret = (string) Config::get('app.key', '');
+        $base = trim((string) Config::get('app.key', ''));
 
-        if ($secret === '') {
-            $secret = (string) Config::get('jwt.secret', '');
+        if ($base === '') {
+            $base = trim(Env::getString('APP_KEY'));
         }
 
-        if ($secret === '') {
+        if ($base === '') {
+            $base = trim((string) Config::get('app.encryption_key', ''));
+        }
+
+        if ($base === '') {
             throw new \RuntimeException(
-                'No signing key is configured for KYC document links. Set APP_KEY or JWT_SECRET.'
+                'No signing key is configured for KYC document links. Set APP_KEY (or APP_ENCRYPTION_KEY) in .env.'
             );
         }
 
-        return $secret . '|kyc-document';
+        return hash_hkdf('sha256', $base, 32, 'zusty-kyc-document-link');
     }
 
     // -----------------------------------------------------------------
@@ -602,8 +728,12 @@ final class DocumentVault
             'mime_type'     => $row['mime_type'],
             'file_size'     => (int) $row['file_size'],
             'size_label'    => self::humanSize((int) $row['file_size']),
-            'is_image'      => str_starts_with((string) $row['mime_type'], 'image/'),
+            // Previewable only for the inline allow-list: anything else is
+            // only ever served as an opaque download.
+            'is_image'      => self::isInlineSafe((string) $row['mime_type'])
+                && str_starts_with((string) $row['mime_type'], 'image/'),
             'is_pdf'        => $row['mime_type'] === 'application/pdf',
+            'can_preview'   => self::isInlineSafe((string) $row['mime_type']),
             'version'       => (int) $row['version'],
             // pending | approved | rejected — legacy `verified` / `under_review`
             // rows are mapped so a client only ever sees the three.

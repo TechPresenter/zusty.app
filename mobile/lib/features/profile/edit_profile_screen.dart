@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -65,6 +67,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   /// reputation. An administrator can still change it.
   bool get _identityLocked =>
       _identityLockedByServer ||
+      (ref.read(currentUserProvider)?.identityLocked ?? false) ||
       (ref.read(kycSummaryProvider)?.hasBlueTick ?? false);
 
   static const _identityLockedNote =
@@ -85,6 +88,26 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     _phone = TextEditingController(text: user?.phone ?? '');
     _city = TextEditingController(text: user?.city ?? '');
     _bio = TextEditingController(text: user?.bio ?? '');
+
+    unawaited(_refreshAccount());
+  }
+
+  /// Brings the account up to date with `GET /me` as the screen opens, in
+  /// the background — the form is usable meanwhile.
+  ///
+  /// The account held since start-up came from `/auth/me`, which may not
+  /// carry `identity_locked`: a name frozen by a verified badge the KYC
+  /// overview does not show (a legacy tick) looked editable until a save was
+  /// refused. When the lock does apply, the name fields go back to the names
+  /// on record, which are the ones that stay.
+  Future<void> _refreshAccount() async {
+    final fresh = await ref.read(profileControllerProvider).refresh();
+    if (!mounted || fresh == null || !fresh.identityLocked) return;
+
+    setState(() {
+      _name.text = fresh.name;
+      _company.text = fresh.companyName ?? _company.text;
+    });
   }
 
   @override
@@ -215,6 +238,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     final margin = AppBreakpoints.pageMargin(context);
     final identityLocked =
         _identityLockedByServer ||
+        (user?.identityLocked ?? false) ||
         (ref.watch(kycSummaryProvider)?.hasBlueTick ?? false);
 
     if (user == null) {

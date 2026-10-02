@@ -210,7 +210,8 @@ final class Widget
             'pending_creators' => self::stat('Awaiting review', $g, 'alert', '#B45309', 'creators.approve',
                 'countPendingCreators', '/admin/creators?status=pending_review', 'number', ['refresh' => 30]),
 
-            'pending_kyc' => self::stat('KYC pending', $g, 'shield', '#E2165F', 'users.kyc',
+            // kyc.view, the permission the queue it links to requires.
+            'pending_kyc' => self::stat('KYC pending', $g, 'shield', '#E2165F', 'kyc.view',
                 'countPendingKyc', '/admin/kyc?status=pending', 'number', ['refresh' => 30]),
 
             'new_users_today' => self::stat('New today', $g, 'trending-up', '#4F00D0', 'users.view',

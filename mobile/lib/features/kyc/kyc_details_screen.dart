@@ -954,6 +954,9 @@ class _KycDetailsScreenState extends ConsumerState<KycDetailsScreen> {
           onFileLabel: 'ID number on file',
           uppercase: true,
           removable: true,
+          // Also refuses an Aadhaar number, however it is punctuated, and
+          // points to the Aadhaar field above, which keeps only the last
+          // four digits.
           validator: (value) =>
               KycRules.otherId(_choices['id_proof_type'], value),
         ),

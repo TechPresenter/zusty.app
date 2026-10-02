@@ -25,6 +25,25 @@ declare(strict_types=1);
  *   * the retention sweep and expiry reminders, scoped to the test user;
  *   * kyc_events being append-only, and log redaction of aadhaar / cin.
  *
+ * And what migration 047 and the review fixes added: processing consent
+ * before the first upload or save (C3); identifier claims — only a live
+ * verification blocks a number, collisions are re-checked at submission and
+ * approval, a reviewer can release a number (C2); no full Aadhaar in "Other
+ * ID"; content validation that fails closed, generated file names, the inline
+ * preview allow-list, per-account upload caps; retention that erases identity
+ * details (not only files), never-submitted drafts, legacy rows and public
+ * uploads; and kyc_profiles -> users being ON DELETE RESTRICT.
+ *
+ * And the follow-up review items: the creator's own GET /me/creator carries
+ * no admin-only badge field and applies the KYC standing, and a grant's
+ * internal note never reaches the badge row; the fallback email template
+ * escapes its text; replaced copies past the window are erased before an
+ * upload cap refuses; an Aadhaar split by any separator is refused as an
+ * "other ID"; a lapsed tick is gone on the first profile view; a re-upload
+ * request keeps slots already sent back; the legacy-media purge never touches
+ * the admin library; purged rows are scrubbed; deleted accounts whose KYC
+ * was never erased are erased by the retention sweep.
+ *
  * Every row it writes belongs to `it-kycv-*` throwaway accounts and is removed
  * at the end. No seeded demo row is read for writing, let alone changed.
  */
@@ -233,6 +252,14 @@ Suite::check('masked renderings are recognised', KycIdentifiers::isMasked('XXXXX
     && KycIdentifiers::isMasked('XXXX XXXX 1234') && KycIdentifiers::isMasked('••••1234')
     && !KycIdentifiers::isMasked($creatorPan));
 Suite::check(
+    'an Aadhaar written with any separator is still recognised as one',
+    KycIdentifiers::looksLikeAadhaar('2345.6789.0123') && KycIdentifiers::looksLikeAadhaar('2345/6789/0123')
+        && KycIdentifiers::looksLikeAadhaar('2345_6789_0123') && KycIdentifiers::looksLikeAadhaar('2345 6789-0123')
+        && !KycIdentifiers::looksLikeAadhaar('K1234567') && !KycIdentifiers::looksLikeAadhaar('MH12 20110012345')
+        && !KycIdentifiers::looksLikeAadhaar('1234.5678.9012')
+);
+Suite::equals('normalize() itself still strips only spaces and hyphens', KycIdentifiers::normalize(' ab-c.d/e '), 'ABC.D/E');
+Suite::check(
     'company types map onto the CIN rule',
     KycIdentifiers::companyTypeRequiresCin('private_limited') && KycIdentifiers::companyTypeRequiresCin('opc')
         && !KycIdentifiers::companyTypeRequiresCin('partnership') && !KycIdentifiers::companyTypeRequiresCin('llp')
@@ -267,11 +294,74 @@ if (!$kvReady) {
     Suite::equals('editable mirrors is_editable', $first->at('data.profile.editable'), true);
     Suite::equals('can_submit is on the profile too', $first->at('data.profile.can_submit'), false);
 
+    // -----------------------------------------------------------------
+    Suite::group('KYC verification — processing consent before the first upload or save');
+
+    $fresh = Http::get('/me/kyc', [], 'kycv-brand2');
+    Suite::equals('a fresh profile asks for processing consent', $fresh->at('data.profile.processing_consent_required'), true);
+    Suite::equals('and has none on record', $fresh->at('data.profile.processing_consent_at'), null);
+
+    $noConsentSave = Http::put('/me/kyc/details', ['company_name' => 'IT KYCV Unconsented Ltd'], 'kycv-brand2');
+    Suite::status('a detail save without consent is refused', $noConsentSave, 422);
+    Suite::equals(
+        'keyed consent, in the agreed words',
+        $kvErrors($noConsentSave)['consent'][0] ?? null,
+        'Please agree to the processing of your documents first.'
+    );
+    Suite::equals(
+        'and nothing was stored',
+        (int) Database::scalar(
+            'SELECT COUNT(*) FROM `kyc_brand_details` d JOIN `kyc_profiles` p ON p.`id` = d.`profile_id` WHERE p.`user_id` = :u',
+            ['u' => $kvBrand2Id]
+        ),
+        0
+    );
+
+    $noConsentUpload = Http::upload('/me/kyc/documents', ['file' => $kvPng], ['slot' => 'gst_certificate'], 'kycv-brand2');
+    Suite::status('an upload without consent is refused', $noConsentUpload, 422);
+    Suite::check('keyed consent too', isset($kvErrors($noConsentUpload)['consent']), $noConsentUpload->describe(300));
+    Suite::equals(
+        'and no document was stored',
+        (int) Database::scalar('SELECT COUNT(*) FROM `kyc_documents` WHERE `user_id` = :u', ['u' => $kvBrand2Id]),
+        0
+    );
+
+    $falseConsent = Http::put('/me/kyc/details', ['consent' => false, 'industry' => 'Retail'], 'kycv-brand2');
+    Suite::status('consent: false is no consent', $falseConsent, 422);
+
+    $given = Http::put('/me/kyc/details', ['consent' => true], 'kycv-brand2');
+    Suite::ok('consent: true on its own records it', $given);
+    Suite::equals('the profile stops asking', $given->at('data.profile.processing_consent_required'), false);
+    Suite::notEmpty('and carries when it was given', $given->at('data.profile.processing_consent_at'));
+    Suite::equals('for the current wording', $given->at('data.profile.processing_consent_version'), KycService::consentVersion());
+
+    $brand2Profile   = $kvProfileId($kvBrand2Id, 'brand');
+    $consentEvents   = $kvEvents($brand2Profile, 'processing_consent_given');
+    $consentMetadata = json_decode((string) ($consentEvents[0]['metadata'] ?? ''), true);
+    Suite::equals('it is on the audit trail once', count($consentEvents), 1);
+    Suite::equals('with the wording version', $consentMetadata['consent_version'] ?? null, KycService::consentVersion());
+    Suite::equals('as the applicant\'s own act', $consentEvents[0]['actor_type'] ?? null, 'user');
+    Suite::check('separately from the submission consent', KycService::find($brand2Profile)['consent_at'] === null);
+
+    Suite::ok('after that, saves need no consent field', Http::put('/me/kyc/details', ['industry' => 'Retail'], 'kycv-brand2'));
+    Http::put('/me/kyc/details', ['consent' => true], 'kycv-brand2');
+    Suite::equals('and giving it again records nothing new', count($kvEvents($brand2Profile, 'processing_consent_given')), 1);
+
+    // New consent wording: asked again before anything more is processed.
+    Database::update('kyc_profiles', ['processing_consent_version' => 'it-old'], ['id' => $brand2Profile]);
+    Suite::status(
+        'a consent given to older wording is asked for again',
+        Http::put('/me/kyc/details', ['industry' => 'Media'], 'kycv-brand2'),
+        422
+    );
+
     // Processing consent is given once, before the first save or upload
     // (contract C3); the rest of this suite is about what comes after it.
     foreach (['kycv-creator', 'kycv-twin', 'kycv-brand', 'kycv-brand2'] as $kvActor) {
         $kvPut([], $kvActor);
     }
+
+    Suite::group('KYC verification — creator details (continued)');
 
     Suite::check(
         'the creator checklist requires Aadhaar front/back and PAN, each missing',
@@ -399,7 +489,72 @@ if (!$kvReady) {
         $bullets->describe(200)
     );
 
+    // --- the "other ID" field cannot carry a full Aadhaar -------------------
+    $otherIdAadhaar = Http::put('/me/kyc/details', ['id_proof_number' => $aadhaarB], 'kycv-creator');
+    Suite::status('a 12-digit Aadhaar typed into "Other ID number" is refused', $otherIdAadhaar, 422);
+    Suite::check(
+        'the error is keyed id_proof_number and points at the Aadhaar field',
+        str_contains((string) ($kvErrors($otherIdAadhaar)['id_proof_number'][0] ?? ''), 'Aadhaar field'),
+        $otherIdAadhaar->describe(300)
+    );
+    $typedPassport = Http::put('/me/kyc/details', ['id_proof_type' => 'passport', 'id_proof_number' => substr($aadhaarB, 0, 4) . ' ' . substr($aadhaarB, 4)], 'kycv-creator');
+    Suite::status('whatever type is chosen for it', $typedPassport, 422);
+    Suite::equals(
+        'and no full Aadhaar was stored as an "other ID"',
+        Database::scalar(
+            'SELECT d.`id_proof_number` FROM `kyc_creator_details` d JOIN `kyc_profiles` p ON p.`id` = d.`profile_id` WHERE p.`user_id` = :u',
+            ['u' => $kvCreatorId]
+        ),
+        null
+    );
+    Suite::ok('a real passport number is still accepted there', Http::put('/me/kyc/details', ['id_proof_type' => 'passport', 'id_proof_number' => 'K1234567'], 'kycv-creator'));
+
+    // Dots, slashes or underscores between the groups do not get it past the guard.
+    $separated = [];
+    foreach (['.', '/', '_'] as $separator) {
+        $res = Http::put('/me/kyc/details', [
+            'id_proof_type'   => 'voter_id',
+            'id_proof_number' => substr($aadhaarB, 0, 4) . $separator . substr($aadhaarB, 4, 4) . $separator . substr($aadhaarB, 8),
+        ], 'kycv-creator');
+        $separated[$separator] = $res->status === 422 && isset($kvErrors($res)['id_proof_number']);
+    }
+    Suite::equals('an Aadhaar split by ".", "/" or "_" is refused in "Other ID number" too', $separated, ['.' => true, '/' => true, '_' => true]);
+    Suite::equals(
+        'and the stored other ID is still the passport number',
+        Crypto::decryptNullable((string) Database::scalar(
+            'SELECT d.`id_proof_number` FROM `kyc_creator_details` d JOIN `kyc_profiles` p ON p.`id` = d.`profile_id` WHERE p.`user_id` = :u',
+            ['u' => $kvCreatorId]
+        )),
+        'K1234567'
+    );
+
     // --- uniqueness -----------------------------------------------------
+    // Only a verification that really claims a number (submitted, in review,
+    // waiting on its owner, approved, suspended) blocks another account. A
+    // draft does not: otherwise anyone could squat a public GSTIN or a
+    // stranger's PAN in a draft and lock its holder out for good.
+    $creatorProfile = $kvProfileId($kvCreatorId, 'creator');
+    $twinPanInDraft = Http::put('/me/kyc/details', ['pan_number' => $creatorPan], 'kycv-twin');
+    Suite::ok('a number held only by another account\'s DRAFT does not block', $twinPanInDraft);
+
+    // The creator's verification now claims its numbers (as if submitted).
+    Database::update('kyc_profiles', ['status' => 'submitted'], ['id' => $creatorProfile]);
+
+    $twinProfile = $kvProfileId($kvTwinId, 'creator');
+    Suite::equals(
+        'a draft sharing a number with a live claim reports the collision',
+        KycService::identifierCollisions($twinProfile),
+        ['PAN']
+    );
+    Suite::check(
+        'and could never be approved over it',
+        (bool) array_filter(
+            KycService::approvalBlockers($twinProfile),
+            static fn (string $b): bool => str_contains($b, 'Also claimed by another account') && str_contains($b, 'PAN')
+        ),
+        json_encode(KycService::approvalBlockers($twinProfile))
+    );
+
     $dupeAadhaar = Http::put('/me/kyc/details', ['aadhaar_number' => $aadhaarA], 'kycv-twin');
     Suite::status('another account cannot reuse the Aadhaar', $dupeAadhaar, 422);
     Suite::equals(
@@ -420,8 +575,18 @@ if (!$kvReady) {
         'This PAN is already linked to another account.'
     );
 
-    $twinOwn = Http::put('/me/kyc/details', ['aadhaar_number' => $aadhaarB], 'kycv-twin');
+    $twinOwn = Http::put('/me/kyc/details', ['aadhaar_number' => $aadhaarB, 'pan_number' => null], 'kycv-twin');
     Suite::ok('a different Aadhaar is fine for the other account', $twinOwn);
+    Suite::equals('with nothing shared, there is no collision', KycService::identifierCollisions($twinProfile), []);
+
+    // Rejected and draft claims do not count either.
+    Database::update('kyc_profiles', ['status' => 'rejected'], ['id' => $creatorProfile]);
+    Suite::ok(
+        'a number on a REJECTED verification can be used by another account',
+        Http::put('/me/kyc/details', ['pan_number' => $creatorPan], 'kycv-twin')
+    );
+    Http::put('/me/kyc/details', ['pan_number' => null], 'kycv-twin');
+    Database::update('kyc_profiles', ['status' => 'draft'], ['id' => $creatorProfile]);
 
     // -----------------------------------------------------------------
     Suite::group('KYC verification — brand details');
@@ -473,6 +638,10 @@ if (!$kvReady) {
     Suite::check('no brand identifier leaks in clear', !str_contains(strtoupper($company->body), $brandGst)
         && !str_contains(strtoupper($company->body), $brandCin), 'a brand identifier leaked');
 
+    // The first brand's verification claims its numbers (as if submitted).
+    $brandProfileForClaims = $kvProfileId($kvBrandId, 'brand');
+    Database::update('kyc_profiles', ['status' => 'submitted'], ['id' => $brandProfileForClaims]);
+
     $dupeGst = Http::put('/me/kyc/details', ['pan_number' => $brandPan, 'gst_number' => $brandGst], 'kycv-brand2');
     Suite::status('another brand cannot reuse the GSTIN', $dupeGst, 422);
     Suite::equals(
@@ -480,6 +649,13 @@ if (!$kvReady) {
         $kvErrors($dupeGst)['gst_number'][0] ?? null,
         'This GSTIN is already linked to another account.'
     );
+
+    // Back to a draft: a draft claims nothing, so the second brand may hold
+    // the same numbers for now. The conflict is settled at submission and
+    // at approval (below).
+    Database::update('kyc_profiles', ['status' => 'draft'], ['id' => $brandProfileForClaims]);
+    $draftShare = Http::put('/me/kyc/details', ['pan_number' => $brandPan, 'gst_number' => $brandGst], 'kycv-brand2');
+    Suite::ok('a GSTIN held only in another brand\'s draft does not block', $draftShare);
 
     $partnership = Http::put('/me/kyc/details', ['company_type' => 'partnership'], 'kycv-brand');
     Suite::equals('a partnership needs no CIN', $partnership->at('data.details.cin_required'), false);
@@ -553,6 +729,184 @@ if (!$kvReady) {
         $kvUpload('kycv-creator', 'pan_card', $kvPng, ['replace_document_id' => (int) ($replace->at('data.documents.0.id') ?? 0)]),
         422
     );
+
+    // -----------------------------------------------------------------
+    Suite::group('KYC verification — document content, names and caps');
+
+    Suite::equals(
+        'the client\'s file name is not kept; the document gets a vault label',
+        $frontDoc['original_name'] ?? null,
+        'aadhaar_front-' . date('Ymd') . '.png'
+    );
+    Suite::check(
+        'no stored row carries the uploaded file name',
+        (int) Database::scalar(
+            "SELECT COUNT(*) FROM `kyc_documents` WHERE `user_id` = :u AND `original_name` LIKE 'it-kycv-proof%'",
+            ['u' => $kvCreatorId]
+        ) === 0
+    );
+
+    // Content validation fails closed: unrecognisable bytes are not "probably a PDF".
+    $junkPdf = sys_get_temp_dir() . '/it-kycv-junk.pdf';
+    file_put_contents($junkPdf, str_repeat("\x00\x13\x37", 64) . '%PDF-1.4 late header');
+    $junk = $kvUpload('kycv-twin', 'supporting', $junkPdf);
+    Suite::status('bytes the sniffer cannot identify are refused, whatever the name', $junk, 422);
+    Suite::check('as not a genuine PDF', str_contains($junk->message(), 'genuine PDF'), $junk->message());
+    @unlink($junkPdf);
+
+    if (class_exists(\ZipArchive::class)) {
+        $fakeDocx = sys_get_temp_dir() . '/it-kycv-fake.docx';
+        @unlink($fakeDocx);
+        $zip = new \ZipArchive();
+        $zip->open($fakeDocx, \ZipArchive::CREATE);
+        $zip->addFromString('payload.txt', 'not an office document');
+        $zip->close();
+        Suite::status('a bare zip renamed .docx is refused', $kvUpload('kycv-twin', 'resume', $fakeDocx), 422);
+        @unlink($fakeDocx);
+    }
+
+    Suite::check(
+        'a format the vault cannot check by content is never allowed, whatever the settings say',
+        static function (): bool {
+            $allowed = new \ReflectionMethod(DocumentVault::class, 'allowedExtensions');
+
+            return $allowed->invoke(null, ['allowed_formats' => 'pdf, XML,svgz ,heic,php']) === ['pdf']
+                && !in_array('xml', DocumentVault::supportedExtensions(), true);
+        }
+    );
+    Suite::check(
+        'the client is only ever offered checkable formats',
+        KycService::formatList('pdf, JPG,xml') === ['pdf', 'jpg']
+    );
+
+    // Inline only for the allow-list: a stored type outside it goes out as an
+    // opaque attachment, never rendered.
+    $frontId = (int) ($frontDoc['id'] ?? 0);
+    Database::update('kyc_documents', ['mime_type' => 'text/html'], ['id' => $frontId]);
+    try {
+        $htmlPreview = Http::get($previewPath, [], 'kycv-creator');
+        Suite::check(
+            'a stored type outside the inline allow-list is sent as an attachment',
+            $htmlPreview->status === 200
+                && str_starts_with((string) $htmlPreview->header('content-disposition'), 'attachment')
+                && str_starts_with((string) $htmlPreview->header('content-type'), 'application/octet-stream'),
+            (string) $htmlPreview->header('content-type') . ' / ' . (string) $htmlPreview->header('content-disposition')
+        );
+    } finally {
+        Database::update('kyc_documents', ['mime_type' => 'image/png'], ['id' => $frontId]);
+    }
+    Suite::equals('and is not offered for preview', DocumentVault::present(['mime_type' => 'text/html', 'id' => 1, 'slot' => 's', 'title' => 't', 'document_type' => 'other', 'original_name' => null, 'file_size' => 1, 'version' => 1, 'expires_on' => null, 'created_at' => null])['can_preview'], false);
+
+    // Document links have their own key, not the JWT secret.
+    Suite::check(
+        'document links are not signed with the JWT secret',
+        static function (): bool {
+            $token   = DocumentVault::signToken(1, 'user', 1);
+            $decoded = (string) base64_decode(strtr($token, '-_', '+/') . str_repeat('=', (4 - strlen($token) % 4) % 4), true);
+            $parts   = explode('|', $decoded);
+            $payload = implode('|', array_slice($parts, 0, 4));
+            $jwt     = (string) \Zuste\Core\Config::get('jwt.secret', '');
+
+            return count($parts) === 5
+                && !hash_equals(Crypto::sign($payload, $jwt . '|kyc-document'), $parts[4])
+                && DocumentVault::verifyToken($token)['document_id'] === 1;
+        }
+    );
+
+    // Per-account caps: files at once in a multi-file slot (default 5).
+    $twinSupporting = [];
+    for ($i = 0; $i < 5; $i++) {
+        $twinSupporting[] = $kvUpload('kycv-twin', 'supporting', $kvPng)->status;
+    }
+    Suite::equals('five supporting files are accepted', $twinSupporting, [201, 201, 201, 201, 201]);
+    $sixth = $kvUpload('kycv-twin', 'supporting', $kvPng);
+    Suite::status('a sixth is refused', $sixth, 422);
+    Suite::equals('with the upload-limit code', $sixth->code(), 'kyc_upload_limit');
+    Suite::check('saying how many files are allowed', str_contains($sixth->message(), 'up to 5 files'), $sixth->message());
+
+    $capsOf = new \ReflectionMethod(KycService::class, 'assertWithinUploadCaps');
+    $twinProfileForCaps = $kvProfileId($kvTwinId, 'creator');
+    $panRequirement     = KycService::requirement('creator', 'pan_card');
+
+    // Copies of one document held at once (default 10), and bytes per
+    // account (default 100 MB) — exercised with placeholder rows.
+    $placeholder = static function (int $size, int $current) use ($kvTwinId, $twinProfileForCaps): int {
+        return Database::insert('kyc_documents', [
+            'user_id' => $kvTwinId, 'profile_id' => $twinProfileForCaps, 'document_type' => 'pan', 'slot' => 'pan_card',
+            'title' => 'IT placeholder', 'file_size' => $size, 'is_encrypted' => 1, 'version' => 1,
+            'is_current' => $current, 'status' => 'pending', 'created_at' => date('Y-m-d H:i:s'),
+        ]);
+    };
+    $placeholders = [];
+    for ($i = 0; $i < 10; $i++) {
+        $placeholders[] = $placeholder(10, 0);
+    }
+    $versionsRefusal = $kvRefusal(static fn () => $capsOf->invoke(null, $twinProfileForCaps, $kvTwinId, $panRequirement, true, 10));
+    Suite::equals('an 11th copy of one document is refused', $versionsRefusal?->errorCode(), 'kyc_upload_limit');
+    Database::execute('DELETE FROM `kyc_documents` WHERE `id` IN (' . implode(',', $placeholders) . ')');
+
+    $big = $placeholder(100 * 1024 * 1024, 1);
+    $bytesRefusal = $kvRefusal(static fn () => $capsOf->invoke(null, $twinProfileForCaps, $kvTwinId, $panRequirement, true, 1024));
+    Suite::equals('an upload past the per-account storage cap is refused', $bytesRefusal?->errorCode(), 'kyc_upload_limit');
+    Suite::check('saying how much is allowed', str_contains((string) $bytesRefusal?->getMessage(), '100 MB'), (string) $bytesRefusal?->getMessage());
+    Database::execute('DELETE FROM `kyc_documents` WHERE `id` = :id', ['id' => $big]);
+
+    // Replaced copies only leave the count when retention deletes them. Where
+    // the nightly job has not run, the ones already past the window are
+    // erased before the cap refuses, so nobody is locked out of a slot.
+    $replacedCopy = static function (int $daysAgo) use ($kvTwinId, $twinProfileForCaps): int {
+        $at = date('Y-m-d H:i:s', strtotime('-' . $daysAgo . ' days'));
+
+        return Database::insert('kyc_documents', [
+            'user_id' => $kvTwinId, 'profile_id' => $twinProfileForCaps, 'document_type' => 'pan', 'slot' => 'pan_card',
+            'title' => 'IT replaced copy', 'original_name' => 'pan_card-old.png', 'uploaded_ip' => inet_pton('198.51.100.20'),
+            'file_size' => 10, 'is_encrypted' => 1, 'version' => 1, 'is_current' => 0, 'status' => 'rejected',
+            'created_at' => $at, 'updated_at' => $at,
+        ]);
+    };
+    $copiesLeft = static fn (array $ids): int => (int) Database::scalar(
+        'SELECT COUNT(*) FROM `kyc_documents` WHERE `purged_at` IS NULL AND `id` IN (' . implode(',', array_map('intval', $ids)) . ')'
+    );
+
+    $agedCopies = [];
+    for ($i = 0; $i < 10; $i++) {
+        $agedCopies[] = $replacedCopy(400);
+    }
+
+    try {
+        // The re-check inside the upload's transaction never deletes a file.
+        $inTransaction = $kvRefusal(static fn () => $capsOf->invoke(null, $twinProfileForCaps, $kvTwinId, $panRequirement, true, 10, false));
+        Suite::equals('the in-transaction re-check refuses rather than erase', [$inTransaction?->errorCode(), $copiesLeft($agedCopies)], ['kyc_upload_limit', 10]);
+
+        $agedRefusal = $kvRefusal(static fn () => $capsOf->invoke(null, $twinProfileForCaps, $kvTwinId, $panRequirement, true, 10));
+        Suite::equals('replaced copies past the retention window no longer block an upload', $agedRefusal?->getMessage(), null);
+        Suite::equals('they are erased on the spot', $copiesLeft($agedCopies), 0);
+        Suite::equals(
+            'with their stored name and upload IP',
+            (int) Database::scalar(
+                'SELECT COUNT(*) FROM `kyc_documents` WHERE (`original_name` IS NOT NULL OR `uploaded_ip` IS NOT NULL)
+                    AND `id` IN (' . implode(',', $agedCopies) . ')'
+            ),
+            0
+        );
+
+        $recentCopies = [];
+        for ($i = 0; $i < 10; $i++) {
+            $recentCopies[] = $replacedCopy(1);
+        }
+
+        $recentRefusal = $kvRefusal(static fn () => $capsOf->invoke(null, $twinProfileForCaps, $kvTwinId, $panRequirement, true, 10));
+        Suite::equals('copies replaced recently still hold the cap', $recentRefusal?->errorCode(), 'kyc_upload_limit');
+        Suite::check(
+            'and the refusal tells the user to contact support',
+            str_contains((string) $recentRefusal?->getMessage(), 'contact support') && $copiesLeft($recentCopies) === 10,
+            (string) $recentRefusal?->getMessage()
+        );
+    } finally {
+        Database::execute(
+            'DELETE FROM `kyc_documents` WHERE `id` IN (' . implode(',', array_map('intval', array_merge($agedCopies, $recentCopies ?? []))) . ')'
+        );
+    }
 
     // -----------------------------------------------------------------
     Suite::group('KYC verification — consent and submit');
@@ -689,6 +1043,65 @@ if (!$kvReady) {
     Suite::equals('which clears resubmit_slots', $resubmitted->at('data.profile.resubmit_slots'), []);
 
     // -----------------------------------------------------------------
+    Suite::group('KYC verification — a re-upload request keeps slots already sent back');
+
+    // The twin's verification, as if submitted and under review, with one
+    // current document a reviewer then rejects.
+    $mergeProfile = $kvProfileId($kvTwinId, 'creator');
+    $mergeBefore  = KycService::find($mergeProfile);
+    $mergeKyc     = (string) Database::scalar('SELECT `kyc_status` FROM `users` WHERE `id` = :u', ['u' => $kvTwinId]);
+    $frontReq     = KycService::requirement('creator', 'aadhaar_front');
+    $panReq       = KycService::requirement('creator', 'pan_card');
+
+    Database::update('kyc_profiles', ['status' => 'under_review', 'resubmit_slots' => null], ['id' => $mergeProfile]);
+    $mergeDoc = Database::insert('kyc_documents', [
+        'user_id' => $kvTwinId, 'profile_id' => $mergeProfile, 'document_type' => (string) $frontReq['document_type'],
+        'slot' => 'aadhaar_front', 'title' => (string) $frontReq['label'], 'file_size' => 10, 'is_encrypted' => 1,
+        'version' => 1, 'is_current' => 1, 'status' => 'pending', 'created_at' => date('Y-m-d H:i:s'),
+    ]);
+
+    try {
+        KycService::reviewDocument($mergeDoc, 1, 'reject', 'IT: the scan is blurred.');
+        Suite::equals(
+            'a document rejected mid-review is waiting for a re-upload',
+            KycService::resubmitSlots(KycService::find($mergeProfile)),
+            ['aadhaar_front']
+        );
+
+        // The reviewer asks for the PAN card and does not tick the Aadhaar again.
+        KycService::requestResubmission($mergeProfile, 1, ['pan_card'], 'IT: and a clearer PAN card.');
+        $merged = KycService::find($mergeProfile);
+        Suite::equals(
+            'the slot already sent back stays requested alongside the new one',
+            KycService::resubmitSlots($merged),
+            ['aadhaar_front', 'pan_card']
+        );
+        Suite::check(
+            'the request the applicant reads names both documents',
+            str_contains((string) $merged['info_requested'], (string) $frontReq['label'])
+                && str_contains((string) $merged['info_requested'], (string) $panReq['label']),
+            (string) $merged['info_requested']
+        );
+        $mergeEvents = $kvEvents($mergeProfile, 'resubmission_requested');
+        $mergeMeta   = json_decode((string) (end($mergeEvents)['metadata'] ?? ''), true);
+        Suite::equals(
+            'the trail records the full list and what was ticked',
+            [$mergeMeta['slots'] ?? null, $mergeMeta['requested'] ?? null],
+            [['aadhaar_front', 'pan_card'], ['pan_card']]
+        );
+    } finally {
+        Database::execute('DELETE FROM `kyc_documents` WHERE `id` = :id', ['id' => $mergeDoc]);
+        Database::update('kyc_profiles', [
+            'status'         => (string) $mergeBefore['status'],
+            'resubmit_slots' => $mergeBefore['resubmit_slots'],
+            'info_requested' => $mergeBefore['info_requested'],
+            'reviewed_by'    => $mergeBefore['reviewed_by'],
+            'reviewed_at'    => $mergeBefore['reviewed_at'],
+        ], ['id' => $mergeProfile]);
+        Database::update('users', ['kyc_status' => $mergeKyc], ['id' => $kvTwinId]);
+    }
+
+    // -----------------------------------------------------------------
     Suite::group('KYC verification — the blue tick');
 
     KycService::startReview($creatorProfileId, 1);
@@ -807,6 +1220,62 @@ if (!$kvReady) {
     $twice = $kvRefusal(static fn () => KycService::grantBadge($creatorProfileId, 1));
     Suite::equals('granting a tick that is already showing is refused', $twice?->errorCode(), 'kyc_badge_already_granted');
 
+    // The grant note is internal. It used to be copied onto the badge row
+    // (creator_badges.awarded_note) that GET /me/creator served the creator.
+    if ($creatorRowId > 0 && isset($catalogue['creator_verified'])) {
+        Suite::equals(
+            'the creator_verified badge row carries fixed text, not the reviewer\'s note',
+            Database::scalar(
+                "SELECT `awarded_note` FROM `creator_badges` WHERE `creator_id` = :c AND `badge` = 'creator_verified'",
+                ['c' => $creatorRowId]
+            ),
+            'Blue tick granted.'
+        );
+        Suite::equals(
+            'and so does the badge history',
+            (int) Database::scalar(
+                "SELECT COUNT(*) FROM `creator_badge_events` WHERE `creator_id` = :c AND `note` LIKE '%fast-tracked%'",
+                ['c' => $creatorRowId]
+            ),
+            0
+        );
+        $grantEvents = $kvEvents($creatorProfileId, 'badge_granted');
+        Suite::check(
+            'the reviewer\'s note is kept in the grant event\'s metadata only',
+            str_contains((string) (end($grantEvents)['metadata'] ?? ''), 'fast-tracked')
+                && (end($grantEvents)['note'] ?? null) === 'Blue tick granted.'
+        );
+
+        $own      = Http::get('/me/creator', [], 'kycv-creator');
+        $ownBadge = static function (\Zuste\Tests\Res $res, string $value): ?array {
+            foreach ($res->at('data.badges') ?? [] as $badge) {
+                if (($badge['value'] ?? null) === $value) {
+                    return $badge;
+                }
+            }
+
+            return null;
+        };
+        Suite::ok('GET /me/creator answers the creator', $own);
+        Suite::check('the creator\'s own profile never carries the internal grant note', !str_contains($own->body, 'fast-tracked'));
+        Suite::check(
+            'nor any admin-only badge field',
+            static function () use ($own): bool {
+                $badges = $own->at('data.badges') ?? [];
+
+                foreach ($badges as $badge) {
+                    if (array_intersect(['awarded_note', 'awarded_by', 'revoke_reason', 'manageable'], array_keys($badge)) !== []) {
+                        return false;
+                    }
+                }
+
+                return $badges !== [];
+            },
+            json_encode(array_slice($own->at('data.badges') ?? [], 0, 2))
+        );
+        Suite::equals('the tick reads as held there', ($ownBadge($own, 'creator_verified') ?? [])['held'] ?? null, true);
+    }
+
     // Internal admin activity the applicant must never see in their trail.
     KycService::recordEvent($creatorProfileId, 'note_added', ['actor_type' => 'admin', 'actor_id' => 1, 'note' => 'Internal note added.']);
     KycService::recordEvent($creatorProfileId, 'document_previewed', ['actor_type' => 'admin', 'actor_id' => 1, 'note' => 'Reviewer viewed PAN card.']);
@@ -898,6 +1367,34 @@ if (!$kvReady) {
         );
     }
 
+    // A KYC badge row left active by a failed sync is not held on the
+    // creator's own profile either — the same KYC re-check as the public one.
+    if ($creatorRowId > 0 && $kycBadges !== [] && isset($ownBadge)) {
+        $staleBadge = $kycBadges[0];
+        Database::execute(
+            "UPDATE `creator_badges` SET `status` = 'active' WHERE `creator_id` = :c AND `badge` = :b",
+            ['c' => $creatorRowId, 'b' => $staleBadge]
+        );
+
+        try {
+            $staleEntry = $ownBadge(Http::get('/me/creator', [], 'kycv-creator'), $staleBadge) ?? [];
+            Suite::equals(
+                'a stale KYC badge with no current approval reads as not held on GET /me/creator',
+                [
+                    $staleEntry['held'] ?? null,
+                    $staleEntry['status'] ?? null,
+                    array_key_exists('awarded_at', $staleEntry) ? $staleEntry['awarded_at'] : 'missing',
+                ],
+                [false, 'none', null]
+            );
+        } finally {
+            Database::execute(
+                "UPDATE `creator_badges` SET `status` = 'revoked' WHERE `creator_id` = :c AND `badge` = :b",
+                ['c' => $creatorRowId, 'b' => $staleBadge]
+            );
+        }
+    }
+
     $reSuspend = $kvRefusal(static fn () => KycService::suspend($creatorProfileId, 1, 'Again'));
     Suite::equals('suspending a suspended profile is refused', $reSuspend?->errorCode(), 'kyc_already_in_state');
     Suite::equals('and keeps the reason the user was given', KycService::find($creatorProfileId)['rejection_reason'], 'IT suspension');
@@ -966,6 +1463,57 @@ if (!$kvReady) {
         '<p>Hi &lt;a href=&quot;x&quot;&gt;Z&lt;/a&gt; O&#039;Neil &amp; co</p>'
     );
 
+    // The branded fallback every template without an email_body goes through
+    // (kyc.* included, if an operator blanks one) escapes its text too.
+    $fallback = \Zuste\Services\MailService::renderDefault(
+        'Re: <b>KYC</b>',
+        "Name on PAN <RAHUL K> differs & more\nSecond line",
+        '<Ira>'
+    );
+    Suite::check(
+        'the fallback email escapes its title',
+        str_contains($fallback, '&lt;b&gt;KYC&lt;/b&gt;') && !str_contains($fallback, '<b>KYC</b>'),
+        mb_substr($fallback, 0, 300)
+    );
+    Suite::check(
+        'and its body, keeping the line break',
+        str_contains($fallback, 'Name on PAN &lt;RAHUL K&gt; differs &amp; more<br />' . "\n" . 'Second line')
+            && !str_contains($fallback, '<RAHUL K>') && str_contains($fallback, 'Hi &lt;Ira&gt;,')
+    );
+    Suite::check('the logo header is still on it', str_contains($fallback, 'zusty-logo-email.png'));
+
+    // The two admin callers that hand over pre-escaped formatting (the invite's
+    // <strong> password, the contact reply's nl2br) render as before.
+    $preformatted = \Zuste\Services\MailService::renderDefault(
+        'Invite',
+        'Your password: <strong>' . htmlspecialchars("p&'w", ENT_QUOTES, 'UTF-8') . '</strong>' . "\n"
+            . nl2br(htmlspecialchars("it's\nok\r\nfrom a textarea", ENT_QUOTES, 'UTF-8'))
+    );
+    Suite::check(
+        'pre-escaped <strong> and <br> survive, and nothing is escaped or broken twice',
+        str_contains($preformatted, '<strong>p&amp;&#039;w</strong><br />' . "\n")
+            && str_contains($preformatted, 'it&#039;s<br />' . "\n" . 'ok<br />' . "\r\n" . 'from a textarea')
+            && !str_contains($preformatted, '&amp;amp;') && !str_contains($preformatted, '&amp;#039;')
+            && substr_count($preformatted, '<br />') === 3,
+        mb_substr($preformatted, (int) strpos($preformatted, 'Your password'), 160)
+    );
+    Suite::equals(
+        'a plain CRLF is one line break',
+        substr_count(\Zuste\Services\MailService::renderDefault('t', "a\r\nb\rc\nd"), '<br />'),
+        3
+    );
+    $attributes = \Zuste\Services\MailService::renderDefault('t', '<strong onclick="x()">a</strong><script>b()</script><img src=x onerror=y>');
+    Suite::check(
+        'any other tag, or a kept tag with attributes, stays text',
+        !str_contains($attributes, '<strong onclick') && !str_contains($attributes, '<script>') && !str_contains($attributes, '<img src=x')
+    );
+    $otpMail = \Zuste\Services\MailService::renderOtp('482915', 'verify_email', 10);
+    Suite::check(
+        'the OTP email still carries its code under the text',
+        preg_match('#to verify email\..*</p><div[^>]*><div[^>]*>482915</div></div>#s', $otpMail) === 1,
+        mb_substr($otpMail, (int) strpos($otpMail, 'Use the verification'), 400)
+    );
+
     // A notification failure never fails (or rolls back) a decision.
     Suite::check(
         'a failing notification is logged on the admin trail, not thrown',
@@ -1000,6 +1548,158 @@ if (!$kvReady) {
     $systemApproval = $kvRefusal(static fn () => KycService::approve($brandProfileId, null, 'Auto-approved by policy.'));
     Suite::equals('a system approval is refused', $systemApproval?->errorCode(), 'kyc_reviewer_required');
     Suite::equals('and moves nothing', KycService::find($brandProfileId)['status'], 'submitted');
+
+    // -----------------------------------------------------------------
+    Suite::group('KYC verification — a lapsed tick on the creator profile');
+
+    if ($creatorRowId <= 0 || !isset($catalogue['creator_verified'])) {
+        Suite::skipGroup('KYC verification — a lapsed tick on the creator profile', 'no creator row or no creator_verified badge');
+    } else {
+        // The creator's verification as an approved, ticked one whose validity
+        // ran out yesterday — and no sweep has noticed yet.
+        Database::update('kyc_profiles', [
+            'status'       => 'approved',
+            'badge_status' => 'granted',
+            'expires_on'   => date('Y-m-d', strtotime('-1 day')),
+            'purged_at'    => null,
+        ], ['id' => $creatorProfileId]);
+        Database::update('users', ['has_blue_tick' => 1, 'kyc_status' => 'verified'], ['id' => $kvCreatorId]);
+        Database::update('creators', ['is_verified' => 1, 'verified_at' => date('Y-m-d H:i:s')], ['id' => $creatorRowId]);
+        Database::execute(
+            "UPDATE `creator_badges` SET `status` = 'active', `revoked_at` = NULL, `expires_at` = NULL
+              WHERE `creator_id` = :c AND `badge` = 'creator_verified'",
+            ['c' => $creatorRowId]
+        );
+
+        $lapsedProfile = \Zuste\Services\CreatorService::profile($creatorRowId, $kvCreatorId);
+        Suite::equals('the first view after the approval lapses already shows no tick', (int) $lapsedProfile['is_verified'], 0);
+        Suite::check(
+            'and agrees with its own badge list',
+            !in_array('creator_verified', array_column($lapsedProfile['badges'] ?? [], 'value'), true),
+            json_encode(array_column($lapsedProfile['badges'] ?? [], 'value'))
+        );
+        Suite::equals('the approval was expired on the spot', KycService::find($creatorProfileId)['status'], 'expired');
+        Suite::equals('and the tick is off everywhere', $kvTick($kvCreatorId), ['users' => 0, 'creators' => 0]);
+    }
+
+    // -----------------------------------------------------------------
+    Suite::group('KYC verification — identifier claims at submission and approval');
+
+    // The second brand saved the same PAN and GSTIN while the first was a
+    // draft. Now the first has submitted, its claim is live.
+    Suite::equals(
+        'the draft holding the same numbers now collides with the live claim',
+        KycService::identifierCollisions($brand2Profile),
+        ['PAN', 'GSTIN']
+    );
+
+    Http::put('/me/kyc/details', [
+        'company_name'       => 'IT KYCV Second Brand',
+        'company_type'       => 'partnership',
+        'registered_address' => '2 Test Street, Bengaluru 560001',
+    ], 'kycv-brand2');
+    $kvUpload('kycv-brand2', 'gst_certificate', $kvPng);
+
+    $brand2View = Http::get('/me/kyc', [], 'kycv-brand2');
+    Suite::equals('it is complete on paper', $brand2View->at('data.completeness'), 100);
+    Suite::equals('but cannot be submitted', $brand2View->at('data.can_submit'), false);
+
+    $brand2Submit = Http::post('/me/kyc/submit', ['consent' => true], 'kycv-brand2');
+    Suite::status('submitting it is refused', $brand2Submit, 422);
+    Suite::equals('with its own code', $brand2Submit->code(), 'kyc_identifier_taken');
+    Suite::check(
+        'saying the numbers are taken, never by whom',
+        str_contains($brand2Submit->message(), 'already linked to another account')
+            && !str_contains($brand2Submit->body, 'KYCV Brand') && !str_contains($brand2Submit->body, Actors::email('kycv-brand')),
+        $brand2Submit->describe(300)
+    );
+    Suite::equals('and it stays a draft', KycService::find($brand2Profile)['status'], 'draft');
+
+    // Had both reached the queue (two submissions racing), neither could be
+    // approved while the other still claims the same numbers.
+    Database::update('kyc_profiles', ['status' => 'submitted'], ['id' => $brand2Profile]);
+    $raced = $kvRefusal(static fn () => KycService::approve($brandProfileId, 1, 'Both in the queue.'));
+    Suite::equals('approval is blocked while another live verification claims the numbers', $raced?->errorCode(), 'kyc_incomplete');
+    Suite::check(
+        'and the blocker names what is shared',
+        str_contains((string) $raced?->getMessage(), 'Also claimed by another account\'s verification: PAN, GSTIN'),
+        (string) $raced?->getMessage()
+    );
+    Database::update('kyc_profiles', ['status' => 'draft'], ['id' => $brand2Profile]);
+
+    // A legacy row (saved before blind indexes) is hashed from its value
+    // instead of slipping past the check.
+    Database::update('kyc_brand_details', ['gst_hash' => null, 'pan_hash' => null], ['profile_id' => $brand2Profile]);
+    Suite::equals(
+        'a value with no stored hash is still compared',
+        KycService::identifierCollisions($brand2Profile),
+        ['PAN', 'GSTIN']
+    );
+
+    // A reviewer releases the numbers from the account that should not hold them.
+    $noReason = $kvRefusal(static fn () => KycService::releaseIdentifier($brand2Profile, 'gstin', 1, '  '));
+    Suite::equals('a release needs a reason', $noReason?->status(), 422);
+    $wrongKind = $kvRefusal(static fn () => KycService::releaseIdentifier($brand2Profile, 'aadhaar', 1, 'IT'));
+    Suite::equals('a brand has no Aadhaar to release', $wrongKind?->status(), 422);
+
+    KycService::releaseIdentifier($brand2Profile, 'gstin', 1, 'IT: the GSTIN belongs to the other brand');
+    KycService::releaseIdentifier($brand2Profile, 'pan', 1, 'IT: the PAN belongs to the other brand');
+
+    $releasedRow = Database::selectOne(
+        'SELECT `gst_number`, `gst_hash`, `pan_number`, `pan_hash`, `company_name` FROM `kyc_brand_details` WHERE `profile_id` = :p',
+        ['p' => $brand2Profile]
+    ) ?? [];
+    Suite::check(
+        'the numbers and their blind indexes are gone from that verification',
+        array_key_exists('gst_number', $releasedRow)
+            && $releasedRow['gst_number'] === null && $releasedRow['gst_hash'] === null
+            && $releasedRow['pan_number'] === null && $releasedRow['pan_hash'] === null,
+        json_encode(array_map(static fn ($v) => $v === null ? null : 'set', $releasedRow))
+    );
+    Suite::equals('the rest of the block is untouched', $releasedRow['company_name'] ?? null, 'IT KYCV Second Brand');
+    Suite::equals('so nothing collides any more', KycService::identifierCollisions($brand2Profile), []);
+
+    $releaseEvents = $kvEvents($brand2Profile, 'identifier_released');
+    Suite::equals('each release is on the audit trail', count($releaseEvents), 2);
+    Suite::check(
+        'by the admin, with the reason and which number — never the number itself',
+        ($releaseEvents[0]['actor_type'] ?? null) === 'admin' && (int) ($releaseEvents[0]['actor_id'] ?? 0) === 1
+            && str_contains((string) ($releaseEvents[0]['note'] ?? ''), 'belongs to the other brand')
+            && (json_decode((string) ($releaseEvents[0]['metadata'] ?? ''), true)['field'] ?? null) === 'gstin'
+            && !str_contains((string) json_encode($releaseEvents), $brandGst)
+            && !str_contains((string) json_encode($releaseEvents), $brandPan),
+        json_encode($releaseEvents[0] ?? null)
+    );
+    $brand2Timeline = Http::get('/me/kyc/timeline', [], 'kycv-brand2')->at('data.timeline') ?? [];
+    Suite::check(
+        'the applicant sees a fixed line, not the reviewer\'s reason',
+        in_array('identifier_released', array_column($brand2Timeline, 'action'), true)
+            && !str_contains((string) json_encode($brand2Timeline), 'belongs to the other brand'),
+        json_encode(array_slice($brand2Timeline, 0, 3))
+    );
+    Suite::equals(
+        'releasing a number that is not held is refused',
+        $kvRefusal(static fn () => KycService::releaseIdentifier($brand2Profile, 'gstin', 1, 'Again'))?->errorCode(),
+        'identifier_not_held'
+    );
+
+    // Stored values are re-validated, not trusted: a company PAN that does
+    // not match the GSTIN (or is not a PAN) is a detail issue.
+    Database::update('kyc_brand_details', [
+        'gst_number' => Crypto::encrypt($otherGst),
+        'pan_number' => Crypto::encrypt($brandPan),
+    ], ['profile_id' => $brand2Profile]);
+    Suite::check(
+        'a stored company PAN that is not the one in the GSTIN blocks approval',
+        in_array('Company PAN (does not match the GSTIN)', KycService::detailIssues($brand2Profile, 'brand'), true),
+        json_encode(KycService::detailIssues($brand2Profile, 'brand'))
+    );
+    Database::update('kyc_brand_details', ['pan_number' => Crypto::encrypt('NOTAPAN')], ['profile_id' => $brand2Profile]);
+    Suite::check(
+        'and so does a stored value that is not a PAN at all',
+        in_array('Company PAN', KycService::detailIssues($brand2Profile, 'brand'), true)
+    );
+    Database::update('kyc_brand_details', ['gst_number' => null, 'pan_number' => null], ['profile_id' => $brand2Profile]);
 
     Suite::equals('a brand with no Aadhaar needs no masked-copy attestation', KycService::needsAadhaarMaskedAttestation($brandProfileId), false);
     KycService::approve($brandProfileId, 1, 'Business documents verified.');
@@ -1178,8 +1878,47 @@ if (!$kvReady) {
         ['u' => $kvCreatorId]
     ));
 
+    // A reviewer's working note quoting the applicant's documents, and an ID
+    // image the retired public uploader (/me/upload folder=kyc) left behind.
+    Database::insert('kyc_notes', [
+        'profile_id' => $creatorProfileId,
+        'admin_id'   => 1,
+        'body'       => 'IT note: PAN on the card reads ' . $creatorPan,
+        'created_at' => date('Y-m-d H:i:s'),
+    ]);
+
+    $uploadRoot   = rtrim((string) \Zuste\Core\Config::get('storage.upload_path'), '/\\');
+    $legacyRel    = 'kyc/' . date('Y/m') . '/it-kycv-legacy-' . $kvCreatorId . '.png';
+    $legacyFile   = $uploadRoot . '/' . $legacyRel;
+    @mkdir(dirname($legacyFile), 0755, true);
+    file_put_contents($legacyFile, $pngBytes);
+    $legacyMediaId = Database::insert('media', [
+        'disk'          => 'local',
+        'folder'        => 'kyc',
+        'file_name'     => basename($legacyFile),
+        'original_name' => 'aadhaar.png',
+        'path'          => $legacyRel,
+        'url'           => '/uploads/' . $legacyRel,
+        'mime_type'     => 'image/png',
+        'extension'     => 'png',
+        'size_bytes'    => strlen($pngBytes),
+        'uploader_type' => 'user',
+        'uploader_id'   => $kvCreatorId,
+        'created_at'    => date('Y-m-d H:i:s'),
+    ]);
+
     $purge = KycService::purgeForUser($kvCreatorId, 'IT account deletion');
     Suite::equals('purge reports the profile it erased', $purge['profiles'], 1);
+    Suite::equals('and the legacy public upload it removed', $purge['media'] ?? null, 1);
+    Suite::check(
+        'the public KYC image is gone, file and row',
+        !is_file($legacyFile) && (int) Database::scalar('SELECT COUNT(*) FROM `media` WHERE `id` = :id', ['id' => $legacyMediaId]) === 0
+    );
+    Suite::equals(
+        'the reviewers\' notes about the applicant are erased',
+        (int) Database::scalar('SELECT COUNT(*) FROM `kyc_notes` WHERE `profile_id` = :p', ['p' => $creatorProfileId]),
+        0
+    );
     Suite::check(
         'every stored file is gone',
         static function () use ($paths, $storageRoot): bool {
@@ -1219,7 +1958,7 @@ if (!$kvReady) {
     Suite::check('a purged profile does not pass the KYC gate', !KycService::isVerified($kvCreatorId, 'creator'));
 
     $again = KycService::purgeForUser($kvCreatorId, 'IT account deletion');
-    Suite::equals('a second purge is a no-op', $again, ['profiles' => 0, 'documents' => 0, 'files' => 0]);
+    Suite::equals('a second purge is a no-op', $again, ['profiles' => 0, 'documents' => 0, 'files' => 0, 'media' => 0]);
     Suite::equals(
         'and records no second purge event',
         (int) Database::scalar("SELECT COUNT(*) FROM `kyc_events` WHERE `profile_id` = :p AND `action` = 'purged'", ['p' => $creatorProfileId]),
@@ -1231,12 +1970,293 @@ if (!$kvReady) {
         static function () use ($kvTwinId): bool {
             $summary = KycService::purgeForUser(999999999, 'nobody');
 
-            return $summary === ['profiles' => 0, 'documents' => 0, 'files' => 0];
+            return $summary === ['profiles' => 0, 'documents' => 0, 'files' => 0, 'media' => 0];
         }
     );
 
     $reuse = Http::put('/me/kyc/details', ['aadhaar_number' => $aadhaarA], 'kycv-twin');
     Suite::ok('a purged Aadhaar no longer blocks another account', $reuse);
+
+    // -----------------------------------------------------------------
+    Suite::group('KYC verification — retention of identity data, not just files');
+
+    // An abandoned draft with no events, built directly so its last activity
+    // can be in the past (kyc_events is append-only and cannot be back-dated).
+    $kvReset($kvTwinId);
+    $agedDraft = (int) KycService::profileFor($kvTwinId, 'creator')['id'];
+    Database::execute(
+        'UPDATE `kyc_profiles` SET `created_at` = DATE_SUB(NOW(), INTERVAL 45 DAY) WHERE `id` = :p',
+        ['p' => $agedDraft]
+    );
+    Database::insert('kyc_creator_details', [
+        'profile_id'      => $agedDraft,
+        'full_name'       => 'IT KYCV Twin',
+        'date_of_birth'   => '1990-01-01',
+        'address'         => '7 Retention Road, Pune',
+        'pan_number'      => Crypto::encrypt('KVTPA4321Z'),
+        'pan_hash'        => Crypto::blindIndex('pan', 'KVTPA4321Z'),
+        'aadhaar_last4'   => substr($aadhaarB, -4),
+        'aadhaar_hash'    => Crypto::blindIndex('aadhaar', $aadhaarB),
+        'bank_account_no' => Crypto::encrypt('123456789012'),
+        'created_at'      => date('Y-m-d H:i:s', strtotime('-45 days')),
+    ]);
+    $agedStored = DocumentVault::storeLocalFile($kvPng, $kvTwinId, 'aadhaar_front');
+    $agedDocId  = Database::insert('kyc_documents', [
+        'user_id'       => $kvTwinId,
+        'profile_id'    => $agedDraft,
+        'document_type' => 'aadhaar',
+        'slot'          => 'aadhaar_front',
+        'title'         => 'Aadhaar card (front)',
+        'file_path'     => $agedStored['path'],
+        'original_name' => 'Aadhaar ' . $aadhaarB . '.png',
+        'mime_type'     => $agedStored['mime'],
+        'file_size'     => $agedStored['size'],
+        'checksum'      => $agedStored['checksum'],
+        'is_encrypted'  => 1,
+        'version'       => 1,
+        'is_current'    => 1,
+        'status'        => 'pending',
+        'uploaded_ip'   => inet_pton('198.51.100.9'),
+        'created_at'    => date('Y-m-d H:i:s', strtotime('-45 days')),
+    ]);
+    Database::insert('kyc_notes', ['profile_id' => $agedDraft, 'admin_id' => 1, 'body' => 'IT note on the draft', 'created_at' => date('Y-m-d H:i:s')]);
+
+    Suite::equals('a vault label replaces the client file name on new copies', $agedStored['original_name'], 'aadhaar_front-' . date('Ymd') . '.png');
+
+    $dryRetention = KycService::runRetentionSweep(true, $kvTwinId);
+    Suite::check(
+        'a dry run counts the never-submitted draft (default window 30 days) and deletes nothing',
+        $dryRetention['draft_profiles'] === 1 && $dryRetention['details_purged'] === 1 && $dryRetention['documents_purged'] === 1
+            && is_file($storageRoot . '/' . $agedStored['path']),
+        json_encode($dryRetention)
+    );
+
+    $retention = KycService::runRetentionSweep(false, $kvTwinId);
+    Suite::equals('the sweep erases the abandoned draft', $retention['draft_profiles'], 1);
+    Suite::check('its file is gone', !is_file($storageRoot . '/' . $agedStored['path']));
+    Suite::equals(
+        'its identity details are gone too (PAN, Aadhaar tail and hashes, bank account, DOB, address)',
+        (int) Database::scalar('SELECT COUNT(*) FROM `kyc_creator_details` WHERE `profile_id` = :p', ['p' => $agedDraft]),
+        0
+    );
+    $agedDocRow = Database::selectOne(
+        'SELECT `purged_at`, `file_path`, `original_name`, `uploaded_ip` FROM `kyc_documents` WHERE `id` = :id',
+        ['id' => $agedDocId]
+    ) ?? [];
+    Suite::check(
+        'the document row keeps no path, client file name or upload IP',
+        ($agedDocRow['purged_at'] ?? null) !== null && $agedDocRow['file_path'] === null
+            && $agedDocRow['original_name'] === null && $agedDocRow['uploaded_ip'] === null,
+        json_encode(array_map(static fn ($v) => $v === null ? null : 'set', $agedDocRow))
+    );
+    Suite::equals('the reviewers\' notes go with it', (int) Database::scalar('SELECT COUNT(*) FROM `kyc_notes` WHERE `profile_id` = :p', ['p' => $agedDraft]), 0);
+    Suite::check('the profile row is marked purged', KycService::find($agedDraft)['purged_at'] !== null);
+    $purgeEvents = $kvEvents($agedDraft, 'documents_purged');
+    $purgeEvent  = $purgeEvents === [] ? [] : $purgeEvents[count($purgeEvents) - 1];
+    Suite::check(
+        'and the erasure is on its trail, with why',
+        str_contains((string) ($purgeEvent['note'] ?? ''), 'draft never submitted')
+            && (json_decode((string) ($purgeEvent['metadata'] ?? ''), true)['details'] ?? null) === true,
+        json_encode($purgeEvent)
+    );
+    Suite::equals('a second sweep finds nothing left', KycService::runRetentionSweep(false, $kvTwinId)['draft_profiles'], 0);
+
+    // The owner comes back: their next save starts the verification over.
+    $back = Http::put('/me/kyc/details', ['full_name' => 'IT KYCV Twin', 'consent' => true], 'kycv-twin');
+    Suite::ok('a returning owner can save again', $back);
+    Suite::equals('which clears the purge marker', KycService::find($agedDraft)['purged_at'], null);
+    Suite::equals('and is recorded', count($kvEvents($agedDraft, 'reopened')), 1);
+
+    // Recent activity keeps a rejected profile, even an old one.
+    Database::update('kyc_profiles', ['status' => 'rejected'], ['id' => $agedDraft]);
+    Database::execute('UPDATE `kyc_profiles` SET `created_at` = DATE_SUB(NOW(), INTERVAL 400 DAY) WHERE `id` = :p', ['p' => $agedDraft]);
+    Suite::equals('a rejected profile its owner just touched is kept', KycService::runRetentionSweep(false, $kvTwinId)['rejected_profiles'], 0);
+
+    // A rejected profile holding only details (no document) — e.g. a squatted
+    // number — is swept too, which frees the number.
+    $kvReset($kvBrand2Id);
+    $squat = (int) KycService::profileFor($kvBrand2Id, 'brand')['id'];
+    Database::execute(
+        "UPDATE `kyc_profiles` SET `status` = 'rejected', `created_at` = DATE_SUB(NOW(), INTERVAL 400 DAY) WHERE `id` = :p",
+        ['p' => $squat]
+    );
+    Database::insert('kyc_brand_details', [
+        'profile_id'   => $squat,
+        'company_name' => 'IT KYCV Squatter',
+        'gst_number'   => Crypto::encrypt($otherGst),
+        'gst_hash'     => Crypto::blindIndex('gstin', $otherGst),
+        'created_at'   => date('Y-m-d H:i:s', strtotime('-400 days')),
+    ]);
+    $squatSweep = KycService::runRetentionSweep(false, $kvBrand2Id);
+    Suite::check(
+        'a details-only rejected profile is swept after its window',
+        $squatSweep['rejected_profiles'] === 1 && $squatSweep['details_purged'] === 1
+            && (int) Database::scalar('SELECT COUNT(*) FROM `kyc_brand_details` WHERE `profile_id` = :p', ['p' => $squat]) === 0,
+        json_encode($squatSweep)
+    );
+
+    // Pre-013 documents carry no profile; they used to escape every branch.
+    $legacyStored = DocumentVault::storeLocalFile($kvPng, $kvTwinId);
+    $legacyDocId  = Database::insert('kyc_documents', [
+        'user_id'         => $kvTwinId,
+        'profile_id'      => null,
+        'document_type'   => 'aadhaar',
+        'document_number' => Crypto::encrypt($aadhaarB),
+        'holder_name'     => 'IT Legacy Holder',
+        'file_path'       => $legacyStored['path'],
+        'original_name'   => 'legacy.png',
+        'mime_type'       => 'image/png',
+        'file_size'       => $legacyStored['size'],
+        'is_encrypted'    => 1,
+        'version'         => 1,
+        'is_current'      => 1,
+        'status'          => 'pending',
+        'created_at'      => date('Y-m-d H:i:s', strtotime('-400 days')),
+    ]);
+
+    $publicRel  = 'kyc/' . date('Y/m') . '/it-kycv-old-' . $kvTwinId . '.png';
+    $publicFile = $uploadRoot . '/' . $publicRel;
+    @mkdir(dirname($publicFile), 0755, true);
+    file_put_contents($publicFile, $pngBytes);
+    $oldMediaId = Database::insert('media', [
+        'disk' => 'local', 'folder' => 'kyc', 'file_name' => basename($publicFile), 'original_name' => 'pan.png',
+        'path' => $publicRel, 'url' => '/uploads/' . $publicRel, 'mime_type' => 'image/png', 'extension' => 'png',
+        'size_bytes' => strlen($pngBytes), 'uploader_type' => 'user', 'uploader_id' => $kvTwinId,
+        'created_at' => date('Y-m-d H:i:s', strtotime('-400 days')),
+    ]);
+
+    $legacySweep = KycService::runRetentionSweep(false, $kvTwinId);
+    $legacyRow   = Database::selectOne(
+        'SELECT `purged_at`, `document_number`, `holder_name`, `file_path` FROM `kyc_documents` WHERE `id` = :id',
+        ['id' => $legacyDocId]
+    ) ?? [];
+    Suite::check(
+        'a profile-less legacy document is purged, number and holder included',
+        $legacySweep['legacy_purged'] === 1 && ($legacyRow['purged_at'] ?? null) !== null
+            && $legacyRow['document_number'] === null && $legacyRow['holder_name'] === null
+            && !is_file($storageRoot . '/' . $legacyStored['path']),
+        json_encode($legacySweep)
+    );
+    Suite::check(
+        'an old public KYC upload is removed, file and row',
+        $legacySweep['legacy_media_purged'] === 1 && !is_file($publicFile)
+            && (int) Database::scalar('SELECT COUNT(*) FROM `media` WHERE `id` = :id', ['id' => $oldMediaId]) === 0,
+        json_encode($legacySweep)
+    );
+
+    // Unscoped, that pass must never reach the admin media library: a library
+    // folder named "kyc" stores its files under the same folder and path.
+    $legacyMediaCount = new \ReflectionMethod(KycService::class, 'purgeLegacyMedia');
+    $mediaRow = static function (string $uploaderType, ?int $uploaderId, string $tag) use ($kvTwinId): int {
+        $path = 'kyc/' . date('Y/m') . '/it-kycv-' . $tag . '-' . $kvTwinId . '.png';
+
+        return Database::insert('media', [
+            'disk' => 'local', 'folder' => 'kyc', 'file_name' => basename($path), 'original_name' => 'it-' . $tag . '.png',
+            'path' => $path, 'url' => '/uploads/' . $path, 'mime_type' => 'image/png', 'extension' => 'png',
+            'size_bytes' => 1, 'uploader_type' => $uploaderType, 'uploader_id' => $uploaderId,
+            'created_at' => date('Y-m-d H:i:s', strtotime('-400 days')),
+        ]);
+    };
+    $mediaBefore  = (int) $legacyMediaCount->invoke(null, 180, true, null);
+    $adminLibrary = $mediaRow('admin', 1, 'admin-library');
+    $mediaAdmin   = (int) $legacyMediaCount->invoke(null, 180, true, null);
+    $userLegacy   = $mediaRow('user', $kvTwinId, 'user-legacy');
+    $mediaUser    = (int) $legacyMediaCount->invoke(null, 180, true, null);
+    Database::execute('DELETE FROM `media` WHERE `id` IN (:a, :b)', ['a' => $adminLibrary, 'b' => $userLegacy]);
+    Suite::equals(
+        'an admin upload in a "kyc" folder is never counted for deletion; an app user\'s legacy upload is',
+        [$mediaAdmin - $mediaBefore, $mediaUser - $mediaAdmin],
+        [0, 1]
+    );
+
+    // A document row already marked purged that still names its file (a
+    // removal from before removal blanked it) is scrubbed by the sweep.
+    $leftover = Database::insert('kyc_documents', [
+        'user_id' => $kvTwinId, 'profile_id' => null, 'document_type' => 'pan', 'title' => 'IT leftover',
+        'file_path' => 'kyc/00/0/it-kycv-gone.png.enc', 'original_name' => 'IT leftover ' . substr($aadhaarB, 0, 4) . '.png',
+        'holder_name' => 'IT Leftover', 'checksum' => str_repeat('a', 64), 'uploaded_ip' => inet_pton('198.51.100.30'),
+        'file_size' => 1, 'is_encrypted' => 1, 'version' => 1, 'is_current' => 0, 'status' => 'pending',
+        'created_at' => date('Y-m-d H:i:s', strtotime('-20 days')),
+        'deleted_at' => date('Y-m-d H:i:s', strtotime('-20 days')),
+        'purged_at'  => date('Y-m-d H:i:s', strtotime('-20 days')),
+    ]);
+    $scrubDry = KycService::runRetentionSweep(true, $kvTwinId);
+    $scrub    = KycService::runRetentionSweep(false, $kvTwinId);
+    $leftRow  = Database::selectOne(
+        'SELECT `file_path`, `original_name`, `holder_name`, `checksum`, `uploaded_ip`, `purged_at` FROM `kyc_documents` WHERE `id` = :id',
+        ['id' => $leftover]
+    ) ?? [];
+    Suite::check(
+        'a purged row that still names its file is scrubbed: path, file name, holder, checksum, IP',
+        $scrubDry['purged_rows_scrubbed'] >= 1 && $scrub['purged_rows_scrubbed'] >= 1
+            && array_key_exists('file_path', $leftRow) && $leftRow['file_path'] === null && $leftRow['original_name'] === null
+            && $leftRow['holder_name'] === null && $leftRow['checksum'] === null && $leftRow['uploaded_ip'] === null
+            && $leftRow['purged_at'] !== null,
+        json_encode(['dry' => $scrubDry['purged_rows_scrubbed'], 'run' => $scrub['purged_rows_scrubbed']])
+    );
+
+    // -----------------------------------------------------------------
+    Suite::group('KYC verification — a deleted account whose KYC was never erased');
+
+    // An account deleted while its erasure failed (or before erasure existed):
+    // a live verification, its identity details and a stored document.
+    $kvReset($kvTwinId);
+    $orphanProfile = (int) KycService::profileFor($kvTwinId, 'creator')['id'];
+    Database::update('kyc_profiles', ['status' => 'submitted', 'submitted_at' => date('Y-m-d H:i:s')], ['id' => $orphanProfile]);
+    Database::insert('kyc_creator_details', [
+        'profile_id' => $orphanProfile,
+        'full_name'  => 'IT KYCV Deleted Twin',
+        'pan_number' => Crypto::encrypt('KVTPA4321Z'),
+        'pan_hash'   => Crypto::blindIndex('pan', 'KVTPA4321Z'),
+        'created_at' => date('Y-m-d H:i:s'),
+    ]);
+    $orphanStored = DocumentVault::storeLocalFile($kvPng, $kvTwinId, 'pan_card');
+    $orphanDoc    = Database::insert('kyc_documents', [
+        'user_id' => $kvTwinId, 'profile_id' => $orphanProfile, 'document_type' => 'pan', 'slot' => 'pan_card',
+        'title' => 'PAN card', 'file_path' => $orphanStored['path'], 'original_name' => $orphanStored['original_name'],
+        'mime_type' => $orphanStored['mime'], 'file_size' => $orphanStored['size'], 'checksum' => $orphanStored['checksum'],
+        'is_encrypted' => 1, 'version' => 1, 'is_current' => 1, 'status' => 'pending', 'created_at' => date('Y-m-d H:i:s'),
+    ]);
+
+    try {
+        // Deleted a moment ago: an erasure may still be in flight.
+        Database::execute('UPDATE `users` SET `deleted_at` = NOW() WHERE `id` = :u', ['u' => $kvTwinId]);
+        Suite::equals(
+            'an account deleted within the hour is left to its own erasure',
+            KycService::runRetentionSweep(true, $kvTwinId)['deleted_accounts'],
+            0
+        );
+
+        Database::execute('UPDATE `users` SET `deleted_at` = DATE_SUB(NOW(), INTERVAL 2 HOUR) WHERE `id` = :u', ['u' => $kvTwinId]);
+        $orphanDry = KycService::runRetentionSweep(true, $kvTwinId);
+        Suite::check(
+            'a dry run counts the deleted account and deletes nothing',
+            $orphanDry['deleted_accounts'] === 1 && is_file($storageRoot . '/' . $orphanStored['path']),
+            json_encode($orphanDry)
+        );
+
+        $orphanSweep = KycService::runRetentionSweep(false, $kvTwinId);
+        Suite::equals('the sweep erases it', $orphanSweep['deleted_accounts'], 1);
+        Suite::check('its document file is gone', !is_file($storageRoot . '/' . $orphanStored['path']));
+        Suite::equals(
+            'its identity details are gone',
+            (int) Database::scalar('SELECT COUNT(*) FROM `kyc_creator_details` WHERE `profile_id` = :p', ['p' => $orphanProfile]),
+            0
+        );
+        $orphanRow = Database::selectOne(
+            'SELECT `purged_at`, `file_path`, `original_name` FROM `kyc_documents` WHERE `id` = :id',
+            ['id' => $orphanDoc]
+        ) ?? [];
+        Suite::check(
+            'the document row keeps nothing identifying and the profile is marked purged, with why',
+            ($orphanRow['purged_at'] ?? null) !== null && $orphanRow['file_path'] === null && $orphanRow['original_name'] === null
+                && KycService::find($orphanProfile)['purged_at'] !== null
+                && str_contains((string) (($kvEvents($orphanProfile, 'purged')[0] ?? [])['note'] ?? ''), 'account was deleted')
+        );
+        Suite::equals('a second sweep finds nothing left', KycService::runRetentionSweep(false, $kvTwinId)['deleted_accounts'], 0);
+    } finally {
+        Database::execute('UPDATE `users` SET `deleted_at` = NULL WHERE `id` = :u', ['u' => $kvTwinId]);
+    }
 
     // -----------------------------------------------------------------
     Suite::group('KYC verification — audit integrity');
@@ -1250,6 +2270,33 @@ if (!$kvReady) {
                 return false;
             } catch (\Throwable $e) {
                 return str_contains($e->getMessage(), 'append-only');
+            }
+        }
+    );
+
+    // Foreign-key cascades do not fire triggers, so the trail's parent row
+    // must not cascade away with its user (migration 047).
+    Suite::equals(
+        'kyc_profiles.user_id restricts a user delete',
+        Database::scalar(
+            "SELECT `DELETE_RULE` FROM information_schema.REFERENTIAL_CONSTRAINTS
+              WHERE `CONSTRAINT_SCHEMA` = DATABASE() AND `CONSTRAINT_NAME` = 'fk_kyc_profile_user'"
+        ),
+        'RESTRICT'
+    );
+    Suite::check(
+        'a user with a KYC history cannot be hard-deleted, so the trail survives',
+        static function () use ($kvCreatorId, $creatorProfileId): bool {
+            $before = (int) Database::scalar('SELECT COUNT(*) FROM `kyc_events` WHERE `profile_id` = :p', ['p' => $creatorProfileId]);
+
+            try {
+                Database::execute('DELETE FROM `users` WHERE `id` = :id', ['id' => $kvCreatorId]);
+
+                return false;
+            } catch (\Throwable $e) {
+                return str_contains($e->getMessage(), 'kyc_profiles')
+                    && $before > 0
+                    && (int) Database::scalar('SELECT COUNT(*) FROM `kyc_events` WHERE `profile_id` = :p', ['p' => $creatorProfileId]) === $before;
             }
         }
     );

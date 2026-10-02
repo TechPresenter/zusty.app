@@ -647,25 +647,20 @@ class KycEvent {
         _ => 'System',
       };
 
-  /// Review-side bookkeeping the applicant has no use for: internal notes,
-  /// and a reviewer opening or downloading a file.
-  static const _internalActions = {
+  /// Audit bookkeeping that does not belong on the applicant's trail:
+  /// internal review notes, and every opening or download of a file — a
+  /// reviewer's views are internal, and the user's own are noise.
+  static const _auditOnlyActions = {
     'note_added',
     'internal_note',
     'badge_note',
-  };
-
-  static const _reviewerOnlyActions = {
     'document_previewed',
     'document_downloaded',
+    // The server's own marker for a status message it could not deliver;
+    // it never serves it to the applicant, and neither does an older one.
+    'notification_failed',
   };
 
   /// Whether this event belongs on the applicant's own review trail.
-  bool get isUserFacing {
-    if (_internalActions.contains(action)) return false;
-    if (actorType == 'admin' && _reviewerOnlyActions.contains(action)) {
-      return false;
-    }
-    return true;
-  }
+  bool get isUserFacing => !_auditOnlyActions.contains(action);
 }

@@ -23,7 +23,11 @@ declare(strict_types=1);
  *   * requirement edits are audit-logged field by field;
  *   * the legacy queue lists only legacy documents, behind kyc.view;
  *   * the user screen's KYC card: kyc.view only, current colours, real link;
- *   * Settings → KYC: auto-approve and badge-requires-KYC are fixed by policy.
+ *   * Settings → KYC: auto-approve, badge-requires-KYC and WhatsApp are fixed
+ *     by policy; the format list can name no unsupported format, nor be empty;
+ *   * bulk selection only on the queues that can hold a waiting submission;
+ *   * a deleted account is in no queue or export, opens labelled for audit,
+ *     is never claimed for review and cannot be decided (one by one or bulk).
  *
  * Everything it writes belongs to `it-kycp-*` accounts and three probe admins,
  * and is removed at the end.
@@ -454,6 +458,24 @@ if (!$akpReady || !$akpSignedIn) {
         str_contains($queue['body'], $draftRef) && !str_contains($queue['body'], 'class="kyc-row" value="' . $akpDraftProfile . '"')
     );
 
+    // The selection column exists only on queues that can hold a submission
+    // waiting for a decision (Pending, All).
+    $pendingTab = $akpGet('full', '/admin/kyc?queue=pending&per_page=200&q=it-kycp');
+    Suite::check(
+        'the Pending queue offers bulk selection',
+        str_contains($pendingTab['body'], 'id="kyc-select-all"')
+            && str_contains($pendingTab['body'], 'class="kyc-row" value="' . $akpCreatorProfile . '"'),
+        $akpDescribe($pendingTab)
+    );
+    $draftTab = $akpGet('full', '/admin/kyc?queue=draft&per_page=200&q=it-kycp');
+    Suite::check(
+        'a queue where nothing can be decided in bulk has no selection column at all',
+        $draftTab['status'] === 200 && str_contains($draftTab['body'], $draftRef)
+            && !str_contains($draftTab['body'], 'id="kyc-select-all"') && !str_contains($draftTab['body'], '<th style="width:36px">')
+            && !str_contains($draftTab['body'], 'id="kyc-bulk-bar"'),
+        $akpDescribe($draftTab)
+    );
+
     $approvedTab = $akpGet('full', '/admin/kyc?queue=approved&tick=none');
     Suite::check(
         'the search box carries the current tab and filters',
@@ -589,6 +611,22 @@ if (!$akpReady || !$akpSignedIn) {
     );
     Suite::check('the release form is offered', str_contains($rivalPage['body'], '/identifiers/release'));
 
+    // P-unique: a holder that does not claim the number (a draft, a rejected
+    // verification) is not a conflict on the panel either, the same rule
+    // KycService::identifierCollisions() applies at submission and approval.
+    $brandStatusBefore = (string) Database::scalar('SELECT `status` FROM `kyc_profiles` WHERE `id` = :id', ['id' => $akpBrandProfile]);
+    Database::update('kyc_profiles', ['status' => KycService::DRAFT], ['id' => $akpBrandProfile]);
+    try {
+        $draftHolderPage = $akpGet('full', '/admin/kyc/' . $akpRivalProfile);
+        Suite::check(
+            'a draft holding the same number is not listed as a conflict',
+            $draftHolderPage['status'] === 200 && !str_contains($draftHolderPage['body'], $brandRef),
+            $akpDescribe($draftHolderPage)
+        );
+    } finally {
+        Database::update('kyc_profiles', ['status' => $brandStatusBefore], ['id' => $akpBrandProfile]);
+    }
+
     $releasePath = '/admin/kyc/' . $akpRivalProfile . '/identifiers/release';
     $gstHash     = static fn (): ?string => Database::scalar('SELECT `gst_hash` FROM `kyc_brand_details` WHERE `profile_id` = :p', ['p' => $akpRivalProfile]);
 
@@ -605,7 +643,12 @@ if (!$akpReady || !$akpSignedIn) {
     Suite::check('the reviewer releases the GSTIN', $release['status'] === 200 && ($akpJson($release)['success'] ?? false) === true, $akpDescribe($release));
 
     $rivalRow = Database::selectOne('SELECT `gst_number`, `gst_hash` FROM `kyc_brand_details` WHERE `profile_id` = :p', ['p' => $akpRivalProfile]) ?? [];
-    Suite::check('the number and its blind index are gone from that verification', ($rivalRow['gst_number'] ?? 'x') === null && ($rivalRow['gst_hash'] ?? 'x') === null, json_encode($rivalRow));
+    Suite::check(
+        'the number and its blind index are gone from that verification',
+        array_key_exists('gst_number', $rivalRow) && $rivalRow['gst_number'] === null
+            && array_key_exists('gst_hash', $rivalRow) && $rivalRow['gst_hash'] === null,
+        json_encode($rivalRow)
+    );
     Suite::check(
         'the release is in the verification\'s audit trail, with the reason',
         (int) Database::scalar(
@@ -650,7 +693,12 @@ if (!$akpReady || !$akpSignedIn) {
             && str_contains($bulkMessage, 'Aadhaar') && str_contains($bulkMessage, $creatorRef),
         $bulkMessage
     );
-    Suite::check('an incomplete one is skipped as incomplete', $statusOf($akpRivalProfile) === 'submitted' && str_contains($bulkMessage, $rivalRef), $bulkMessage);
+    Suite::check(
+        'an incomplete one (its GSTIN released) is skipped as incomplete',
+        in_array($statusOf($akpRivalProfile), ['submitted', 'under_review'], true)
+            && str_contains($bulkMessage, 'incomplete') && str_contains($bulkMessage, $rivalRef),
+        $bulkMessage
+    );
     Suite::equals('a draft is never decided in bulk', $statusOf($akpDraftProfile), 'draft');
     Suite::check(
         'the Aadhaar profiles are listed in the activity log',
@@ -666,6 +714,74 @@ if (!$akpReady || !$akpSignedIn) {
         $again['status'] === 200 && $statusOf($akpBrandProfile) === 'approved',
         $akpDescribe($again)
     );
+
+    // -----------------------------------------------------------------
+    Suite::group('Admin KYC panel — deleted accounts');
+
+    // The rival brand's account is deleted while its verification waits for
+    // a decision (its erasure failed, or pre-dated erasure on deletion).
+    $rivalStatusBefore = $statusOf($akpRivalProfile);
+    Database::update('kyc_profiles', ['status' => KycService::SUBMITTED], ['id' => $akpRivalProfile]);
+    Database::execute('UPDATE `users` SET `deleted_at` = NOW() WHERE `id` = :u', ['u' => $akpRivalUser]);
+
+    try {
+        $deletedQueue = $akpGet('full', '/admin/kyc?queue=all&per_page=200&q=it-kycp');
+        Suite::check(
+            'a deleted account is in no queue',
+            $deletedQueue['status'] === 200 && !str_contains($deletedQueue['body'], $rivalRef)
+                && str_contains($deletedQueue['body'], $brandRef),
+            $akpDescribe($deletedQueue)
+        );
+        $deletedPending = $akpGet('full', '/admin/kyc?queue=pending&per_page=200&q=it-kycp');
+        Suite::check('not even Pending', !str_contains($deletedPending['body'], $rivalRef));
+
+        $deletedExport = $akpGet('full', '/admin/kyc/export?queue=all&q=it-kycp');
+        Suite::check(
+            'nor in the export',
+            $deletedExport['status'] === 200 && !str_contains($deletedExport['body'], $rivalRef)
+                && str_contains($deletedExport['body'], $brandRef),
+            $akpDescribe($deletedExport)
+        );
+
+        $deletedPage = $akpGet('full', '/admin/kyc/' . $akpRivalProfile);
+        Suite::check(
+            'it still opens directly, labelled as a deleted account',
+            $deletedPage['status'] === 200 && str_contains($deletedPage['body'], 'Deleted account')
+                && str_contains($deletedPage['body'], $rivalRef),
+            $akpDescribe($deletedPage)
+        );
+        Suite::check(
+            'with no decision or re-upload form',
+            !str_contains($deletedPage['body'], 'id="kyc-decision-form"') && !str_contains($deletedPage['body'], 'id="kyc-resubmit-form"')
+        );
+        Suite::equals('opening it does not claim it for review', $statusOf($akpRivalProfile), KycService::SUBMITTED);
+
+        $deletedDecision = $akpPost('full', '/admin/kyc/' . $akpRivalProfile . '/review', ['action' => 'reject', 'reason' => 'IT: must be refused']);
+        Suite::check(
+            'a decision on it is refused',
+            $deletedDecision['status'] === 409 && ($akpJson($deletedDecision)['code'] ?? null) === 'account_deleted'
+                && $statusOf($akpRivalProfile) === KycService::SUBMITTED,
+            $akpDescribe($deletedDecision)
+        );
+
+        $deletedResubmit = $akpPost('full', '/admin/kyc/' . $akpRivalProfile . '/resubmission', ['slots' => ['gst_certificate'], 'message' => 'IT']);
+        Suite::check(
+            'so is a re-upload request',
+            $deletedResubmit['status'] === 409 && $statusOf($akpRivalProfile) === KycService::SUBMITTED,
+            $akpDescribe($deletedResubmit)
+        );
+
+        $deletedBulk = $akpPost('full', '/admin/kyc/bulk', ['action' => 'reject', 'ids' => [$akpRivalProfile], 'reason' => 'IT: bulk must skip it']);
+        Suite::check(
+            'and bulk skips it',
+            $deletedBulk['status'] === 200 && $statusOf($akpRivalProfile) === KycService::SUBMITTED
+                && str_contains((string) ($akpJson($deletedBulk)['message'] ?? ''), 'account was deleted'),
+            $akpDescribe($deletedBulk)
+        );
+    } finally {
+        Database::execute('UPDATE `users` SET `deleted_at` = NULL WHERE `id` = :u', ['u' => $akpRivalUser]);
+        Database::update('kyc_profiles', ['status' => $rivalStatusBefore], ['id' => $akpRivalProfile]);
+    }
 
     // -----------------------------------------------------------------
     Suite::group('Admin KYC panel — approval needs the Aadhaar confirmation');
@@ -797,6 +913,22 @@ if (!$akpReady || !$akpSignedIn) {
             $before    = $logCount();
             $unchanged = $akpPost('full', '/admin/kyc/requirements/' . $requirementId, $form);
             Suite::check('saving with nothing changed writes no audit entry', $unchanged['status'] === 200 && $logCount() === $before, $akpDescribe($unchanged));
+
+            // documents-1: only formats the vault can verify by content.
+            $unsupported = $akpPost('full', '/admin/kyc/requirements/' . $requirementId, ['allowed_formats' => 'pdf,svgz,html'] + $form);
+            Suite::check(
+                'a format the vault cannot check is refused at save',
+                $unsupported['status'] === 422
+                    && (string) Database::scalar('SELECT `allowed_formats` FROM `kyc_requirements` WHERE `id` = :id', ['id' => $requirementId])
+                        === (string) $requirementRow['allowed_formats']
+                    && $logCount() === $before,
+                $akpDescribe($unsupported)
+            );
+            Suite::check(
+                'with an error that names the refused formats and the ones allowed',
+                str_contains($unsupported['body'], 'svgz, html') && str_contains($unsupported['body'], 'Choose from: '),
+                $akpDescribe($unsupported)
+            );
         } finally {
             $restore = $requirementRow;
             unset($restore['id']);
@@ -821,7 +953,13 @@ if (!$akpReady || !$akpSignedIn) {
         'badge-requires-KYC is shown switched on and disabled',
         preg_match('#<input type="checkbox" id="set_badge_requires_kyc"[^>]*\schecked[^>]*\sdisabled#', $settingsPage['body']) === 1
     );
-    Suite::check('the policy is explained', substr_count($settingsPage['body'], 'Fixed by policy') >= 2);
+    Suite::check(
+        'WhatsApp notifications are shown off and disabled, with why (there is no WhatsApp provider)',
+        preg_match('#<input type="checkbox" id="set_whatsapp_enabled"[^>]*\sdisabled#', $settingsPage['body']) === 1
+            && preg_match('#<input type="checkbox" id="set_whatsapp_enabled"[^>]*\schecked#', $settingsPage['body']) !== 1
+            && str_contains($settingsPage['body'], 'no WhatsApp provider is connected')
+    );
+    Suite::check('the policy is explained', substr_count($settingsPage['body'], 'Fixed by policy') >= 3);
 
     // Post the group as it stands, except an attempt to switch auto-approve on
     // and badge-requires-KYC off.
@@ -842,7 +980,8 @@ if (!$akpReady || !$akpSignedIn) {
 
         $payload['settings[' . $key . ']'] = (string) ($setting['value'] ?? '');
     }
-    $payload['settings[auto_approve]'] = '1';
+    $payload['settings[auto_approve]']     = '1';
+    $payload['settings[whatsapp_enabled]'] = '1';
 
     try {
         $saved = $akpRequest($akpAdmins['full']['jar'], 'POST', '/admin/settings', $payload + ['_csrf' => $akpAdmins['full']['csrf']], true);
@@ -855,6 +994,8 @@ if (!$akpReady || !$akpSignedIn) {
         );
         Suite::equals('auto-approve cannot be switched on', $after['auto_approve'] ?? null, '0');
         Suite::equals('badge-requires-KYC cannot be switched off', $after['badge_requires_kyc'] ?? null, '1');
+        Suite::equals('WhatsApp notifications cannot be switched on', $after['whatsapp_enabled'] ?? null, '0');
+        Suite::check('and the row is kept', array_key_exists('whatsapp_enabled', $after));
         Suite::check(
             'every other KYC setting is left as it was',
             static function () use ($snapshot, $after): bool {
@@ -869,6 +1010,58 @@ if (!$akpReady || !$akpSignedIn) {
 
                 return true;
             }
+        );
+
+        // The settings 047 added carry ranges: a zero draft-retention window
+        // would erase a draft the night it was started.
+        $zeroDraft = $akpRequest(
+            $akpAdmins['full']['jar'],
+            'POST',
+            '/admin/settings',
+            ['group' => 'kyc', 'settings[retention_days_draft]' => '0', '_csrf' => $akpAdmins['full']['csrf']],
+            true
+        );
+        Suite::check(
+            'a zero draft-retention window is refused',
+            $zeroDraft['status'] === 422
+                && (string) Database::scalar("SELECT `value` FROM `settings` WHERE `group_key` = 'kyc' AND `setting_key` = 'retention_days_draft'")
+                    === (string) ($snapshot['retention_days_draft'] ?? ''),
+            $akpDescribe($zeroDraft)
+        );
+
+        $xmlFormats = $akpRequest(
+            $akpAdmins['full']['jar'],
+            'POST',
+            '/admin/settings',
+            ['settings[allowed_formats]' => 'pdf,xml', '_csrf' => $akpAdmins['full']['csrf']] + $payload,
+            true
+        );
+        Suite::check(
+            'the global format list cannot name a format the vault cannot check',
+            $xmlFormats['status'] === 422
+                && (string) Database::scalar("SELECT `value` FROM `settings` WHERE `group_key` = 'kyc' AND `setting_key` = 'allowed_formats'")
+                    === (string) ($snapshot['allowed_formats'] ?? ''),
+            $akpDescribe($xmlFormats)
+        );
+        Suite::check(
+            'and the error names the refused format and what is allowed',
+            str_contains($xmlFormats['body'], 'cannot include xml') && str_contains($xmlFormats['body'], 'pdf'),
+            $akpDescribe($xmlFormats)
+        );
+
+        $noFormats = $akpRequest(
+            $akpAdmins['full']['jar'],
+            'POST',
+            '/admin/settings',
+            ['settings[allowed_formats]' => '', '_csrf' => $akpAdmins['full']['csrf']] + $payload,
+            true
+        );
+        Suite::check(
+            'nor be emptied',
+            $noFormats['status'] === 422 && str_contains($noFormats['body'], 'cannot be empty')
+                && (string) Database::scalar("SELECT `value` FROM `settings` WHERE `group_key` = 'kyc' AND `setting_key` = 'allowed_formats'")
+                    === (string) ($snapshot['allowed_formats'] ?? ''),
+            $akpDescribe($noFormats)
         );
     } finally {
         foreach ($snapshot as $key => $value) {

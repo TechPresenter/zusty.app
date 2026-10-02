@@ -44,18 +44,28 @@ PHP=/usr/bin/php8.2
 # double-entry, but check storage/logs/cron.log if payouts look stalled.
 0 * * * * cd $APP && $PHP scripts/cron.php escrow:release        >> storage/logs/cron.log 2>&1
 0 * * * * cd $APP && $PHP scripts/cron.php bookings:autocomplete >> storage/logs/cron.log 2>&1
+# Personal-data export archives are downloadable for a short window only;
+# this deletes the expired ones.
+15 * * * * cd $APP && $PHP scripts/cron.php privacy:purge-exports >> storage/logs/cron.log 2>&1
 
 # --- nightly ---------------------------------------------------------
 # Ordered so each job runs after whatever it depends on:
 #   00:10 analytics rollup  (reads yesterday, before anything mutates it)
 #   00:30 creator stats     (ratings, completion rate, search boost)
+#   00:45 creator badges    (expires lapsed badges; after stats are settled)
+#   00:55 profile completion (re-scores every creator profile's completeness)
 #   01:20 KYC expiry        (may suspend accounts; after stats are settled)
+#   01:40 KYC retention     (deletes documents and identity details past their
+#                            retention window; after expiry has run)
 #   02:00 database backup   (after every nightly mutation has finished)
 #   03:00 token prune
 #   04:00 guest purge
 10 0 * * * cd $APP && $PHP scripts/cron.php analytics:rollup   >> storage/logs/cron.log 2>&1
 30 0 * * * cd $APP && $PHP scripts/cron.php creators:refresh   >> storage/logs/cron.log 2>&1
+45 0 * * * cd $APP && $PHP scripts/cron.php creators:badges    >> storage/logs/cron.log 2>&1
+55 0 * * * cd $APP && $PHP scripts/cron.php creators:completion >> storage/logs/cron.log 2>&1
 20 1 * * * cd $APP && $PHP scripts/cron.php kyc:expiry         >> storage/logs/cron.log 2>&1
+40 1 * * * cd $APP && $PHP scripts/cron.php kyc:retention      >> storage/logs/cron.log 2>&1
  0 2 * * * cd $APP && $PHP scripts/cron.php backup:database    >> storage/logs/cron.log 2>&1
  0 3 * * * cd $APP && $PHP scripts/cron.php tokens:prune       >> storage/logs/cron.log 2>&1
  0 4 * * * cd $APP && $PHP scripts/cron.php auth:purge-guests  >> storage/logs/cron.log 2>&1

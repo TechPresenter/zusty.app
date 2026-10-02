@@ -243,15 +243,19 @@ final class CreatorBadgeService
      * Expired rows are filtered by date as well as status, so a badge that
      * lapsed since the nightly job last ran is not shown as live.
      *
+     * [$expireLapsed] false skips the lapsed-KYC check for a caller that has
+     * already run it (CreatorService::profile() runs it before it loads the
+     * creator row, so `is_verified` and these badges agree).
+     *
      * @return list<array<string,mixed>>
      */
-    public static function forCreator(int $creatorId): array
+    public static function forCreator(int $creatorId, bool $expireLapsed = true): array
     {
         // An approval that lapsed since the nightly sweep is expired the first
         // time the profile is looked at — the blue tick and the KYC badges go
         // with it — rather than being shown until the cron next runs. One
         // indexed read when nothing has lapsed; never fatal to the page.
-        $userId = self::userIdFor($creatorId);
+        $userId = $expireLapsed ? self::userIdFor($creatorId) : null;
 
         if ($userId !== null) {
             try {
@@ -363,6 +367,78 @@ final class CreatorBadgeService
                 'expires_at'    => $row['expires_at'] ?? null,
                 'revoked_at'    => $row['revoked_at'] ?? null,
                 'revoke_reason' => $row['revoke_reason'] ?? null,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * The full catalogue as the CREATOR sees it on their own profile
+     * (GET /me/creator): what they hold and what they could still earn.
+     *
+     * The same entries as {@see adminOverview()} without anything an
+     * administrator wrote or did: no `awarded_note` (a blue-tick grant used to
+     * carry the reviewer's internal note there), no `awarded_by` admin id, no
+     * `revoke_reason`, and no `manageable` (an admin-screen switch). KYC-derived
+     * badges are re-checked against the account's KYC standing exactly as
+     * {@see forCreator()} does for the public profile, so a stale row left
+     * active by a failed sync reads as not held here too.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public static function ownerOverview(int $creatorId): array
+    {
+        $held = [];
+
+        foreach (Database::select(
+            'SELECT `badge`, `status`, `awarded_at`, `expires_at`, `revoked_at`
+               FROM `creator_badges` WHERE `creator_id` = :id',
+            ['id' => $creatorId]
+        ) as $row) {
+            $held[(string) $row['badge']] = $row;
+        }
+
+        // Resolved once, and only when a KYC-derived badge is actually active.
+        $kycActive = false;
+
+        foreach (self::KYC_BADGES as $badge) {
+            if (($held[$badge]['status'] ?? null) === 'active') {
+                $kycActive = true;
+                break;
+            }
+        }
+
+        $kycOk = $kycActive ? self::kycStanding($creatorId) : ['creator' => false, 'brand' => false];
+        $out   = [];
+
+        foreach (self::catalogue() as $badge => $definition) {
+            $row    = $held[$badge] ?? null;
+            $status = $row === null ? 'none' : (string) $row['status'];
+
+            if (
+                $status === 'active'
+                && $row['expires_at'] !== null
+                && strtotime((string) $row['expires_at']) < time()
+            ) {
+                $status = 'expired';
+            }
+
+            // An active KYC-derived row with no current approved KYC behind it
+            // is not a badge the creator holds: shown as never awarded.
+            if ($status === 'active' && self::isKycBadge($badge)
+                && !($badge === 'business_verified' ? $kycOk['brand'] : $kycOk['creator'])) {
+                $status = 'none';
+                $row    = null;
+            }
+
+            $out[] = $definition + [
+                'kyc_derived' => self::isKycBadge($badge),
+                'status'      => $status,
+                'held'        => $status === 'active',
+                'awarded_at'  => $row['awarded_at'] ?? null,
+                'expires_at'  => $row['expires_at'] ?? null,
+                'revoked_at'  => $status === 'revoked' ? ($row['revoked_at'] ?? null) : null,
             ];
         }
 

@@ -131,6 +131,15 @@ final class SettingsController extends BaseAdminController
         'kyc.retention_days_rejected'       => ['min' => 7, 'max' => 3650],
         'kyc.retention_days_closed'         => ['min' => 7, 'max' => 3650],
         'kyc.purge_superseded_after_days'   => ['min' => 1, 'max' => 3650],
+        // Never-submitted drafts (processing consent policy) and the
+        // per-account upload caps from migration 047.
+        'kyc.retention_days_draft'          => ['min' => 7, 'max' => 3650],
+        'kyc.max_files_per_slot'            => ['min' => 1, 'max' => 50],
+        'kyc.max_versions_per_slot'         => ['min' => 1, 'max' => 100],
+        'kyc.max_profile_mb'                => ['min' => 1, 'max' => 1024],
+        // Only formats the document vault can verify by content, and never an
+        // empty list (it is the fallback for a requirement that names none).
+        'kyc.allowed_formats'               => ['format' => 'kyc_formats', 'required' => true],
 
         // General.
         'general.support_email'    => ['format' => 'email'],
@@ -191,6 +200,12 @@ final class SettingsController extends BaseAdminController
         'kyc.badge_requires_kyc' => [
             'value'  => '1',
             'reason' => 'Always on by policy: the blue tick can only be granted to an account whose KYC was approved by a reviewer and is still in date. This switch cannot be turned off.',
+        ],
+        // No WhatsApp provider sends KYC messages, so the switch could only
+        // ever promise something that does not happen. Kept, held off.
+        'kyc.whatsapp_enabled' => [
+            'value'  => '0',
+            'reason' => 'Not available: no WhatsApp provider is connected for KYC messages, so this switch has no effect and stays off. KYC status updates go out on the notification channels above.',
         ],
     ];
 
@@ -975,9 +990,36 @@ final class SettingsController extends BaseAdminController
     {
         $rule = self::VALUE_RULES[$group . '.' . $key] ?? null;
 
-        // An empty submission is left to the existing "keep/clear" behaviour.
-        if ($rule === null || $value === '') {
+        if ($rule === null) {
             return;
+        }
+
+        // An empty submission is left to the existing "keep/clear" behaviour,
+        // except for a value that must never be blank.
+        if ($value === '') {
+            if (!empty($rule['required'])) {
+                throw \Zuste\Core\ValidationException::forField(
+                    'settings.' . $key,
+                    $label . ' cannot be empty. ' . (($rule['format'] ?? '') === 'kyc_formats'
+                        ? 'List at least one of: ' . implode(', ', \Zuste\Services\DocumentVault::supportedExtensions()) . '.'
+                        : 'Enter a value.')
+                );
+            }
+
+            return;
+        }
+
+        // Name the formats that are refused, not only the rule.
+        if (($rule['format'] ?? '') === 'kyc_formats') {
+            $unsupported = self::unsupportedKycFormats($value);
+
+            if ($unsupported !== []) {
+                throw \Zuste\Core\ValidationException::forField(
+                    'settings.' . $key,
+                    $label . ' cannot include ' . implode(', ', $unsupported) . ': it '
+                        . self::formatHint('kyc_formats')
+                );
+            }
         }
 
         if (isset($rule['min']) || isset($rule['max'])) {
@@ -1019,8 +1061,42 @@ final class SettingsController extends BaseAdminController
             'locale'    => preg_match('/^[a-z]{2,3}(?:[-_][A-Za-z]{2,4})?$/', $value) === 1,
             'hex_color' => preg_match('/^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/', $value) === 1,
             'version'   => preg_match('/^\d{1,5}(?:\.\d{1,5}){0,3}$/', $value) === 1,
+            'kyc_formats' => self::kycFormatsSupported($value),
             default     => true,
         };
+    }
+
+    /**
+     * Is every extension in a comma-separated KYC format list one the vault
+     * can check? An unsupported one would be dropped at upload anyway
+     * (DocumentVault::allowedExtensions() fails closed).
+     */
+    private static function kycFormatsSupported(string $value): bool
+    {
+        return self::kycFormatList($value) !== [] && self::unsupportedKycFormats($value) === [];
+    }
+
+    /**
+     * The extensions in a comma-separated KYC format list that the document
+     * vault cannot check by content (DocumentVault::supportedExtensions()).
+     *
+     * @return list<string>
+     */
+    private static function unsupportedKycFormats(string $value): array
+    {
+        return array_values(array_diff(
+            self::kycFormatList($value),
+            \Zuste\Services\DocumentVault::supportedExtensions()
+        ));
+    }
+
+    /** @return list<string> Lower-cased, de-duplicated, without leading dots. */
+    private static function kycFormatList(string $value): array
+    {
+        return array_values(array_unique(array_filter(array_map(
+            static fn (string $format): string => ltrim(strtolower(trim($format)), '.'),
+            explode(',', $value)
+        ), static fn (string $format): bool => $format !== '')));
     }
 
     private static function formatHint(string $format): string
@@ -1033,6 +1109,8 @@ final class SettingsController extends BaseAdminController
             'locale'    => 'must be a language code such as en or en-IN.',
             'hex_color' => 'must be a hex colour such as #00b815.',
             'version'   => 'must be a version number such as 1.0.0.',
+            'kyc_formats' => 'may only list formats the document vault can check: '
+                . implode(', ', \Zuste\Services\DocumentVault::supportedExtensions()) . '.',
             default     => 'is not in the expected format.',
         };
     }

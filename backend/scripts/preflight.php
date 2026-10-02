@@ -290,6 +290,25 @@ try {
         ? good('no integration-test accounts')
         : envIssue('test accounts', "{$testUsers} it-*@zuste.test users present — run the suite's cleanup");
 
+    // The KYC jobs enforce expiry and the retention windows for identity
+    // documents; a crontab that never runs them keeps those documents forever.
+    foreach (['kyc:expiry', 'kyc:retention'] as $kycJob) {
+        $job = Database::selectOne(
+            'SELECT `is_enabled`, `last_run_at` FROM `scheduled_jobs` WHERE `job_key` = :k',
+            ['k' => $kycJob]
+        );
+
+        if ($job === null || (int) $job['is_enabled'] !== 1) {
+            warn($kycJob, 'not registered or disabled under System → Jobs');
+        } elseif ($job['last_run_at'] === null) {
+            envIssue($kycJob, 'has never run — install deploy/cron/zustee-crontab');
+        } elseif (strtotime((string) $job['last_run_at']) < time() - 2 * 86400) {
+            warn($kycJob, 'last ran ' . $job['last_run_at'] . ' — check the crontab and storage/logs/cron.log');
+        } else {
+            good($kycJob, 'last ran ' . $job['last_run_at']);
+        }
+    }
+
     // The demo dataset used to be seeded by every install, because install.php
     // globbed the whole seeds directory. It is now behind --with-demo, but any
     // site installed before that change is still carrying 65 accounts that are

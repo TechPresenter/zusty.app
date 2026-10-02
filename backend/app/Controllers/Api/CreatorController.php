@@ -462,8 +462,11 @@ final class CreatorController extends BaseApiController
             'creator' => $creator,
             // The full catalogue travels with the creator's own profile so the
             // apps can show what is not yet earned as well as what is, without
-            // shipping a hardcoded badge list of their own.
-            'badges'  => CreatorBadgeService::adminOverview($creatorId),
+            // shipping a hardcoded badge list of their own. The creator-facing
+            // projection: never the admin overview, which carries the awarding
+            // admin's id and notes and ignores the KYC standing behind the
+            // KYC-derived badges.
+            'badges'  => CreatorBadgeService::ownerOverview($creatorId),
         ]);
     }
 

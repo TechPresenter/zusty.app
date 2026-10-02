@@ -32,11 +32,26 @@ final class KycController extends BaseApiController
         );
     }
 
-    /** PUT /me/kyc/details — save the brand or creator detail block. */
+    /**
+     * PUT /me/kyc/details — save the brand or creator detail block.
+     *
+     * `consent: true` — the applicant's agreement to their identity data being
+     * processed. Required once (per consent wording version) before the first
+     * save or upload; a body carrying only `consent: true` just records it.
+     */
     public function saveDetails(Request $request): never
     {
         $user = $this->user($request);
         $kind = $this->kindFor($user);
+
+        // Before anything of theirs is validated, stored or hashed.
+        KycService::requireProcessingConsent(
+            (int) $user['id'],
+            $kind,
+            $request->bool('consent'),
+            $request->ip(),
+            $request->userAgent()
+        );
 
         $data = $kind === KycService::KIND_BRAND
             ? $this->validateBrand($request)
@@ -46,7 +61,7 @@ final class KycController extends BaseApiController
         // cannot blank out fields the user never touched.
         $submitted = array_intersect_key($data, $request->all());
 
-        KycService::saveDetails((int) $user['id'], $kind, $submitted);
+        KycService::saveDetails((int) $user['id'], $kind, $submitted, $request->ip(), $request->userAgent());
 
         Response::success(
             KycService::overview((int) $user['id'], $kind, $this->apiBase($request)),
@@ -64,11 +79,23 @@ final class KycController extends BaseApiController
      * rejected document is re-uploaded, and how a file in a multi-file slot is
      * replaced without stacking a duplicate next to it. `slot` may be omitted
      * then — it is taken from the document being replaced.
+     *
+     * `consent: true` is required until the applicant's processing consent is
+     * on record for the current wording (see saveDetails()).
      */
     public function uploadDocument(Request $request): never
     {
         $user = $this->user($request);
         $kind = $this->kindFor($user);
+
+        // Nothing is stored, or even read, before consent is on record.
+        KycService::requireProcessingConsent(
+            (int) $user['id'],
+            $kind,
+            $request->bool('consent'),
+            $request->ip(),
+            $request->userAgent()
+        );
 
         $data = $this->validate($request, [
             'slot'                => 'nullable|string|max:60',
@@ -122,7 +149,8 @@ final class KycController extends BaseApiController
                 $file,
                 $data['expires_on'] ?? null,
                 $request->ip(),
-                $replaceId
+                $replaceId,
+                $request->userAgent()
             );
 
             $uploaded[] = KycService::presentUserDocument(
@@ -152,7 +180,7 @@ final class KycController extends BaseApiController
     {
         $user = $this->user($request);
 
-        KycService::removeDocument((int) $user['id'], $request->routeParamInt('id'));
+        KycService::removeDocument((int) $user['id'], $request->routeParamInt('id'), $request->ip(), $request->userAgent());
 
         Response::success(
             KycService::overview((int) $user['id'], $this->kindFor($user), $this->apiBase($request)),
@@ -179,7 +207,11 @@ final class KycController extends BaseApiController
             'agent'      => $request->userAgent(),
         ]);
 
-        Response::download($file['contents'], $file['name'], $file['mime']);
+        Response::download(
+            $file['contents'],
+            $file['name'],
+            DocumentVault::isInlineSafe($file['mime']) ? $file['mime'] : 'application/octet-stream'
+        );
     }
 
     /**
@@ -188,6 +220,10 @@ final class KycController extends BaseApiController
      * Same token rules as the download (minted for this document AND this
      * account, short-lived), but served `inline` so the app can show an image
      * or hand a PDF to a viewer, and never cached.
+     *
+     * Only the inline allow-list (JPEG, PNG, WebP, PDF) is ever served inline:
+     * the stored MIME type is not trusted to be safe to render. Anything else
+     * goes out as an opaque `application/octet-stream` attachment.
      */
     public function previewDocument(Request $request): never
     {
@@ -202,6 +238,10 @@ final class KycController extends BaseApiController
             'ip'         => $request->ip(),
             'agent'      => $request->userAgent(),
         ]);
+
+        if (!DocumentVault::isInlineSafe($file['mime'])) {
+            Response::download($file['contents'], $file['name'], 'application/octet-stream');
+        }
 
         Response::inline($file['contents'], $file['name'], $file['mime']);
     }
@@ -300,7 +340,7 @@ final class KycController extends BaseApiController
                 'is_required'     => (bool) $row['is_required'],
                 'allows_multiple' => (bool) $row['allows_multiple'],
                 'requires_expiry' => (bool) $row['requires_expiry'],
-                'allowed_formats' => explode(',', (string) $row['allowed_formats']),
+                'allowed_formats' => KycService::formatList((string) $row['allowed_formats']),
                 'max_size_mb'     => (int) $row['max_size_mb'],
             ],
             KycService::requirements($kind)
@@ -314,8 +354,7 @@ final class KycController extends BaseApiController
                     ? Config::settingBool('kyc', 'brand_mandatory', true)
                     : Config::settingBool('kyc', 'creator_mandatory', true),
                 'max_upload_mb'   => Config::settingInt('kyc', 'max_upload_mb', 10),
-                'allowed_formats' => explode(
-                    ',',
+                'allowed_formats' => KycService::formatList(
                     Config::settingString('kyc', 'allowed_formats', 'pdf,jpg,jpeg,png')
                 ),
                 'expiry_months'   => Config::settingInt('kyc', 'expiry_months', 24),

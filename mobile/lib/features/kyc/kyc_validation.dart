@@ -180,12 +180,31 @@ abstract final class KycRules {
   static final _drivingLicence = RegExp(r'^[A-Z]{2}[0-9A-Z]{8,16}$');
   static final _voterId = RegExp(r'^[A-Z][A-Z0-9]{7,15}$');
 
+  static final _aadhaarShape = RegExp(r'^[2-9][0-9]{11}$');
+
+  /// Shown when an Aadhaar number is typed as the "Other ID". The server
+  /// refuses it with the same advice.
+  static const otherIdAadhaarError =
+      'That looks like an Aadhaar number. Enter it in the Aadhaar field '
+      'instead — only its last four digits are kept.';
+
+  /// Whether [value] is an Aadhaar number, however it is punctuated: once
+  /// everything but letters and digits is stripped, twelve digits with the
+  /// first 2–9. The server applies the same test to the "Other ID" number,
+  /// so a full Aadhaar never lands there — where it would be kept whole,
+  /// rather than as the last four digits the Aadhaar field keeps.
+  static bool looksLikeAadhaar(String? value) => _aadhaarShape.hasMatch(
+        (value ?? '').replaceAll(RegExp(r'[^A-Za-z0-9]+'), ''),
+      );
+
   /// The number for the chosen [type] of other ID. Passports have one fixed
   /// format; licences and voter IDs vary by state and year, so those are
-  /// checked only for shape.
+  /// checked only for shape. An Aadhaar number is refused whatever the type.
   static String? otherId(String? type, String? value) {
     final raw = (value ?? '').trim().toUpperCase();
     if (raw.isEmpty) return null;
+
+    if (looksLikeAadhaar(raw)) return otherIdAadhaarError;
 
     if (type == null || !otherIdTypes.contains(type)) {
       return 'Choose passport, driving licence or voter ID above first.';

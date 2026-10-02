@@ -516,6 +516,14 @@ if ($kycBrand === null || $brandUserId <= 0) {
         'a .php document row exists for the brand actor'
     );
 
+    // The content check fails closed: bytes the sniffer cannot identify are
+    // refused, not waved through on their extension.
+    $junkPath = sys_get_temp_dir() . '/it-kyc-junk.png';
+    file_put_contents($junkPath, random_bytes(256));
+    $junkUpload = $kycUpload('pan_card', $junkPath, 'brand');
+    Suite::status('unidentifiable bytes named .png are refused', $junkUpload, 422);
+    @unlink($junkPath);
+
     $unknownSlot = $kycUpload('definitely_not_a_slot', $pngPath, 'brand');
     Suite::status('an unrecognised slot is refused', $unknownSlot, 422);
 
@@ -813,6 +821,21 @@ if ($kycBrandDocId <= 0) {
             ['id' => $kycBrandDocId]
         ) ?? 0) === 1,
         'the document row was hard-deleted or left live'
+    );
+
+    // The row is the record that a document existed — nothing more. Removal
+    // used to mark it purged and keep the path, stored file name and upload
+    // IP, which no later purge ever blanked.
+    $removedRow = Database::selectOne(
+        'SELECT `purged_at`, `file_path`, `original_name`, `checksum`, `uploaded_ip` FROM `kyc_documents` WHERE `id` = :id',
+        ['id' => $kycBrandDocId]
+    ) ?? [];
+    Suite::check(
+        'the removed row keeps no path, file name, checksum or upload IP',
+        ($removedRow['purged_at'] ?? null) !== null
+            && array_key_exists('file_path', $removedRow) && $removedRow['file_path'] === null
+            && $removedRow['original_name'] === null && $removedRow['checksum'] === null && $removedRow['uploaded_ip'] === null,
+        json_encode(array_map(static fn ($v) => $v === null ? null : 'set', $removedRow))
     );
 
     if ($kycBrandToken !== '') {

@@ -10,6 +10,7 @@ use Zuste\Core\Database;
 use Zuste\Core\HttpException;
 use Zuste\Core\Request;
 use Zuste\Core\Response;
+use Zuste\Core\ValidationException;
 use Zuste\Helpers\Str;
 use Zuste\Services\ActivityLogger;
 use Zuste\Services\DocumentVault;
@@ -179,10 +180,15 @@ final class KycController extends BaseAdminController
 
         $user = Database::selectOne(
             'SELECT `id`, `name`, `email`, `phone`, `avatar_url`, `account_type`,
-                    `status`, `kyc_status`, `has_blue_tick`, `blue_tick_at`, `created_at`
+                    `status`, `kyc_status`, `has_blue_tick`, `blue_tick_at`, `created_at`, `deleted_at`
                FROM `users` WHERE `id` = :id',
             ['id' => (int) $profile['user_id']]
         );
+
+        // A deleted account's verification is kept as a record and stays
+        // reachable here for audit, but it is out of every queue and nothing
+        // can be decided on it (see assertAccountLive()).
+        $accountDeleted = $user === null || $user['deleted_at'] !== null;
 
         // A draft has never been submitted: the applicant is still filling it
         // in and has not asked anybody to review it (consent is given at
@@ -219,8 +225,10 @@ final class KycController extends BaseAdminController
 
         // Opening a submitted profile claims it for review — but only for an
         // admin who can actually decide it. A read-only auditor must be able to
-        // look without moving the workflow or notifying the applicant.
-        if ($this->can($request, 'kyc.review')) {
+        // look without moving the workflow or notifying the applicant, and a
+        // deleted account's submission is never claimed (it would move the
+        // record and send "under review" to an account that no longer exists).
+        if ($this->can($request, 'kyc.review') && !$accountDeleted) {
             KycService::startReview($profileId, $this->adminId($request), $this->auditContext($request));
         }
 
@@ -309,6 +317,7 @@ final class KycController extends BaseAdminController
             'details'        => $details,
             'unmasked'       => $unmasked,
             'draftLocked'    => $draftLocked,
+            'accountDeleted' => $accountDeleted,
             'aadhaarOnFile'  => !$draftLocked && self::hasCurrentAadhaar($profileId),
             'releasable'     => $canReview ? $releasable : [],
             'conflicts'      => $canReview ? self::identifierConflicts($profile, $held) : [],
@@ -329,7 +338,7 @@ final class KycController extends BaseAdminController
                 'revoked_at'    => $profile['badge_revoked_at'] ?? null,
                 'revoke_reason' => $profile['badge_revoke_reason'] ?? null,
                 'visible'       => (int) ($user['has_blue_tick'] ?? 0) === 1,
-                'can_grant'     => $approvedAndCurrent,
+                'can_grant'     => $approvedAndCurrent && !$accountDeleted,
             ],
             'linkTtl'        => max(30, Config::settingInt('kyc', 'download_link_ttl', 300)),
         ]);
@@ -370,6 +379,8 @@ final class KycController extends BaseAdminController
         $attestations = ['aadhaar_masked' => $request->bool('aadhaar_masked')];
 
         try {
+            self::assertAccountLive($profileId);
+
             match ($data['action']) {
                 'approve'      => KycService::approve($profileId, $adminId, $reason, $attestations, $context),
                 'reject'       => KycService::reject($profileId, $adminId, $reason, $context),
@@ -428,6 +439,8 @@ final class KycController extends BaseAdminController
         $slots     = array_values(array_map('strval', (array) $data['slots']));
 
         try {
+            self::assertAccountLive($profileId);
+
             KycService::requestResubmission(
                 $profileId,
                 $this->adminId($request),
@@ -469,6 +482,10 @@ final class KycController extends BaseAdminController
         ) ?? throw HttpException::notFound('That document was not found.');
 
         try {
+            if ($document['profile_id'] !== null) {
+                self::assertAccountLive((int) $document['profile_id']);
+            }
+
             KycService::reviewDocument(
                 $documentId,
                 $this->adminId($request),
@@ -588,16 +605,25 @@ final class KycController extends BaseAdminController
         // profile (silently extending its validity) or re-reject a rejected
         // one with a new reason.
         $statuses = [];
+        $deleted  = [];
 
+        // A deleted account's verification is a record, not a submission: it
+        // is never decided (and its owner never notified) in bulk either.
         foreach (Database::select(
-            'SELECT `id`, `status` FROM `kyc_profiles`
-              WHERE `deleted_at` IS NULL AND `id` IN (' . implode(',', array_map('intval', $ids)) . ')'
+            'SELECT p.`id`, p.`status`, (u.`id` IS NULL OR u.`deleted_at` IS NOT NULL) AS `account_deleted`
+               FROM `kyc_profiles` p
+               LEFT JOIN `users` u ON u.`id` = p.`user_id`
+              WHERE p.`deleted_at` IS NULL AND p.`id` IN (' . implode(',', array_map('intval', $ids)) . ')'
         ) as $row) {
             $statuses[(int) $row['id']] = (string) $row['status'];
+
+            if ((int) $row['account_deleted'] === 1) {
+                $deleted[(int) $row['id']] = true;
+            }
         }
 
         foreach ($ids as $profileId) {
-            if (!in_array($statuses[$profileId] ?? null, self::BULK_STATUSES, true)) {
+            if (isset($deleted[$profileId]) || !in_array($statuses[$profileId] ?? null, self::BULK_STATUSES, true)) {
                 $skipped[] = $profileId;
                 continue;
             }
@@ -634,7 +660,13 @@ final class KycController extends BaseAdminController
             'kyc_profile',
             null,
             "Bulk {$data['action']} on {$done} verifications.",
-            ['ids' => $ids, 'skipped' => $skipped, 'incomplete' => $incomplete, 'needs_aadhaar_check' => $aadhaar]
+            [
+                'ids'                 => $ids,
+                'skipped'             => $skipped,
+                'incomplete'          => $incomplete,
+                'needs_aadhaar_check' => $aadhaar,
+                'account_deleted'     => array_keys($deleted),
+            ]
         );
 
         $message = $done . ' verification' . ($done === 1 ? '' : 's') . ' ' .
@@ -651,7 +683,8 @@ final class KycController extends BaseAdminController
         }
 
         if ($skipped !== []) {
-            $message .= ' ' . count($skipped) . ' skipped (not waiting for a decision).';
+            $message .= ' ' . count($skipped) . ' skipped (not waiting for a decision'
+                . ($deleted !== [] ? ', or the account was deleted' : '') . ').';
         }
 
         $this->respond($request, $message);
@@ -1064,13 +1097,33 @@ final class KycController extends BaseAdminController
             throw HttpException::notFound('That requirement was not found.');
         }
 
+        // Only formats the vault can verify by content. Anything else would be
+        // silently ignored at upload (DocumentVault::allowedExtensions() fails
+        // closed), so the screen would promise a format users can never send.
+        $formats     = array_values(array_unique(array_filter(array_map(
+            static fn (string $format): string => ltrim(strtolower(trim($format)), '.'),
+            explode(',', (string) $data['allowed_formats'])
+        ), static fn (string $format): bool => $format !== '')));
+        $supported   = DocumentVault::supportedExtensions();
+        $unsupported = array_values(array_diff($formats, $supported));
+
+        if ($formats === [] || $unsupported !== []) {
+            throw ValidationException::forField(
+                'allowed_formats',
+                ($unsupported !== []
+                    ? 'These formats cannot be accepted: ' . implode(', ', $unsupported) . '. '
+                    : 'List at least one format. ')
+                . 'Choose from: ' . implode(', ', $supported) . '.'
+            );
+        }
+
         $after = [
             'label'           => (string) $data['label'],
             'description'     => $data['description'] ?? null,
             'is_required'     => !empty($data['is_required']) ? 1 : 0,
             'allows_multiple' => !empty($data['allows_multiple']) ? 1 : 0,
             'requires_expiry' => !empty($data['requires_expiry']) ? 1 : 0,
-            'allowed_formats' => strtolower(str_replace(' ', '', (string) $data['allowed_formats'])),
+            'allowed_formats' => implode(',', $formats),
             'max_size_mb'     => (int) $data['max_size_mb'],
             'is_active'       => !empty($data['is_active']) ? 1 : 0,
             'sort_order'      => (int) ($data['sort_order'] ?? 0),
@@ -1119,7 +1172,8 @@ final class KycController extends BaseAdminController
         $this->authorize($request, 'kyc.view');
 
         $params   = $this->listParams($request, ['id', 'created_at', 'status'], 'id');
-        $clauses  = ['k.`profile_id` IS NULL', 'k.`deleted_at` IS NULL'];
+        // Deleted accounts are out of this queue as well (see buildFilters()).
+        $clauses  = ['k.`profile_id` IS NULL', 'k.`deleted_at` IS NULL', 'u.`deleted_at` IS NULL'];
         $bindings = [];
 
         $status = $request->string('status', 'pending');
@@ -1183,6 +1237,34 @@ final class KycController extends BaseAdminController
     }
 
     /**
+     * Refuse a decision on the verification of a deleted account.
+     *
+     * Its profile stays readable on the detail screen as the audit record,
+     * but it is not a submission any more: approving, rejecting or asking for
+     * documents would move the record and message an account that no longer
+     * exists. Its identity data is erased by account deletion, or by the
+     * retention sweep's safety net when that failed.
+     *
+     * @throws HttpException 409 account_deleted
+     */
+    private static function assertAccountLive(int $profileId): void
+    {
+        $deleted = (int) (Database::scalar(
+            'SELECT COUNT(*) FROM `kyc_profiles` p
+               LEFT JOIN `users` u ON u.`id` = p.`user_id`
+              WHERE p.`id` = :id AND (u.`id` IS NULL OR u.`deleted_at` IS NOT NULL)',
+            ['id' => $profileId]
+        ) ?? 0) > 0;
+
+        if ($deleted) {
+            throw HttpException::conflict(
+                'This account has been deleted. Its verification is kept as a record only and can no longer be decided.',
+                'account_deleted'
+            );
+        }
+    }
+
+    /**
      * Does the verification hold a current Aadhaar card image — and so need
      * the reviewer's "copy is masked" confirmation to be approved?
      */
@@ -1239,6 +1321,11 @@ final class KycController extends BaseAdminController
      * Another account only — a proprietor's creator and brand verifications
      * legitimately share a PAN.
      *
+     * Same rule as KycService::identifierCollisions() (policy P-unique): only
+     * a verification that really claims the number counts — submitted, under
+     * review, waiting on its owner, approved or suspended, on a live account.
+     * A draft or a rejected profile holding the same number is not a conflict.
+     *
      * @param  array<string,mixed>   $profile
      * @param  array<string,?string> $held    From heldIdentifiers().
      * @return list<array{field:string,label:string,id:int,reference:string,status_label:string,status_tone:string}>
@@ -1246,6 +1333,7 @@ final class KycController extends BaseAdminController
     private static function identifierConflicts(array $profile, array $held): array
     {
         $conflicts = [];
+        [$in, $statuses] = Database::inClause(KycService::CLAIMING_STATUSES);
 
         foreach ($held as $field => $hash) {
             if ($hash === null) {
@@ -1257,13 +1345,16 @@ final class KycController extends BaseAdminController
                     'SELECT p.`id`, p.`reference`, p.`status`
                        FROM `' . $table . '` d
                        JOIN `kyc_profiles` p ON p.`id` = d.`profile_id`
-                      WHERE d.`' . $column . '` = :hash
-                        AND p.`user_id` <> :user
+                       JOIN `users` u ON u.`id` = p.`user_id`
+                      WHERE d.`' . $column . '` = ?
+                        AND p.`user_id` <> ?
                         AND p.`deleted_at` IS NULL
                         AND p.`purged_at` IS NULL
+                        AND u.`deleted_at` IS NULL
+                        AND p.`status` IN ' . $in . '
                       ORDER BY p.`id`
                       LIMIT 20',
-                    ['hash' => $hash, 'user' => (int) $profile['user_id']]
+                    array_merge([$hash, (int) $profile['user_id']], $statuses)
                 );
 
                 foreach ($rows as $row) {
@@ -1411,7 +1502,10 @@ final class KycController extends BaseAdminController
         string $queue,
         string $search
     ): array {
-        $clauses  = ['p.`deleted_at` IS NULL'];
+        // Deleted (tombstoned or binned) accounts are in no queue and no
+        // export: their verification is a record, opened directly from the
+        // user or audit screens, never a submission to work through.
+        $clauses  = ['p.`deleted_at` IS NULL', 'u.`deleted_at` IS NULL'];
         $bindings = [];
 
         if ($kind !== null) {
@@ -1480,7 +1574,7 @@ final class KycController extends BaseAdminController
         $kindSql  = '';
 
         if ($kind !== null) {
-            $kindSql          = ' AND `kind` = :kind';
+            $kindSql          = ' AND p.`kind` = :kind';
             $bindings['kind'] = $kind;
         }
 
@@ -1490,10 +1584,13 @@ final class KycController extends BaseAdminController
                 $statuses
             ));
 
+            // Same rule as the lists (buildFilters): no deleted account.
             $counts[$queue] = (int) Database::scalar(
-                'SELECT COUNT(*) FROM `kyc_profiles`
-                  WHERE `deleted_at` IS NULL AND `status` IN (' . $quoted . ')' . $kindSql
-                    . ($queue === 'awaiting_tick' ? " AND `badge_status` <> 'granted'" : ''),
+                'SELECT COUNT(*) FROM `kyc_profiles` p
+                  INNER JOIN `users` u ON u.`id` = p.`user_id`
+                  WHERE p.`deleted_at` IS NULL AND u.`deleted_at` IS NULL
+                    AND p.`status` IN (' . $quoted . ')' . $kindSql
+                    . ($queue === 'awaiting_tick' ? " AND p.`badge_status` <> 'granted'" : ''),
                 $bindings
             );
         }

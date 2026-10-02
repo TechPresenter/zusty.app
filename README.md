@@ -132,9 +132,8 @@ Background work (the email and push queues, escrow release, booking expiry, back
 data-export clean-up and more) runs through `php scripts/cron.php <job>`. Register
 every job that `php scripts/cron.php --list` prints. On Hostinger, add the jobs in
 hPanel as described in [DEPLOYMENT.md](backend/docs/DEPLOYMENT.md).
-[backend/deploy/cron/zustee-crontab](backend/deploy/cron/zustee-crontab) is a crontab
-template for a VPS, but it does not yet include `privacy:purge-exports` or
-`creators:badges`.
+[backend/deploy/cron/zustee-crontab](backend/deploy/cron/zustee-crontab) is the
+equivalent crontab for a VPS; it schedules every job in the `scheduled_jobs` table.
 
 ## Documentation
 

@@ -41,6 +41,14 @@ final class Logger
 
     private static bool $dbLoggingAvailable = true;
 
+    /**
+     * Set while a log line is being written to `system_logs`. A query that
+     * fails inside that write logs its own error, and without this latch the
+     * nested call would try the database again, and again: on a fresh install
+     * (no `system_logs` yet) every installer died of memory exhaustion.
+     */
+    private static bool $writingToDatabase = false;
+
     public static function requestId(): string
     {
         if (self::$requestId === '') {
@@ -161,9 +169,11 @@ final class Logger
     /** @param array<string,mixed> $context */
     private static function writeToDatabase(string $level, string $message, array $context, string $channel): void
     {
-        if (!self::$dbLoggingAvailable) {
+        if (!self::$dbLoggingAvailable || self::$writingToDatabase) {
             return;
         }
+
+        self::$writingToDatabase = true;
 
         try {
             Database::insert('system_logs', [
@@ -178,6 +188,8 @@ final class Logger
             // The database itself may be the thing that is broken — degrade
             // to file-only logging rather than recursing.
             self::$dbLoggingAvailable = false;
+        } finally {
+            self::$writingToDatabase = false;
         }
     }
 

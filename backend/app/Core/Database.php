@@ -80,6 +80,15 @@ final class Database
             throw new \RuntimeException('Database connection failed.', 500, $e);
         }
 
+        // Pin the session collation to the tables'. MariaDB 11 binds prepared
+        // statement parameters in the handshake collation (utf8mb4_general_ci)
+        // while literals take collation_connection, so `:placement = ''` failed
+        // with error 1267 on Hostinger and GET /app/config returned 500.
+        $collation = (string) Config::get('database.collation', 'utf8mb4_unicode_ci');
+        if (preg_match('/^[A-Za-z0-9_]+$/', $charset . $collation) === 1) {
+            self::$connection->exec("SET NAMES {$charset} COLLATE {$collation}");
+        }
+
         self::$connection->exec("SET SESSION sql_mode='STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'");
         self::$connection->exec("SET SESSION time_zone='" . self::timezoneOffset() . "'");
 

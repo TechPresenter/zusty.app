@@ -44,6 +44,9 @@ return [
         'user'       => Env::getString('DB_USER'),
         'password'   => Env::getString('DB_PASSWORD'),
         'charset'    => Env::getString('DB_CHARSET', 'utf8mb4'),
+        // Every table is utf8mb4_unicode_ci; Database::connection() pins the
+        // session to it (see the note there).
+        'collation'  => Env::getString('DB_COLLATION', 'utf8mb4_unicode_ci'),
         'socket'     => Env::getString('DB_SOCKET'),
         'persistent' => false,
     ],

@@ -224,7 +224,18 @@ chmod -R 775 storage public/uploads
 
 ### 6. Register the cron jobs
 
-hPanel → **Advanced → Cron Jobs**. Add every job `php scripts/cron.php --list` reports:
+hPanel → **Advanced → Cron Jobs**. The simplest setup is **one** entry, run every minute
+(`* * * * *`), with the command:
+
+```
+/opt/alt/php83/usr/bin/php /home/USER/domains/DOMAIN/backend/scripts/cron.php --due
+```
+
+`--due` starts each job when its schedule (System → Jobs) comes round, catches up
+minutes a late run skipped, and never runs a job twice for the same minute. Hostinger
+has no `crontab` command over SSH, so this saves entering every job by hand.
+
+Alternatively, add every job `php scripts/cron.php --list` reports as its own entry:
 
 | Schedule | Command |
 |---|---|

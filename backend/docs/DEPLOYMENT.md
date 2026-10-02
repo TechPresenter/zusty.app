@@ -82,7 +82,9 @@ bash scripts/deploy.sh
 
 ## Cron jobs
 
-hPanel → **Advanced → Cron Jobs**. Every job `php scripts/cron.php --list` reports:
+hPanel → **Advanced → Cron Jobs**. Either one entry every minute running
+`php scripts/cron.php --due`, which starts each job below on its schedule (as stored
+under System → Jobs), or one entry per job. Every job `php scripts/cron.php --list` reports:
 
 | Schedule | Job | Does |
 |---|---|---|

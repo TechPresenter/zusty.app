@@ -58,7 +58,14 @@ abstract class BaseAdminController
                 'open_reports'        => (int) Database::scalar("SELECT COUNT(*) FROM `reports` WHERE `status` IN ('open','investigating')"),
                 'open_disputes'       => (int) Database::scalar("SELECT COUNT(*) FROM `booking_disputes` WHERE `status` IN ('open','under_review')"),
                 'new_messages'        => (int) Database::scalar("SELECT COUNT(*) FROM `contact_messages` WHERE `status` = 'new'"),
-                'pending_kyc'         => (int) Database::scalar("SELECT COUNT(*) FROM `kyc_profiles` WHERE `status` IN ('submitted','under_review') AND `deleted_at` IS NULL"),
+                // Deleted accounts are hidden from the KYC queues, so they are
+                // left out here too — otherwise the badge counts work the
+                // queue never shows.
+                'pending_kyc'         => (int) Database::scalar(
+                    "SELECT COUNT(*) FROM `kyc_profiles` k
+                       JOIN `users` u ON u.`id` = k.`user_id` AND u.`deleted_at` IS NULL
+                      WHERE k.`status` IN ('submitted','under_review') AND k.`deleted_at` IS NULL"
+                ),
                 // Creator profile edits parked for review, plus gallery items
                 // awaiting moderation. Counted together because they land on
                 // the same screen and an operator wants one number telling them

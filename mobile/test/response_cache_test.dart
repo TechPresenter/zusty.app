@@ -9,6 +9,7 @@ import 'package:zuste/core/network/api_failure.dart';
 import 'package:zuste/core/network/connectivity_service.dart';
 import 'package:zuste/core/storage/key_value_cache.dart';
 import 'package:zuste/core/storage/secure_store.dart';
+import 'package:zuste/data/repositories/account_repository.dart';
 
 /// Serves a canned response, then fails like an unreachable host.
 ///
@@ -173,6 +174,27 @@ void main() {
     // Offline, the screen says so rather than replaying an identity record.
     adapter.isDown = true;
     await expectLater(client.get('/me/kyc'), throwsA(isA<ApiFailure>()));
+  });
+
+  // The profile screens refresh the signed-in account from GET /me. Offline,
+  // the cache would hand back an older body that looks fresh; replacing the
+  // account with it would undo a newer save, so the live read refuses it.
+  test('liveProfile refuses a cached replay that profile() serves', () async {
+    final adapter = _ScriptedAdapter({
+      'success': true,
+      'message': 'OK',
+      'data': {
+        'user': {'id': 9, 'name': 'Old Name', 'role': 'brand'},
+      },
+    });
+    final repository = AccountRepository(buildClient(adapter));
+
+    expect((await repository.liveProfile()).name, 'Old Name');
+
+    adapter.isDown = true;
+
+    expect((await repository.profile()).name, 'Old Name');
+    await expectLater(repository.liveProfile(), throwsA(isA<OfflineFailure>()));
   });
 
   test('a path that only shares the prefix is still cached', () async {

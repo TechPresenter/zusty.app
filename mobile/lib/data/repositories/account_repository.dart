@@ -1,4 +1,5 @@
 import '../../core/network/api_endpoints.dart';
+import '../../core/network/api_failure.dart';
 import '../../core/network/api_response.dart';
 import '../../models/account_settings.dart';
 import '../../models/notification.dart';
@@ -20,6 +21,18 @@ class AccountRepository extends BaseRepository {
     'profile',
     (json) => User.fromJson(asMap(json)),
   );
+
+  /// `GET /me` straight from the server, never from a fallback.
+  ///
+  /// [profile] answers from the response cache (or a fixture) when the host
+  /// cannot be reached, which is right for showing a screen but wrong for
+  /// replacing the signed-in account: an old copy would quietly undo a newer
+  /// save. A replayed body throws [OfflineFailure] here instead.
+  Future<User> liveProfile() async {
+    final response = await client.get(ApiEndpoints.profile);
+    if (response.fromCache) throw const OfflineFailure();
+    return User.fromJson(response.maybeMapAt('user') ?? response.dataMap);
+  }
 
   Future<User> updateProfile(Map<String, dynamic> fields) => writeThrough(
     () async {

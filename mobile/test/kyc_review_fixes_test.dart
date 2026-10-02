@@ -233,6 +233,9 @@ class _LockedAccount extends AccountRepository {
   Future<User> profile() async => throw const OfflineFailure();
 
   @override
+  Future<User> liveProfile() async => throw const OfflineFailure();
+
+  @override
   Future<User> updateProfile(Map<String, dynamic> fields) async {
     sent.add(Map.of(fields));
     throw const ConflictFailure(
@@ -255,7 +258,12 @@ class _ProfileAccount extends AccountRepository {
   final sent = <Map<String, dynamic>>[];
 
   @override
-  Future<User> profile() async {
+  Future<User> profile() => liveProfile();
+
+  /// What [AccountController.refresh] reads: the account straight from the
+  /// server, never a cached copy.
+  @override
+  Future<User> liveProfile() async {
     reads++;
     final wait = gate;
     if (wait != null) await wait.future;

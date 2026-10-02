@@ -180,7 +180,9 @@ class ProfileController {
 
     final User fresh;
     try {
-      fresh = await _ref.read(accountRepositoryProvider).profile();
+      // Live only: a cached replay of an older GET /me would put back a name
+      // or lock state that a later save already replaced.
+      fresh = await _ref.read(accountRepositoryProvider).liveProfile();
     } catch (_) {
       // Offline, or the server refused: the account already held stays, and
       // the server still enforces the lock on save.

@@ -37,6 +37,7 @@ final class CronRunner
             'kyc:retention',
             'auth:purge-guests',
             'privacy:purge-exports',
+            'privacy:finish-deletions',
             'tokens:prune',
             'backup:database',
             'logs:rotate',
@@ -98,6 +99,11 @@ final class CronRunner
                 'kyc:retention'         => KycService::runRetentionSweep(),
                 'auth:purge-guests'     => AuthService::purgeGuests(),
                 'privacy:purge-exports' => DataExportService::purgeExpired(),
+                // An erasure commits in one transaction; deleting the files,
+                // data exports, KYC documents and the Firebase sign-in record
+                // comes after it and can fail. This retries what is left,
+                // with a growing pause, until every step has succeeded.
+                'privacy:finish-deletions' => AccountDeletionService::finishPending(),
                 'tokens:prune'          => self::pruneTokens(),
                 'backup:database'       => BackupService::createDatabaseBackup('cron'),
                 'logs:rotate'           => self::rotateLogs(),
@@ -150,9 +156,11 @@ final class CronRunner
             'DELETE FROM `admin_sessions` WHERE `last_activity` < DATE_SUB(NOW(), INTERVAL 7 DAY)'
         );
 
+        // Gateway callbacks carry the payer's details. Ninety days covers any
+        // reconciliation or dispute over a callback, whatever its outcome;
+        // the payment rows themselves are the lasting record.
         $webhooks = Database::execute(
-            "DELETE FROM `payment_webhooks`
-             WHERE `status` = 'processed' AND `created_at` < DATE_SUB(NOW(), INTERVAL 90 DAY)"
+            'DELETE FROM `payment_webhooks` WHERE `created_at` < DATE_SUB(NOW(), INTERVAL 90 DAY)'
         );
 
         return [
@@ -162,8 +170,34 @@ final class CronRunner
             'admin_sessions' => $sessions,
             'blacklist'      => Jwt::pruneBlacklist(),
             'rate_limits'    => RateLimiter::prune(),
+            'email_queue'    => self::pruneQueue('email_queue'),
+            'sms_queue'      => self::pruneQueue('sms_queue'),
+            'push_queue'     => self::pruneQueue('push_queue'),
             'webhooks'       => $webhooks,
+            // Run here as well as after each backup, so the retention window
+            // the privacy policy states holds even when backups stop.
+            'backups'        => BackupService::pruneExpired(),
         ];
+    }
+
+    /**
+     * Our copies of the messages sent to people: the address, the name and
+     * the whole message body. A delivered copy has done its job after a
+     * week. A failed or never-sent one is kept for a month, so an operator
+     * can still see why it did not go.
+     *
+     * A row left in 'sending' (a worker that died mid-send; nothing retries
+     * it) counts as failed: after the same month it goes too, so its address
+     * and body never outlive the retention the privacy policy states. A
+     * 'sent' row with no sent_at falls back to when it was queued.
+     */
+    private static function pruneQueue(string $table): int
+    {
+        return Database::execute(
+            "DELETE FROM `{$table}`
+              WHERE (`status` = 'sent' AND COALESCE(`sent_at`, `created_at`) < DATE_SUB(NOW(), INTERVAL 7 DAY))
+                 OR (`status` IN ('failed', 'pending', 'sending') AND `created_at` < DATE_SUB(NOW(), INTERVAL 30 DAY))"
+        );
     }
 
     /**
@@ -321,6 +355,7 @@ final class CronRunner
         ];
     }
 
+    /** @return array<string,int> */
     private static function rotateLogs(): array
     {
         $deletedRows = Database::execute(
@@ -332,6 +367,15 @@ final class CronRunner
         $activityRows = Database::execute(
             'DELETE FROM `activity_logs` WHERE `created_at` < DATE_SUB(NOW(), INTERVAL 365 DAY)'
         );
+
+        // Sign-in history is kept for a year to detect fraud and abuse, which
+        // is the period the privacy policy states for security logs.
+        $loginRows = Database::execute(
+            'DELETE FROM `login_history` WHERE `created_at` < DATE_SUB(NOW(), INTERVAL 365 DAY)'
+        );
+
+        // API request logs: 180 days, the period CERT-In asks for.
+        $apiRows = ApiLogService::prune(180);
 
         $directory = (string) \Zuste\Core\Config::get('log.path', '');
         $files     = 0;
@@ -345,7 +389,13 @@ final class CronRunner
             }
         }
 
-        return ['system_logs' => $deletedRows, 'activity_logs' => $activityRows, 'files_removed' => $files];
+        return [
+            'system_logs'   => $deletedRows,
+            'activity_logs' => $activityRows,
+            'login_history' => $loginRows,
+            'api_logs'      => $apiRows,
+            'files_removed' => $files,
+        ];
     }
 
     // -----------------------------------------------------------------

@@ -1,5 +1,6 @@
 import '../../core/network/api_endpoints.dart';
 import '../../models/contact.dart';
+import '../../models/privacy.dart';
 import 'base_repository.dart';
 
 /// Contact points, verified changes and alternates (`/me/contacts/*`).
@@ -58,11 +59,18 @@ class ContactRepository extends BaseRepository {
   ///
   /// The live value does NOT move here — the server holds the new one until it
   /// is proved, which is what stops a mistyped address locking someone out.
+  ///
+  /// [proof] confirms the owner is the one asking: the account's password, a
+  /// code sent for `confirm_contact_change`, or a fresh Google or Apple
+  /// sign-in. The server requires one whenever the account can give one. A
+  /// code's channel goes as `code_channel`, because `channel` already names
+  /// the contact being changed.
   Future<ContactBook> requestChange({
     required String channel,
     required String value,
     String? countryCode,
     String? reason,
+    Reauth? proof,
   }) async {
     final response = await client.post(
       ApiEndpoints.contactChange,
@@ -71,6 +79,10 @@ class ContactRepository extends BaseRepository {
         'value': value,
         'country_code': ?countryCode,
         'reason_code': ?reason,
+        'password': ?proof?.password,
+        'code': ?proof?.code,
+        'code_channel': ?proof?.channel,
+        'id_token': ?proof?.idToken,
       },
     );
 

@@ -20,8 +20,8 @@ class OnboardingSlide {
   final String title;
   final String body;
 
-  /// Artwork uploaded in the admin panel. When absent the screen falls back to
-  /// the seeded placeholder bubbles.
+  /// Artwork uploaded in the admin panel. When absent the screen shows the
+  /// bundled brand composition.
   final String? imageUrl;
 
   /// Every collage photo the admin uploaded, hero first. Use [artwork], which
@@ -55,22 +55,12 @@ class OnboardingSlide {
     body: 'Connect with verified influencers and grow your brand effortlessly.',
   );
 
-  /// Deterministic placeholder seeds, used only when the admin has uploaded no
-  /// artwork. [imageUrl] is deliberately NOT folded in here — it is a real URL
-  /// and must be rendered as-is, not turned into a placeholder seed.
-  String get heroSeed => 'onboard-hero-$id';
-
-  List<String> get satelliteSeeds => [
-    'onboard-sat-${id}a',
-    'onboard-sat-${id}b',
-  ];
-
   /// True when the admin has supplied real artwork for this slide.
   bool get hasArtwork => artwork.isNotEmpty;
 
   /// The admin's collage photos in display order: the `images` list when the
   /// server sends one, otherwise the single [imageUrl]. Empty means "use the
-  /// placeholder composition".
+  /// bundled brand composition".
   List<String> get artwork {
     if (images.isNotEmpty) return images;
     final single = imageUrl;

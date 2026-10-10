@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Themed-icon layer (Android 13+): the Zusty mark as one flat shape, which the
+  launcher recolours to match the wallpaper. Drawn at 48dp in the middle of the
+  108dp adaptive-icon canvas, inside the 66dp area every mask keeps.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="2"
+        android:scaleY="2"
+        android:translateX="30"
+        android:translateY="30">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M6.6,2.6C5.6,2.0 4.4,2.7 4.4,3.9L4.4,20.1C4.4,21.3 5.6,22.0 6.6,21.4L20.3,13.2C21.3,12.6 21.3,11.4 20.3,10.8Z M7.2,8.6L12.6,8.6L12.6,10.0L9.4,14.0L12.6,14.0L12.6,15.4L7.2,15.4L7.2,14.0L10.4,10.0L7.2,10.0Z" />
+    </group>
+</vector>

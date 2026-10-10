@@ -298,6 +298,46 @@ final class UploadService
     }
 
     /**
+     * Like purge(), but the row goes only once the file is gone, so a file
+     * that cannot be deleted is never left behind with nothing pointing at
+     * it. Account deletion uses it and retries what is left.
+     *
+     * Gone means unlinked now, already absent, or outside the uploads root
+     * (never ours to touch).
+     *
+     * @return bool true when nothing is left (or the row did not exist);
+     *              false, with the row kept, when the file could not be deleted.
+     */
+    public static function purgeFile(int $mediaId): bool
+    {
+        $path = Database::scalar('SELECT `path` FROM `media` WHERE `id` = :id', ['id' => $mediaId]);
+
+        if ($path === null) {
+            return true;
+        }
+
+        $root   = realpath(rtrim((string) Config::get('storage.upload_path'), '/\\'));
+        $target = $root === false
+            ? false
+            : realpath($root . DIRECTORY_SEPARATOR . str_replace(['\\', '..'], ['/', ''], (string) $path));
+
+        if ($target !== false && str_starts_with($target, $root . DIRECTORY_SEPARATOR) && is_file($target)) {
+            @unlink($target);
+            clearstatcache(true, $target);
+
+            if (is_file($target)) {
+                Logger::warning('An uploaded file could not be deleted; its media row is kept', ['media_id' => $mediaId]);
+
+                return false;
+            }
+        }
+
+        Database::execute('DELETE FROM `media` WHERE `id` = :id', ['id' => $mediaId]);
+
+        return true;
+    }
+
+    /**
      * @param  array<string,mixed> $file
      */
     private static function assertUploadOk(array $file): void

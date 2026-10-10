@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
@@ -156,8 +155,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         // the name this screen holds may be older than the one on record.
         if (!locked) 'name': _name.text.trim(),
         if (!locked) 'company_name': _company.text.trim(),
-        'email': _email.text.trim(),
-        'phone': _phone.text.trim(),
+        // Email and mobile are not sent: they change from Contact details,
+        // where the owner confirms it is them and the new value is proved.
         'city': _city.text.trim(),
         'bio': _bio.text.trim(),
         'avatar_url': ?avatarUrl,
@@ -233,6 +232,14 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Email and mobile are shown read-only, so they follow the account: a
+    // change confirmed in Contact details shows here on the way back.
+    ref.listen<User?>(currentUserProvider, (_, next) {
+      if (next == null) return;
+      if (_email.text != (next.email ?? '')) _email.text = next.email ?? '';
+      if (_phone.text != (next.phone ?? '')) _phone.text = next.phone ?? '';
+    });
+
     final user = ref.watch(currentUserProvider);
     final ai = ref.watch(aiFeaturesProvider);
     final margin = AppBreakpoints.pageMargin(context);
@@ -328,6 +335,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
             ),
 
             // -- Contact -------------------------------------------------------
+            // Shown, not edited here: the email and mobile number are where
+            // security codes and notices go, so they change from Contact
+            // details, which confirms it is the owner and proves the new one.
             const _SectionTitle('Contact'),
             ZCard(
               shadow: false,
@@ -337,38 +347,29 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   ZTextField(
                     label: 'Email',
                     controller: _email,
+                    readOnly: true,
                     prefixIcon: Icons.mail_outline_rounded,
-                    keyboardType: TextInputType.emailAddress,
-                    textInputAction: TextInputAction.next,
                     suffixIcon: user.emailVerified
                         ? Icons.verified_rounded
                         : null,
                     helper: user.emailVerified ? 'Verified' : null,
-                    errorText: _serverErrors['email'],
-                    validator: Validators.email,
                   ),
                   const SizedBox(height: AppSpacing.md),
                   ZTextField(
                     label: 'Mobile number',
                     controller: _phone,
+                    readOnly: true,
                     prefixIcon: Icons.phone_iphone_rounded,
-                    keyboardType: TextInputType.phone,
-                    maxLength: 10,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     suffixIcon: user.phoneVerified
                         ? Icons.verified_rounded
                         : null,
-                    helper: user.phoneVerified
-                        ? 'Verified'
-                        : '10-digit Indian mobile number',
-                    errorText: _serverErrors['phone'],
-                    validator: Validators.phone,
+                    helper: user.phoneVerified ? 'Verified' : null,
                   ),
                   const SizedBox(height: AppSpacing.xs),
                   Align(
                     alignment: Alignment.centerLeft,
                     child: ZButton(
-                      label: 'Verify or add another email or number',
+                      label: 'Change email or mobile number',
                       variant: ZButtonVariant.text,
                       size: ZButtonSize.small,
                       trailingIcon: Icons.arrow_forward_rounded,

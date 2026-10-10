@@ -63,7 +63,7 @@ $assetVersion = $this->e((string) \Zuste\Core\Config::get('app.version', '1.0.0'
               <div class="input-group">
                 <span class="input-group__icon"><?= $this->icon('users', 'ic ic--sm') ?></span>
                 <input class="input" id="email" name="email" type="email" required autofocus
-                       autocomplete="username" placeholder="you@zustee.com">
+                       autocomplete="username" placeholder="you@zusty.app">
               </div>
             </div>
 

@@ -3709,11 +3709,17 @@ final class KycService
      * Append one row to the profile's audit trail.
      *
      * An event caused by a person (actor `user` or `admin`) always carries
-     * where it came from: when the caller did not pass `ip` / `agent`, they are
-     * taken from the HTTP request being served. Details edits, uploads and
-     * document removals used to be recorded with neither, so an account
-     * takeover changing a PAN read exactly like the owner doing it. System
-     * events (cron, CLI) carry none.
+     * where it came from: when the caller did not pass `ip`, it is taken from
+     * the HTTP request being served. Details edits, uploads and document
+     * removals used to be recorded without it, so an account takeover
+     * changing a PAN read exactly like the owner doing it. System events
+     * (cron, CLI) carry none.
+     *
+     * The applicant's own events store neither their name nor their browser:
+     * the trail is append-only, so anything written here outlives an account
+     * erasure. The name is read from the account when the trail is shown
+     * ({@see timeline()}), which then says "Deleted user". An admin event
+     * keeps the admin's name and browser, as the record of who decided.
      *
      * @param array<string,mixed> $context
      */
@@ -3722,16 +3728,17 @@ final class KycService
         $ip        = $context['ip'] ?? null;
         $actorType = (string) ($context['actor_type'] ?? 'system');
         $actorId   = $context['actor_id'] ?? null;
+        $isUser    = $actorType === 'user';
 
         if (in_array($actorType, ['user', 'admin'], true)
-            && (($ip === null || $ip === '') || !isset($context['agent']) || $context['agent'] === '')) {
+            && (($ip === null || $ip === '') || (!$isUser && (!isset($context['agent']) || $context['agent'] === '')))) {
             [$requestIp, $requestAgent] = self::requestOrigin();
 
             if ($ip === null || $ip === '') {
                 $ip = $requestIp;
             }
 
-            if (!isset($context['agent']) || $context['agent'] === '') {
+            if (!$isUser && (!isset($context['agent']) || $context['agent'] === '')) {
                 $context['agent'] = $requestAgent;
             }
         }
@@ -3740,14 +3747,14 @@ final class KycService
             'profile_id'  => $profileId,
             'actor_type'  => in_array($actorType, ['user', 'admin', 'system'], true) ? $actorType : 'system',
             'actor_id'    => $actorId,
-            'actor_name'  => $context['actor_name'] ?? self::actorName($actorType, $actorId),
+            'actor_name'  => $isUser ? null : ($context['actor_name'] ?? self::actorName($actorType, $actorId)),
             'action'      => $action,
             'from_status' => $context['from'] ?? null,
             'to_status'   => $context['to'] ?? null,
             'note'        => isset($context['note']) ? mb_substr((string) $context['note'], 0, 1000) : null,
             'metadata'    => isset($context['metadata']) ? json_encode($context['metadata']) : null,
             'ip_address'  => is_string($ip) && $ip !== '' ? (@inet_pton($ip) ?: null) : null,
-            'user_agent'  => isset($context['agent']) ? mb_substr((string) $context['agent'], 0, 255) : null,
+            'user_agent'  => !$isUser && isset($context['agent']) ? mb_substr((string) $context['agent'], 0, 255) : null,
             'created_at'  => date('Y-m-d H:i:s'),
         ]);
     }

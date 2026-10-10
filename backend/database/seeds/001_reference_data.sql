@@ -185,7 +185,7 @@ INSERT INTO `settings` (`group_key`, `setting_key`, `value`, `type`, `label`, `d
   ('general','app_tagline','Shoot. Connect. Grow.','string','Tagline','Brand tagline used on onboarding.',1,0,2),
   ('general','support_email','support@zusty.app','string','Support email','Reply-to address for outbound mail.',1,0,3),
   ('general','support_phone','+91 90000 00000','string','Support phone','Displayed on the Help & Support screen.',1,0,4),
-  ('general','company_name','Zuste Technologies Pvt. Ltd.','string','Legal entity','Printed on invoices.',1,0,5),
+  ('general','company_name','Appsgain Technologies Private Limited','string','Legal entity','Printed on invoices.',1,0,5),
   ('general','company_address','Mumbai, Maharashtra, India','text','Registered address','Printed on invoices.',1,0,6),
   ('general','company_gstin','','string','GSTIN','Company GST identification number.',0,0,7),
   ('general','default_currency','INR','string','Default currency','ISO-4217 code.',1,0,8),

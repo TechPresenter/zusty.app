@@ -51,13 +51,15 @@ can attach each message to its input.
 | `200` | Success |
 | `201` | Created |
 | `400` | Malformed request |
-| `401` | Missing, expired or invalid token |
+| `401` | Missing, expired or invalid token. `code: account_deleted` means the account behind the token has been deleted, from this device or another: end the session for good instead of refreshing |
 | `403` | Authenticated but not allowed |
 | `404` | No such resource |
 | `409` | Conflict — e.g. an illegal booking transition |
+| `410` | Gone, e.g. an expired download link |
 | `422` | Validation failed; read `errors` |
 | `429` | Rate limited; honour `Retry-After` |
-| `503` | Maintenance mode |
+| `500` | Server error; `code` says which (e.g. `export_failed`) |
+| `503` | Maintenance (`code: maintenance`), or a mail/SMS provider failed (`code: otp_delivery_failed`); read `code` |
 
 ---
 
@@ -121,13 +123,50 @@ All under `/api/v1/auth`.
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/auth/firebase` | Exchange a Firebase ID token (Google, Apple, phone) for platform tokens |
-| `POST` | `/auth/otp/send` · `/auth/otp/verify` | Phone verification and sign-in |
+| `POST` | `/auth/otp/send` · `/auth/otp/verify` | Codes for `register`, `login`, `verify_phone` and `verify_email` only (below) |
 | `POST` | `/auth/forgot-password` · `/auth/reset-password` | Password recovery |
-| `GET` | `/auth/me` | Current user |
+| `GET` | `/auth/me` | Current user, including `has_password` |
 | `POST` | `/auth/logout` · `/auth/logout-all` | End this session, or every session |
-| `POST` | `/auth/change-password` | Requires the current password |
+| `POST` | `/auth/change-password` | Change or set the password, with proof (below). Every session is signed out |
 | `GET` | `/auth/sessions` · `DELETE /auth/sessions/{id}` | List and revoke devices |
-| `DELETE` | `/auth/account` | Delete the account. Kept for older builds; same erasure and re-authentication as `POST /me/privacy/delete-account` (see [Privacy](#privacy-data-export-and-account-deletion)), without the typed confirmation |
+| `DELETE` | `/auth/account` | Retired. A brand or creator gets `410` `endpoint_retired`; use `POST /me/privacy/delete-account` (see [Privacy](#privacy-data-export-and-account-deletion)). A guest session is still closed here |
+
+**One-time codes.** `POST /auth/otp/send` takes `destination`, `channel` (`email` \|
+`sms`) and `purpose`; any other purpose is a `422` on `errors.purpose` (the codes that
+confirm privacy actions come from `/me/privacy/verification-code`). It answers
+`{expires_in, length, channel, resend_in}`; wait `resend_in` seconds before offering
+"Send again". Refusals: `429` `otp_cooldown` (a code for this address and purpose was
+sent moments ago) and `429` `otp_send_limit` (too many in the window), both with
+`Retry-After`; `422` `channel_not_allowed` (that channel is off for sign-in or
+sign-up), `422` `phone_country_not_supported`, `422` `invalid_phone`; `503`
+`otp_delivery_failed` when the mail or SMS provider failed — nothing was sent and an
+earlier code still works.
+
+**Signing in with a code.** `POST /auth/otp/verify` with `purpose: login` answers
+`200 {user, tokens}` like `/auth/login`. It is `403` `auth_method_disabled` while
+OTP sign-in is switched off, `404` `account_not_found` for a number with no account
+(it does not create one), and `429` `rate_limited` after too many wrong attempts.
+The other purposes answer `{verified: true}`. For any purpose, a code that is wrong,
+old, was never sent or was already used is `422` `otp_invalid`, `otp_expired`,
+`otp_not_found` or `otp_used`, and too many wrong tries of one code is `429`
+`otp_attempts_exceeded`.
+
+**Google, Apple or phone sign-in for an existing account.** When the sign-in sent to
+`POST /auth/firebase` matches an existing account by its email address or mobile
+number, the answer is `409` `account_link_conflict` if that account is already linked
+to a different sign-in, and `409` `account_link_held` if that email or number changed
+in the last 72 hours. Either way, sign in with the password instead.
+
+**Changing or setting the password.** Send `password` and `password_confirmation`.
+An account that has a password also sends `current_password` (`422`
+`invalid_current_password` when wrong). An account without one (made with Google,
+Apple or a phone number; `has_password: false`) proves it is its owner instead: a code
+from `POST /me/privacy/verification-code` with `purpose: set_password`, sent as
+`code` and `channel`, or a fresh Google/Apple sign-in sent as `id_token`. A password
+is never accepted as that proof. Without one the answer is `422` `reauth_required`,
+or `422` `reauth_unavailable` when the account has no way to prove it; the other
+proof errors are listed under [Privacy](#privacy-data-export-and-account-deletion).
+Either way a security notice is emailed to the account's address, when it has one.
 
 ### A sign-in method can be switched off
 
@@ -370,57 +409,140 @@ Drafts are suggestions: nothing is saved until the user saves the form they land
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| `GET` | `/me/privacy` | | `verification`, `export`, `deletion`: everything the screens show |
-| `POST` | `/me/privacy/verification-code` | `purpose` (`data_export` \| `delete_account`), `channel` (`email` \| `sms`) | `destination` (masked), `length`, `expires_in` |
-| `POST` | `/me/privacy/exports` | proof | 201 `export`, with its `download_url` |
-| `POST` | `/me/privacy/delete-account` | proof, `confirmation` (`DELETE`), `reason_code?`, `reason?` (≤ 500) | `deleted: true`, `retained` counts |
-| `GET` | `/privacy/exports/download?token=…` | | The ZIP, as an attachment. No bearer: the token is the credential |
+| `GET` | `/me/privacy` | | `verification`, `export`, `deletion`: everything the screens show. Never a download link |
+| `POST` | `/me/privacy/verification-code` | `purpose` (`data_export` \| `delete_account` \| `set_password` \| `confirm_contact_change`), `channel` (`email` \| `sms`) | `destination` (masked), `length`, `expires_in`, `resend_in` |
+| `POST` | `/me/privacy/exports` | proof | 201 `export`, with a fresh `download_url` (shown only in this response) and `security_notice` |
+| `POST` | `/me/privacy/exports/{id}/link` | proof | `export` with a fresh `download_url`. Every earlier link to that copy stops working |
+| `POST` | `/me/privacy/delete-account` | proof, `confirmation` (`DELETE`), `reason_code?`, `reason?` (≤ 500), `forfeit_balance?` | `deleted: true`, `retained` counts, `notice` |
+| `GET` | `/privacy/exports/download?token=…` | | An HTML page with the archive's size, expiry and downloads left, and a **Download my data** button. No bearer: the token is the credential. Opening it never uses a download |
+| `POST` | `/privacy/exports/download` | form field `token` | The ZIP, as an attachment. Counts one download |
 
 **Proof** re-authenticates on the spot, because a stolen session alone must not be
-enough to take a copy of everything or to erase it. It is either `password`, or
-`code` with `channel`. A code comes from `verification-code` and always goes to the
-account's own email or phone. The client never supplies a destination, and a code for
-one purpose never works for the other. `verification.password` and
-`verification.channels` say which proofs an account can give. SMS is offered only
-when the OTP method and an SMS provider are both on.
+enough to take a copy of everything, to erase it, to set a password or to change the
+email or phone on the account. It is `password`, or `code` with `channel`, or
+`id_token` — a Firebase ID token from a Google, Apple or phone sign-in completed in the last
+five minutes, for the same Firebase account the Zusty account is linked to. When
+several are sent, a code wins over an ID token and an ID token over a password. A code
+comes from `verification-code` and always goes to the account's own email or phone:
+the client never supplies a destination, and a code for one purpose never works for
+another. `verification` says which proofs an account can give: `password` (true only
+for a password the owner set with proof), `has_password`, `channels` (masked),
+`providers` (`google.com`, `apple.com`, `phone`) and `unavailable` — a channel that cannot be
+used now, with `reason` `sms_unavailable` or `contact_recently_changed` and, for the
+latter, `available_at`. An email address or phone number changed in the last 72 hours
+(`security.privacy_contact_hold_hours`) cannot receive these codes. SMS is offered only
+when the OTP method and an SMS provider are both on. A proof that fails is never a
+`401`, so it never ends the session.
+
+**Contact details.** `POST /me/contacts/change` (`channel`, `value`) always needs the
+same proof, sent as `password`, or `code` with `code_channel` (because `channel` names
+the contact being changed), or `id_token`; codes use `purpose: confirm_contact_change`.
+An account that cannot give any proof right now — no proven password, no code channel
+(a phone-only account while SMS is off, or its only channel inside the 72-hour hold)
+and no usable Google or Apple sign-in — is refused with `409`
+`contact_change_unverifiable`, whose message names the support address to write to
+(and, for a hold, when it ends); the change is never applied unproven. When a change
+is applied the old address is told. `PUT /me` no longer changes the email or phone: a new value there is `422`
+`contact_change_required` (on `errors.email` or `errors.phone`); sending the stored
+values back unchanged is still accepted.
 
 **The export** is built while the request waits. It is a ZIP of JSON files (account,
-security, creator profile, campaigns, bookings, messages sent, payments, reviews,
-verification, activity) plus a README that also says what is left out: password and
-token hashes, push tokens, full bank account numbers, KYC document numbers and images,
-and other people's messages. The link lives `link_hours` (72), allows
-`max_downloads` (5), and a new export may be requested every `cooldown_hours` (24).
-These are operator settings. A failed export does not start the cooldown. Each export
-also sends a security email with the link, whatever the user's email preferences.
+security — devices, sessions and sign-in history — creator profile, campaigns,
+bookings, messages sent, payments, reviews, verification, activity) plus a README that
+also says what is left out: password and token hashes, push tokens, full bank account
+numbers, KYC document images and full document numbers, and other people's messages.
+A section cut short at its row limit is listed in the README under "Shortened
+sections". The 201 response carries the only copy of the download link; afterwards
+`export.latest.download_url` is always null and `can_download` says whether a copy is
+still there. `POST /me/privacy/exports/{id}/link` with proof issues a new link and
+kills the old ones, without extending the expiry or resetting the download count;
+it answers `404` `not_found` for someone else's export and `410`
+`export_unavailable` for one that has expired or been used up, both before any proof
+is checked. Changing or resetting the password, signing out everywhere or revoking a
+session also kills the link; the copy stays until it expires, and its owner can ask for
+a new link. The link opens a landing page and the download is the POST behind its
+button, so link scanners and previews never use up a download. By default the link
+lives `link_hours` (72), allows `max_downloads` (5), and a new export may be requested
+every `cooldown_hours` (24); these are operator settings, read from the overview. A
+failed export does not start the cooldown. Each export sends a security notice, with
+no link in it, whatever the user's email preferences: `security_notice` says where it
+went (`channel` `email`, or `sms` for an account with only a phone number) or is null
+when it could not be sent anywhere. When support makes an export on a confirmed request
+from someone who cannot use the app (Admin → Privacy requests), the email carrying the
+link goes to the account's own address, and the link is never shown to staff. The
+archive's list of earlier exports says how each was confirmed (`verified_via`):
+`password`, `email_code`, `sms_code`, `firebase` (a Google, Apple or phone sign-in) or
+`operator` (support, on a confirmed request).
 
-**Deletion** erases rather than hides. Profile, contact details, creator profile,
-portfolio and packages, saved items, notifications, devices, sessions, payout methods,
-uploaded files (except booking deliverables and chat attachments) and data exports are
-removed. The KYC module purges identity documents under its retention rules, and the
-Firebase Auth record is deleted. Bookings, payments, invoices, refunds and the wallet
-ledger are kept, as tax law requires, against an anonymous "Deleted user" tombstone.
-Messages the user sent stay in the other person's conversation. Every session is
-revoked, and the email and phone become free for a new sign-up. `deletion.erased` and
-`deletion.retained` carry this list for the app to show before the user confirms.
+**Deletion** erases rather than hides. Profile and every email address and phone
+number on the account, creator profile, portfolio and packages, saved items, profile
+views, notifications and our copies of the messages sent to the user, devices,
+sessions, payout methods, uploaded files (except booking deliverables and chat
+attachments), data exports, identity documents and the Firebase Auth record are
+removed. The database erasure commits at once; deleting the files, the exports, the
+KYC documents and the Firebase record follows it and, if any of them fails, the
+`privacy:finish-deletions` job retries it until it succeeds. Kept, as the law
+requires: bookings, payments, invoices, refunds, payouts and the wallet ledger,
+against an anonymous "Deleted user" tombstone — tax invoices and payout statements
+stay exactly as issued, with the billing name, address and GSTIN printed on them;
+messages the user sent, in the other person's conversation; reviews they wrote,
+without their name; support tickets, contact-form messages and reports, without their
+name or contact details; security logs, without their email or phone, for up to a
+year; a minimal identity verification record; a deletion record; and database backups
+for up to `backup.retention_days`, after which they are deleted (a restore erases the
+account again). `deletion.erased` and `deletion.retained` carry this list for the app
+to show before the user confirms. Every session is revoked, the email and phone become
+free for a new sign-up, and any later request with the account's token gets `401`
+`account_deleted`.
+
+`deletion.blockers` lists what must be settled first, each with `code`, `title`,
+`message` and `action` (`bookings`, `wallet`, `kyc` or `support`): `open_bookings`,
+`open_disputes`, `wallet_on_hold`, `wallet_balance`, `pending_withdrawals`,
+`pending_refunds` and `pending_topup` (a payment into the wallet still being
+confirmed). `can_delete` is true when there are none. A wallet balance that cannot be
+paid out (below the minimum withdrawal, or waiting for KYC) and is no more than the
+operator's limit is not a blocker: `deletion.forfeit` then holds `{amount, currency,
+label, reason, message}`, and the user may give it up by sending `forfeit_balance`
+equal to `amount`. The response's `notice` says where the confirmation went, as
+`security_notice` does for an export.
 
 Errors the app should act on:
 
 | Status | `code` | Meaning |
 |---|---|---|
-| 422 | `reauth_required` | Neither a password nor a code was sent |
+| 422 | `reauth_required` | No proof was sent |
+| 422 | `reauth_unavailable` | The account has no proof it can give for this (setting a password) |
 | 422 | `invalid_credentials` | Wrong password; also in `errors.password` |
-| 422 | `password_not_set` | The account has no password; use a code |
-| 422 | `otp_invalid` · `otp_expired` · `otp_not_found` | The code is wrong, old, or was never requested for this purpose |
+| 422 | `password_not_set` · `password_unproven` | The account has no password, or one that was set without proof; use a code. Also in `errors.password` |
+| 422 | `otp_invalid` · `otp_expired` · `otp_not_found` · `otp_used` | The code is wrong, old, was never requested for this purpose, or was already used |
+| 429 | `otp_attempts_exceeded` | Too many wrong tries of one code; honour `Retry-After` |
+| 429 | `reauth_locked` | Too many failed confirmations for this account in the window; honour `Retry-After`. Code requests are refused too |
+| 422 | `no_email` · `no_phone` · `sms_unavailable` | That code channel cannot be used for this account; offer one listed in `verification.channels` |
+| 422 | `contact_recently_changed` | That email or number changed in the last 72 hours; use another proof |
+| 422 | `invalid_firebase_token` · `reauth_mismatch` · `reauth_stale` · `reauth_reused` · `reauth_method_unavailable` | The `id_token` is not valid, belongs to another Firebase account, is from a sign-in more than five minutes old, was already used, or its sign-in method is switched off |
+| 503 | `provider_unavailable` | Firebase could not be reached to check an `id_token`; retry |
+| 503 | `otp_delivery_failed` | The code could not be sent; not maintenance. An earlier code still works. Let the user retry or use the password |
+| 429 | `otp_cooldown` · `otp_send_limit` | A code was sent moments ago, or too many in the window; honour `Retry-After` |
 | 422 | `confirmation_mismatch` | `confirmation` is not `DELETE` |
-| 409 | `deletion_blocked` | Something must be settled first. `errors` is keyed by blocker (`open_bookings`, `open_disputes`, `wallet_balance`, `wallet_on_hold`, `pending_withdrawals`, `pending_refunds`); `deletion.blockers` in the overview says how to settle each |
-| 429 | `rate_limited` | Export cooldown, or too many attempts; honour `Retry-After` |
-| 410 | `export_expired` · `export_download_limit` | The download link has expired or been used up. Browsers get a readable HTML page instead of JSON |
+| 409 | `deletion_blocked` | Something must be settled first. `errors` is keyed by blocker code; `deletion.blockers` in the overview says how to settle each |
+| 409 | `forfeit_required` | A balance has to be given up explicitly: send `forfeit_balance` equal to `deletion.forfeit.amount`. If the amount changed, reload the overview. Also in `errors.wallet_balance` |
+| 409 | `wallet_closed` | The account was deleted, so its wallet takes no more money |
+| 429 | `export_cooldown` | A new export is allowed after `next_available_at`; honour `Retry-After`. Checked before the proof, so no code is spent |
+| 410 | `export_unavailable` | `…/link`: that copy has expired or been used up; request a new export |
+| 500 | `export_failed` | The archive could not be built; safe to retry, and a failed export does not start the cooldown |
+| 404 | `not_found` | Unknown link, a deleted account's link, or one already cleaned up |
+| 410 | `export_expired` · `export_download_limit` | The link has expired or been used up. The landing page (`GET`) keeps answering `410` until the hourly `privacy:purge-exports` job deletes the archive and forgets the token; a download (`POST`) that gets a `410` does that clean-up on the spot. Either way the same link answers `404` afterwards |
+| 429 | `rate_limited` | Too many download attempts from one network (30 an hour per address, for the landing page and the download each), or another route limit; honour `Retry-After` |
+
+Both download routes answer a browser (an `Accept` header containing `text/html`) with a
+readable HTML page for these errors, and any other client with the JSON envelope.
 
 ---
 
 ## Rate limiting
 
-Applied to authentication, OTP, password reset, uploads and the contact form.
+Applied to authentication, OTP, password reset, uploads, the contact form, the privacy
+actions and the export download page.
 
 ```http
 HTTP/1.1 429 Too Many Requests
@@ -450,6 +572,8 @@ a distinct state in the client.
 ## Client checklist
 
 - [ ] Handle `401` by refreshing once, then signing out if the refresh fails
+- [ ] On `401` with `code: "account_deleted"`, end the session and clear the device without refreshing
+- [ ] Read `code` on `503`: only `maintenance` is maintenance; `otp_delivery_failed` is retryable
 - [ ] Store the newest refresh token; never retry with an old one
 - [ ] Read `errors` on `422` and attach messages to fields
 - [ ] Handle `409` on bookings by re-reading the booking

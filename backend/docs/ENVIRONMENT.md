@@ -19,9 +19,9 @@ parsed as plain text, so no key can run code.
 | `APP_NAME` | `"Zuste+"` | Shown in emails, invoices and the admin header. |
 | `APP_ENV` | `production` | `local`, `staging` or `production`. Production tightens error handling. |
 | `APP_DEBUG` | `false` | **Never `true` in production.** Exposes stack traces with file paths and SQL. `deploy.sh` refuses to deploy if this is `true` while `APP_ENV=production`. |
-| `APP_URL` | `https://zustee.com` | Canonical base URL. Used for sitemap links, webhook callback URLs, email links and the deploy health check. Taken from configuration, never from the request `Host` header — a spoofed header would otherwise poison generated URLs. |
-| `API_URL` | `https://zustee.com/api` | Advertised to the apps via `/api/v1/app/config`. |
-| `ADMIN_URL` | `https://zustee.com/admin` | Used in admin notification emails. |
+| `APP_URL` | `https://zusty.app` | Canonical base URL. Used for the website's canonical and share links, sitemap links, webhook callback URLs, email links and the deploy health check. Taken from configuration, never from the request `Host` header — a spoofed header would otherwise poison generated URLs. Settings → SEO → canonical base only overrides it for the website when it is an `https://` URL on this same host. |
+| `API_URL` | `https://zusty.app/api` | Advertised to the apps via `/api/v1/app/config`. |
+| `ADMIN_URL` | `https://zusty.app/admin` | Used in admin notification emails. |
 | `APP_TIMEZONE` | `Asia/Kolkata` | Every timestamp is stored and displayed in this zone. Changing it later does **not** convert existing rows. |
 | `APP_LOCALE` | `en` | Default language. |
 

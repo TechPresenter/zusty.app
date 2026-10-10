@@ -229,19 +229,38 @@ booking context attached, so you do not have to explain who you are.
 ### Account
 
 - **Sessions** — see every signed-in device and revoke any of them.
-- **Password** — changing it requires the current password.
+- **Password** — changing it requires the current password. An account you made with
+  Google, Apple or a phone number has none: **Set a password** adds one after you
+  confirm it's you with a code we send to your email (or by text), or by signing in
+  with Google or Apple again. Either way you are signed out on every device
+  afterwards, and we email you about it when your account has an email address.
+- **Contact details** — change your email address or mobile number here, not on the
+  profile screen. You confirm it's you first (your password, a code, or your Google or
+  Apple sign-in), the new address is verified, and we tell the old one. For 72 hours
+  after a change, the new email or number can't receive the codes that confirm privacy
+  actions; the app says when it can again, and you can confirm another way meanwhile.
 - **Privacy & data** (Settings, or the Profile menu) — two things, each confirmed with
-  your password or a one-time code sent to your email or phone:
+  your password, a one-time code sent to your email or phone, or your Google or Apple
+  sign-in:
   - **Download my data** — a ZIP of your profile, bookings, messages you sent,
-    payments, reviews and activity, ready in seconds. The link works for 3 days and 5
-    downloads, and you can ask for a new copy once a day. We email you too, so you
-    would know if anyone else asked.
-  - **Delete my account** — permanent. You see what is erased and what the law makes
-    us keep (bookings, invoices and payments, without your name) before you confirm.
-    Not available while you have bookings in progress, money in your wallet, or a
-    withdrawal or refund on its way; the screen says which, and how to settle it. You
-    are signed out on every device, and your email and phone can be used for a new
-    account.
+    payments, reviews, sign-in history and activity, ready in seconds. The download
+    link shows in the app; you can get a fresh one there while the copy lasts, after
+    confirming it's you again. By default the link works for 3 days and 5 downloads,
+    and you can ask for a new copy once a day; the app always shows the current limits.
+    We also send you a security notice, by email, or by text message if your account
+    only has a phone number, so you would know if anyone else asked. The notice has no
+    link in it.
+  - **Delete my account** — permanent. Before you confirm you see what is erased and
+    what the law makes us keep: bookings, payments and invoices stay, showing "Deleted
+    user" in place of your account, and invoices keep the billing details printed on
+    them. Messages you sent and reviews you wrote stay without your name. Not available
+    while you have bookings in progress, a dispute under review, money in your wallet,
+    or a withdrawal, refund or wallet top-up on its way; the screen says which, and how
+    to settle it. A small balance that can't be paid out can be given up instead, by
+    ticking a box that names the amount. You are signed out on every device, we confirm
+    by email (or by text message if your account only has a phone number), and your
+    email and phone can be used for a new account. If you can't use the app, write to
+    support from the email address on your account.
 
 ---
 

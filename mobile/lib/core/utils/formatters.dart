@@ -119,4 +119,10 @@ abstract final class Formatters {
     if (days <= 0) return 'Today';
     return days == 1 ? '1 day' : '$days days';
   }
+
+  /// `0:05`, `1:00`, `13:00`: a wait in minutes and seconds, never negative.
+  static String countdown(int seconds) {
+    final s = seconds < 0 ? 0 : seconds;
+    return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
+  }
 }

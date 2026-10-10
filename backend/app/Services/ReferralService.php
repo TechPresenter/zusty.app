@@ -99,11 +99,22 @@ final class ReferralService
         $referrerReward = Money::round((float) $referral['referrer_reward']);
         $referredReward = Money::round((float) $referral['referred_reward']);
 
+        // A referrer who deleted their account gets nothing (their wallet is
+        // closed); the friend they invited is still rewarded.
+        $referrerGone = false;
+
         try {
-            Database::transaction(static function () use ($referral, $referrerReward, $referredReward): void {
+            Database::transaction(static function () use ($referral, $referrerReward, $referredReward, &$referrerGone): void {
                 $referralId = (int) $referral['id'];
 
-                if ($referrerReward > 0) {
+                $referrer = Database::selectOne(
+                    'SELECT `deleted_at` FROM `users` WHERE `id` = :id',
+                    ['id' => (int) $referral['referrer_user_id']]
+                );
+
+                $referrerGone = $referrer === null || $referrer['deleted_at'] !== null;
+
+                if ($referrerReward > 0 && !$referrerGone) {
                     WalletService::credit((int) $referral['referrer_user_id'], $referrerReward, [
                         'category'        => 'referral',
                         'description'     => 'Referral reward',
@@ -127,8 +138,12 @@ final class ReferralService
                     'status'       => 'rewarded',
                     'qualified_at' => date('Y-m-d H:i:s'),
                     'rewarded_at'  => date('Y-m-d H:i:s'),
-                ], ['id' => $referralId]);
+                ] + ($referrerGone ? ['referrer_reward' => 0] : []), ['id' => $referralId]);
             });
+
+            if ($referrerGone) {
+                return;
+            }
 
             $friendName = (string) (Database::scalar(
                 'SELECT `name` FROM `users` WHERE `id` = :id',
@@ -171,7 +186,8 @@ final class ReferralService
         ) ?? [];
 
         $code    = (string) ($user['referral_code'] ?? '');
-        $baseUrl = Config::settingString('referral', 'share_base_url', 'https://zuste.app/invite/');
+        // Lands on Web\PageController::invite. The fallback is the seeded value.
+        $baseUrl = Config::settingString('referral', 'share_base_url', 'https://zusty.app/invite/');
 
         return [
             'code'             => $code,

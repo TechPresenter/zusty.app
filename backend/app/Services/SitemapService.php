@@ -54,9 +54,12 @@ final class SitemapService
             'pattern' => '/{path}',
             'table'   => null,
         ],
+        // Only the CMS pages the website publishes (PageController::SLUGS), at
+        // their canonical /{slug}: /pages/{slug} answers with a redirect, and
+        // the other CMS pages exist only inside the app.
         'pages' => [
             'label'   => 'CMS pages',
-            'pattern' => '/pages/{slug}',
+            'pattern' => '/{slug}',
             'table'   => 'pages',
         ],
         'blogs' => [
@@ -106,7 +109,7 @@ final class SitemapService
         'creators'        => ['priority' => '0.9', 'changefreq' => 'daily'],
     ];
 
-    private const DEFAULT_STATIC_PATHS = "/\n/about\n/contact";
+    private const DEFAULT_STATIC_PATHS = "/\n/about\n/contact\n/account-deletion";
 
     private const DEFAULT_ROBOTS_DISALLOW = "/admin\n/api";
 
@@ -289,6 +292,21 @@ final class SitemapService
     }
 
     /**
+     * The website's CMS page slugs as a quoted SQL list. PageController::SLUGS
+     * is a compile-time constant of [a-z-] slugs, never user input; anything
+     * else is dropped all the same.
+     */
+    private static function webPageSlugs(): string
+    {
+        $slugs = array_filter(
+            \Zuste\Controllers\Web\PageController::SLUGS,
+            static fn (string $slug): bool => preg_match('/^[a-z0-9-]+$/', $slug) === 1
+        );
+
+        return $slugs === [] ? "''" : "'" . implode("','", $slugs) . "'";
+    }
+
+    /**
      * Paths robots.txt tells crawlers to skip.
      *
      * @return list<string>
@@ -375,7 +393,7 @@ final class SitemapService
         return match ($source) {
             'static'          => count(self::staticPaths()),
             'pages'           => (int) Database::scalar(
-                "SELECT COUNT(*) FROM `pages` WHERE `is_active` = 1 AND `slug` <> ''"
+                "SELECT COUNT(*) FROM `pages` WHERE `is_active` = 1 AND `slug` IN (" . self::webPageSlugs() . ')'
             ),
             // The publish window matters: ContentController::blogs() hides a
             // post whose published_at is still in the future, so listing it
@@ -473,7 +491,7 @@ final class SitemapService
         $sql = match ($source) {
             'pages' => "SELECT `id`, `slug`, `updated_at` AS `lastmod`
                           FROM `pages`
-                         WHERE `is_active` = 1 AND `slug` <> '' AND `id` > :after
+                         WHERE `is_active` = 1 AND `slug` IN (" . self::webPageSlugs() . ") AND `id` > :after
                          ORDER BY `id` LIMIT " . self::BATCH,
 
             'blogs' => "SELECT `id`, `slug`, `updated_at` AS `lastmod`
@@ -521,7 +539,7 @@ final class SitemapService
         }
 
         $prefix = match ($source) {
-            'pages'           => '/pages',
+            'pages'           => '',
             'blogs'           => '/blog',
             'blog_categories' => '/blog/category',
             'categories'      => '/categories',

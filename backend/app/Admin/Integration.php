@@ -243,7 +243,7 @@ final class Integration
                 'Submit sitemaps and read search performance for the public site.',
                 'https://developers.google.com/webmaster-tools',
                 [
-                    self::text('site_url', 'Verified property URL', 'Exactly as it appears in Search Console, e.g. https://zustee.com/'),
+                    self::text('site_url', 'Verified property URL', 'Exactly as it appears in Search Console, e.g. https://zusty.app/'),
                     self::textarea('service_account_json', 'Service account JSON', 'Grant the service account read access to the property.', true),
                 ],
                 ['auth' => 'service_account', 'sync' => true,

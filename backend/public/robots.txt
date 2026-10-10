@@ -1,9 +1,9 @@
-# robots.txt for https://zustee.com
-# Written by the Zusty admin panel on 2026-08-04T16:36:20+05:30.
-# Edits made here by hand are replaced the next time it is written.
+# robots.txt for https://zusty.app
+# Shipped with the release. Admin -> SEO -> Sitemap rewrites this file when it
+# generates a sitemap; set Settings -> SEO -> canonical_base to https://zusty.app first.
 
 User-agent: *
 Disallow: /admin
 Disallow: /api
 
-Sitemap: https://zustee.com/sitemap.xml
+Sitemap: https://zusty.app/sitemap.xml

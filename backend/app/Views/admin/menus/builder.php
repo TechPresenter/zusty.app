@@ -423,7 +423,7 @@ if ($oldValue !== null) {
 
                 <input class="input<?= $currentType === 'url' ? ' is-shown' : '' ?>"
                        id="item_link_url" name="link_value" type="url" maxlength="255"
-                       data-link-control="url" placeholder="https://zustee.com/help"
+                       data-link-control="url" placeholder="https://zusty.app/help"
                        value="<?= $currentType === 'url' ? $this->e($currentValue) : '' ?>"
                        <?= $currentType === 'url' ? '' : 'disabled' ?>>
 

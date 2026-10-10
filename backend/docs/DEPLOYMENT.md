@@ -78,19 +78,62 @@ git pull                      # or upload changed files
 bash scripts/deploy.sh
 ```
 
+If you upload files instead of pulling, include new directories too, such as
+`public/assets/landing/` (the website's logo, icons and share image).
+
+### The website at `/`
+
+The site root serves the landing page (`LandingController`), next to the legal pages
+(`/about`, `/terms`, `/privacy`, `/refund-policy`, `/community-guidelines`, `/contact`)
+and `/account-deletion`. The links the app shares land here too: `/invite/{code}`
+(set **Referral → Invite link base** to `https://<domain>/invite/`) and
+`/creators/{handle}` (built on SEO `canonical_base`), both pointing people to the
+app. It reads everything it shows from settings: General (app
+name, tagline, support email, company name), SEO (title, description,
+`canonical_base`, share image, Twitter handle), Social links and App. Its canonical
+and share URLs, and the legal pages' canonical links, are built on `APP_URL`; SEO
+`canonical_base` replaces it only when it is an `https://` URL on the same host (a
+value naming another domain is ignored), and a localhost `APP_URL` falls back to
+`https://zusty.app`. Check after a deploy:
+
+```bash
+curl -sI https://yourdomain.com/            # 200, text/html
+curl -s  https://yourdomain.com/robots.txt  # Sitemap: line names this domain
+```
+
+- **Google Play link.** The page links to `app.android_store_url` only while
+  **Settings → App → Play listing is live** (`app.android_store_live`, added by migration
+  049) is on; until then it shows "Coming soon on Google Play". Turn it on the day the
+  listing is public. The URL itself stays the app's update link either way.
+- **Sitemap.** `public/robots.txt` and `public/sitemap.xml` ship for `https://zusty.app`.
+  **SEO → Sitemap** rewrites both; set **Settings → SEO → canonical_base** to the live
+  domain before generating. Migration 049 turns off the blog, category and creator
+  sources, because the website does not serve those pages.
+- **Mail domain.** zustee.com takes no mail. Migration 050 moves every published
+  `@zustee.com` mailbox (CMS pages, FAQs, notification templates, popups, blog posts,
+  and settings that hold an address, such as the support email and the mail from
+  address) to the same name at `@zusty.app`, and dates the privacy and terms pages
+  10 October 2026. It never rewrites URLs, encrypted settings or credentials: set the
+  SMTP login (`mail.username` / `MAIL_USERNAME`), `MAIL_FROM_ADDRESS`, SEO
+  `canonical_base` and the CORS origins to zusty.app yourself if they still name
+  zustee.com.
+
 ---
 
 ## Cron jobs
 
 hPanel → **Advanced → Cron Jobs**. Either one entry every minute running
 `php scripts/cron.php --due`, which starts each job below on its schedule (as stored
-under System → Jobs), or one entry per job. Every job `php scripts/cron.php --list` reports:
+under System → Jobs), or one entry per job. `php scripts/cron.php --crontab` prints
+the complete per-job list, one ready-to-paste line per job, with this server's PHP
+binary and absolute paths. Every job `php scripts/cron.php --list` reports:
 
 | Schedule | Job | Does |
 |---|---|---|
 | `* * * * *` | `queue:dispatch` | Sends queued email, SMS and push |
 | `*/5 * * * *` | `automation:run` | Evaluates active automation rules and performs their actions |
 | `*/5 * * * *` | `marketing:dispatch` | Queues and sends scheduled and in-flight marketing campaigns |
+| `*/10 * * * *` | `privacy:finish-deletions` | Retries the clean-up after an account is erased (uploaded files, data exports, KYC documents, the Firebase sign-in record) until it succeeds |
 | `*/15 * * * *` | `bookings:expire` | Expires unanswered requests and unpaid acceptances |
 | `*/30 * * * *` | `integrations:sync` | Runs integrations whose auto-sync is due |
 | `0 * * * *` | `bookings:autocomplete` | Completes delivered bookings the brand did not action |
@@ -103,9 +146,9 @@ under System → Jobs), or one entry per job. Every job `php scripts/cron.php --
 | `20 1 * * *` | `kyc:expiry` | Clears verification (and the blue tick) on lapsed KYC, warns those approaching expiry at most weekly |
 | `40 1 * * *` | `kyc:retention` | Deletes KYC documents and identity details of rejected / abandoned / closed profiles and never-submitted drafts, replaced versions, and orphaned encrypted files |
 | `0 2 * * *` | `backup:database` | Nightly dump |
-| `0 3 * * *` | `tokens:prune` | Deletes expired tokens, OTPs and rate-limit buckets |
+| `0 3 * * *` | `tokens:prune` | Deletes expired tokens, OTPs and rate-limit buckets; sent email, SMS and push copies after 7 days and failed or unsent ones after 30; payment gateway callbacks after 90 days; backups past `BACKUP_RETENTION_DAYS` |
 | `0 4 * * *` | `auth:purge-guests` | Deletes expired guest sessions and their guest accounts |
-| `0 4 * * 0` | `logs:rotate` | Weekly log rotation |
+| `0 4 * * 0` | `logs:rotate` | Weekly log rotation; deletes sign-in history older than a year and API request logs older than 180 days |
 
 These are the same schedules **System → Jobs** displays, seeded in `scheduled_jobs`.
 Keep the crontab and that table in agreement — an operator debugging a missed job reads
@@ -131,6 +174,7 @@ Verify:
 
 ```bash
 php8.3 scripts/cron.php --list          # every registered job
+php8.3 scripts/cron.php --crontab       # a crontab line for every job, from scheduled_jobs
 php8.3 scripts/cron.php queue:dispatch  # run one now
 ```
 
@@ -172,6 +216,18 @@ rsync -avz user@host:~/domains/DOMAIN/backend/storage/backups/ ./backups/
 > **Store `APP_ENCRYPTION_KEY` with your backups.** Without it a restored database
 > yields KYC records, bank details, 2FA secrets and API keys you cannot decrypt.
 
+> **Keep off-site copies on the same clock.** The privacy policy tells users a backup
+> is kept for up to `BACKUP_RETENTION_DAYS` days (14 by default) and then deleted, and
+> `tokens:prune` deletes older dumps on the server every night. Give the S3 bucket a
+> lifecycle rule that expires objects after the same number of days, and pull with
+> `rsync -avz --delete` so a dump deleted on the server goes from your copy too. If you
+> change `BACKUP_RETENTION_DAYS`, update the number in section 5 of the Privacy Policy
+> (Content → Pages).
+
+> **Keep `storage/privacy/erasure-ledger.jsonl` with the server.** It records every
+> erased account outside the database, and a restore uses it to erase them again
+> (below). Copy it along when you move to another server.
+
 ### Restore
 
 ```bash
@@ -180,6 +236,15 @@ php8.3 scripts/deploy_helper.php restore storage/backups/DUMP.sql.gz DATABASE_NA
 
 The database name is required as confirmation, so a restore cannot be run by pressing
 up-arrow and enter.
+
+A dump can predate accounts that were erased after it was taken, and the privacy
+policy promises those are deleted again straight away. A restore from **System →
+Backups** in the admin panel does that by itself, and so does `deploy.sh --rollback`.
+After a restore with `deploy_helper.php`, run it yourself:
+
+```bash
+php8.3 scripts/privacy_support_request.php reapply-erasures
+```
 
 ---
 
@@ -217,7 +282,8 @@ bash scripts/deploy.sh
 bash scripts/deploy.sh --rollback
 ```
 
-This asks for the database name before overwriting anything.
+This asks for the database name before overwriting anything, then erases again every
+account deleted since the backup was taken.
 
 > Migrations are **forward-only**. There is no `down()`. Rolling back a schema change
 > means restoring the backup taken before it — which is exactly why the deploy script
@@ -268,3 +334,9 @@ guessing.
 - [ ] `https://<domain>/privacy` and `https://<domain>/account-deletion` load over
       HTTPS. The Google Play listing links to both, and the app's sign-up screen
       links to `/terms` and `/privacy`.
+- [ ] `GET /api/v1/app/config` shows `auth.firebase.enabled: true` and, for
+      Android, a non-empty Google `server_client_id`. Until both are set the app
+      hides Google sign-in (the server reports Google, Apple and Facebook as off
+      while Firebase is incomplete) and push cannot register.
+- [ ] Payments: Cashfree is the only card/UPI gateway the app can complete
+      (hosted checkout). Razorpay and Stripe are hidden in the app even if enabled.

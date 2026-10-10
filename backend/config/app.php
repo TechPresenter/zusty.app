@@ -134,7 +134,7 @@ return [
         'encryption'   => Env::getString('MAIL_ENCRYPTION', 'ssl'),
         'username'     => Env::getString('MAIL_USERNAME'),
         'password'     => Env::getString('MAIL_PASSWORD'),
-        'from_address' => Env::getString('MAIL_FROM_ADDRESS', 'no-reply@zustee.com'),
+        'from_address' => Env::getString('MAIL_FROM_ADDRESS', 'no-reply@zusty.app'),
         'from_name'    => Env::getString('MAIL_FROM_NAME', 'Zusty'),
         'timeout'      => 20,
     ],

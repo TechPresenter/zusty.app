@@ -37,6 +37,9 @@ abstract final class ApiEndpoints {
   static const privacy = '/me/privacy';
   static const privacyCode = '/me/privacy/verification-code';
   static const privacyExports = '/me/privacy/exports';
+
+  /// A fresh link for an export that is still ready, after step-up.
+  static String privacyExportLink(int id) => '/me/privacy/exports/$id/link';
   static const privacyDeleteAccount = '/me/privacy/delete-account';
 
   // -- Discovery -----------------------------------------------------------

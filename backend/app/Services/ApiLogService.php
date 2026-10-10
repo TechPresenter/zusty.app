@@ -8,6 +8,7 @@ use Zuste\Core\Config;
 use Zuste\Core\Database;
 use Zuste\Core\Logger;
 use Zuste\Core\Request;
+use Zuste\Helpers\Str;
 
 /**
  * Observability for the REST API: writing the request log, and reading the
@@ -63,8 +64,24 @@ final class ApiLogService
         'gst_number', 'gstin', 'tax_id', 'ssn', 'cin_number', 'cinnumber', 'cin_no', 'llpin',
     ];
 
-    /** Keys redacted only on an exact (case-insensitive) match. */
-    private const SECRET_KEYS = ['cin', 'pan', 'gst', 'uid'];
+    /**
+     * Keys redacted only on an exact (case-insensitive) match.
+     *
+     * `code` is the one-time code sent with a verification or step-up
+     * (`/auth/otp/verify`, `/me/privacy/exports`, `/me/privacy/delete-account`).
+     * It must be exact: as a fragment it would also redact `reason_code`,
+     * `phone_country_code` and `referral_code`, which are what an operator
+     * reading a failed request needs to see.
+     */
+    private const SECRET_KEYS = ['cin', 'pan', 'gst', 'uid', 'code'];
+
+    /**
+     * Keys whose value is masked rather than redacted, on an exact
+     * (case-insensitive) match. A failed sign-in, sign-up or password reset
+     * has no user id, so the masked value is the only hint of whose request
+     * it was, and the full address or number is not something a log needs.
+     */
+    private const MASKED_KEYS = ['email', 'phone', 'mobile', 'identifier'];
 
     public const REDACTED = '[REDACTED]';
 
@@ -380,6 +397,10 @@ final class ApiLogService
     }
 
     /**
+     * Secrets become [REDACTED]. A string under one of {@see MASKED_KEYS} is
+     * masked instead: an email address with Str::maskEmail (`it****@x.com`),
+     * anything else as a phone number with Str::maskPhone (last 4 digits).
+     *
      * @param  array<mixed> $data
      * @return array<mixed>
      */
@@ -394,6 +415,11 @@ final class ApiLogService
         foreach ($data as $key => $value) {
             if (self::isSecretKey((string) $key)) {
                 $clean[$key] = self::REDACTED;
+                continue;
+            }
+
+            if (is_string($value) && in_array(strtolower((string) $key), self::MASKED_KEYS, true)) {
+                $clean[$key] = str_contains($value, '@') ? Str::maskEmail($value) : Str::maskPhone($value);
                 continue;
             }
 

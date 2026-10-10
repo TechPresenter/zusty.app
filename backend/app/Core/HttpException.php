@@ -78,12 +78,20 @@ class HttpException extends \RuntimeException
     }
 
     /**
-     * @param int $retryAfter seconds the caller should wait, surfaced as the
-     *                        `Retry-After` header by the exception renderer.
+     * @param int    $retryAfter seconds the caller should wait, surfaced as the
+     *                           `Retry-After` header by the exception renderer.
+     * @param string $code       machine-readable reason, so a client can tell an
+     *                           attempt cap (`otp_attempts_exceeded`), a cooldown
+     *                           (`export_cooldown`, `otp_cooldown`) or a locked
+     *                           step-up (`reauth_locked`) from a plain route
+     *                           throttle (`rate_limited`).
      */
-    public static function tooManyRequests(string $message = 'Too many requests.', int $retryAfter = 60): self
-    {
-        $exception = new self($message, 429, 'rate_limited');
+    public static function tooManyRequests(
+        string $message = 'Too many requests.',
+        int $retryAfter = 60,
+        string $code = 'rate_limited'
+    ): self {
+        $exception = new self($message, 429, $code);
         $exception->retryAfter = max(1, $retryAfter);
 
         return $exception;

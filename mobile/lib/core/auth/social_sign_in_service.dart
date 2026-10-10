@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,6 +8,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../../models/auth_config.dart';
+import '../diagnostics/crash_reporting.dart';
 
 /// Raised when a social sign-in cannot proceed, with a message meant for the
 /// user rather than the console.
@@ -50,6 +52,11 @@ class SocialSignInService {
   static bool _googleInitialised = false;
   static String _googleInitialisedFor = '';
 
+  /// The Android app, as opposed to the web build running on an Android
+  /// browser. `dart:io`'s Platform is unusable on the web, hence the order.
+  static bool get isAndroidApp =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
   /// Start Firebase from server-supplied options.
   ///
   /// Safe to call more than once and safe to call with an unusable config — it
@@ -82,6 +89,11 @@ class SocialSignInService {
       }
 
       _firebaseReady = true;
+
+      // Crash reporting rides on the same Firebase app, so it can only be
+      // switched on now. Not awaited: it must never delay a sign-in.
+      unawaited(CrashReporting.onFirebaseReady());
+
       return true;
     } catch (e) {
       // A bad option set must not stop the app booting — the sign-in methods
@@ -111,7 +123,13 @@ class SocialSignInService {
     final clientId = method.string('client_id');
     final serverClientId = method.string('server_client_id');
 
-    if (clientId.isEmpty && serverClientId.isEmpty) {
+    // google_sign_in on Android ignores clientId and refuses to start without
+    // serverClientId (the Web client ID), with an error no user can act on.
+    final missing = isAndroidApp
+        ? serverClientId.isEmpty
+        : clientId.isEmpty && serverClientId.isEmpty;
+
+    if (missing) {
       throw const SocialSignInException(
         'Google sign-in has not been configured yet.',
       );
@@ -142,12 +160,16 @@ class SocialSignInService {
       final googleIdToken = account.authentication.idToken;
 
       if (googleIdToken == null || googleIdToken.isEmpty) {
+        // Nothing to exchange, so end the Google session here instead.
+        await signOut();
         throw const SocialSignInException(
           'Google did not return a usable token. Please try again.',
         );
       }
 
-      return _exchangeWithFirebase(
+      // Awaited here, so a Firebase refusal reaches the catch below and the
+      // user gets a readable message.
+      return await _exchangeWithFirebase(
         GoogleAuthProvider.credential(idToken: googleIdToken),
       );
     } on GoogleSignInException catch (e) {
@@ -214,7 +236,7 @@ class SocialSignInService {
         );
       }
 
-      return _exchangeWithFirebase(
+      return await _exchangeWithFirebase(
         OAuthProvider('apple.com').credential(
           idToken: appleIdToken,
           accessToken: credential.authorizationCode,
@@ -232,9 +254,22 @@ class SocialSignInService {
 
   /// Hand a provider credential to Firebase and read back its ID token, which
   /// is what `POST /auth/firebase` verifies.
+  ///
+  /// The Firebase and Google sessions end as soon as the token is read. The
+  /// backend issues its own session from the token and nothing reads either
+  /// provider session afterwards, so keeping them would only leave this
+  /// device signed in to Google after a sign-out or an account deletion. It
+  /// also means every call is a fresh sign-in with a fresh token, which is
+  /// what a re-authentication proof needs.
   Future<String> _exchangeWithFirebase(AuthCredential credential) async {
-    final result = await FirebaseAuth.instance.signInWithCredential(credential);
-    final token = await result.user?.getIdToken();
+    String? token;
+    try {
+      final result =
+          await FirebaseAuth.instance.signInWithCredential(credential);
+      token = await result.user?.getIdToken();
+    } finally {
+      await signOut();
+    }
 
     if (token == null || token.isEmpty) {
       throw const SocialSignInException(
@@ -243,6 +278,33 @@ class SocialSignInService {
     }
 
     return token;
+  }
+
+  /// Signs this device out of Firebase and, when it was used, Google.
+  ///
+  /// [revoke] also withdraws the app's Google grant, for after an account
+  /// deletion. Safe to call at any time: it does nothing when Firebase never
+  /// started or Google sign-in was never initialised (google_sign_in refuses
+  /// every call before `initialize()`), and it never throws, so it cannot
+  /// stop a sign-out from completing.
+  static Future<void> signOut({bool revoke = false}) async {
+    try {
+      if (Firebase.apps.isNotEmpty) await FirebaseAuth.instance.signOut();
+    } catch (_) {
+      // Intentionally ignored: the backend session is what matters.
+    }
+
+    if (!_googleInitialised) return;
+
+    try {
+      if (revoke) {
+        await GoogleSignIn.instance.disconnect();
+      } else {
+        await GoogleSignIn.instance.signOut();
+      }
+    } catch (_) {
+      // Intentionally ignored, as above.
+    }
   }
 
   static String _readable(String raw) =>

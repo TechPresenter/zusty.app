@@ -5,7 +5,9 @@ import 'core/config/app_config.dart';
 import 'core/theme/app_theme.dart';
 import 'providers/auth_provider.dart';
 import 'providers/core_providers.dart';
+import 'providers/privacy_provider.dart';
 import 'providers/push_provider.dart';
+import 'providers/session_end.dart';
 import 'providers/theme_provider.dart';
 import 'router/app_router.dart';
 import 'router/routes.dart';
@@ -32,15 +34,29 @@ class _ZusteAppState extends ConsumerState<ZusteApp>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    // A refresh failure must bounce the user back to the login screen.
-    ref.read(apiClientProvider).onSessionExpired = () {
-      ref.read(authProvider.notifier).restore();
+    // A session the server ended clears this device, then bounces the user
+    // back to the login screen. A deleted account, met by this device after
+    // a lost response or by any other device, gets the goodbye screen.
+    ref.read(apiClientProvider).onSessionExpired = (code) {
+      if (code == 'account_deleted') {
+        finishAccountDeletion(
+          ref.read(accountDeletedProvider.notifier),
+          ref.read(authProvider.notifier),
+        );
+      } else {
+        ref.read(sessionEndProvider)();
+      }
     };
 
-    // Mounted once here because no widget renders push state, and a Notifier
-    // nobody reads is never built. It watches `authProvider` and does nothing
-    // at all until somebody is signed in.
-    ref.read(pushProvider);
+    // Push registration has no widget of its own, so the app root keeps it
+    // alive for as long as the app runs. It has to be a LISTENER, not a
+    // read: Riverpod only rebuilds a provider whose dependency changed while
+    // something listens to it. A one-off read here ran while the session was
+    // still being restored, built the controller signed out, and it never ran
+    // again — so no device token was ever sent and no tap or foreground
+    // handler was attached. Listening, it registers on every sign-in (and on
+    // a restored session) and drops its handlers on sign-out.
+    ref.listenManual<PushState>(pushProvider, (_, _) {});
   }
 
   @override

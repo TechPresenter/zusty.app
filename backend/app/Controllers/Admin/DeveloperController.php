@@ -590,7 +590,7 @@ final class DeveloperController extends BaseAdminController
         if (self::baseUrl() === '') {
             $this->finishTest($request, $submitted, self::failure(
                 'The tester has no host to call. Set APP_URL in the environment file to this '
-                . 'site\'s address (for example https://zustee.com) and reload this page.'
+                . 'site\'s address (for example https://zusty.app) and reload this page.'
             ));
         }
 

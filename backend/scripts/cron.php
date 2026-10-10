@@ -9,27 +9,37 @@ declare(strict_types=1);
  *   php scripts/cron.php --list
  *   php scripts/cron.php --all
  *   php scripts/cron.php --due
+ *   php scripts/cron.php --crontab
  *
  * --due runs the enabled jobs whose schedule (scheduled_jobs.schedule_hint,
  * editable under System → Jobs) has come round since the last --due run. One
  * crontab entry that runs it every minute replaces the per-job entries below,
  * which is the practical setup on shared hosting such as Hostinger.
  *
- * Crontab schedules (the exact lines are in docs/DEPLOYMENT.md — they are not
- * repeated here because a crontab step expression contains the sequence that
- * would terminate this comment block):
+ * --crontab prints one ready-to-paste crontab line per job, with the schedule
+ * stored in scheduled_jobs and the absolute paths of this PHP binary and this
+ * script, so the per-job entries can never fall behind the job list.
+ *
+ * Crontab schedules (the exact lines come from --crontab, and are in
+ * docs/DEPLOYMENT.md; they are not repeated here because a crontab step
+ * expression contains the sequence that would terminate this comment block):
  *
  *   every minute      queue:dispatch
  *   every 5 minutes   marketing:dispatch, automation:run
+ *   every 10 minutes  privacy:finish-deletions
  *   every 15 minutes  bookings:expire
+ *   every 30 minutes  integrations:sync
  *   hourly            escrow:release, bookings:autocomplete
  *   hourly at :15     privacy:purge-exports
  *   daily 00:10       analytics:rollup
  *   daily 00:30       creators:refresh
+ *   daily 00:45       creators:badges
+ *   daily 00:55       creators:completion
  *   daily 01:20       kyc:expiry
  *   daily 01:40       kyc:retention
  *   daily 02:00       backup:database
  *   daily 03:00       tokens:prune
+ *   daily 04:00       auth:purge-guests
  *   weekly Sun 04:00  logs:rotate
  */
 
@@ -66,7 +76,8 @@ if ($arguments === [] || in_array($arguments[0], ['--help', '-h'], true)) {
     echo "  Usage: php scripts/cron.php <job>\n";
     echo "         php scripts/cron.php --list\n";
     echo "         php scripts/cron.php --all\n";
-    echo "         php scripts/cron.php --due     (run every minute: starts the jobs that are due)\n\n";
+    echo "         php scripts/cron.php --due      (run every minute: starts the jobs that are due)\n";
+    echo "         php scripts/cron.php --crontab  (prints a crontab line for every job)\n\n";
     echo "  Jobs:\n";
 
     foreach (CronRunner::jobs() as $job) {
@@ -83,6 +94,10 @@ if ($arguments[0] === '--list') {
     }
 
     exit(0);
+}
+
+if ($arguments[0] === '--crontab') {
+    exit(printCrontab());
 }
 
 $jobs = match ($arguments[0]) {
@@ -207,4 +222,61 @@ function dueJobs(string $basePath): array
     }
 
     return $due;
+}
+
+/**
+ * Print one crontab line per registered job.
+ *
+ * Each line is the schedule stored under System → Jobs followed by the
+ * absolute paths of this PHP binary and this script, so it can be pasted as
+ * it is. A job without a usable schedule is printed as a comment that says
+ * so rather than silently left out, and a disabled job is printed commented
+ * out, because running it would do nothing.
+ *
+ * @return int The exit code.
+ */
+function printCrontab(): int
+{
+    $rows = [];
+
+    try {
+        foreach (Database::select('SELECT `job_key`, `schedule_hint`, `is_enabled` FROM `scheduled_jobs`') as $row) {
+            $rows[(string) $row['job_key']] = $row;
+        }
+    } catch (Throwable $e) {
+        fwrite(STDERR, '[error] Could not read the job schedules: ' . $e->getMessage() . "\n");
+
+        return 1;
+    }
+
+    $php    = crontabPath(PHP_BINARY);
+    $script = crontabPath((string) (realpath(__FILE__) ?: __FILE__));
+
+    foreach (CronRunner::jobs() as $job) {
+        $hint = trim((string) ($rows[$job]['schedule_hint'] ?? ''));
+
+        if ($hint === '') {
+            echo "# {$job}: no schedule_hint, add one\n";
+            continue;
+        }
+
+        if (!CronExpression::isValid($hint)) {
+            echo "# {$job}: schedule_hint '{$hint}' is not a valid cron expression, fix it\n";
+            continue;
+        }
+
+        $line = $hint . ' ' . $php . ' ' . $script . ' ' . $job;
+
+        echo (int) ($rows[$job]['is_enabled'] ?? 1) === 1
+            ? $line . "\n"
+            : '# disabled under System → Jobs: ' . $line . "\n";
+    }
+
+    return 0;
+}
+
+/** A path as a crontab line needs it: quoted only when it contains a space. */
+function crontabPath(string $path): string
+{
+    return preg_match('/\s/', $path) === 1 ? '"' . $path . '"' : $path;
 }

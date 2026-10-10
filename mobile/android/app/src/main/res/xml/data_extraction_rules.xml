@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 (API 31) and later: what Auto Backup copies to the cloud and
+     what a device-to-device transfer moves to a new phone.
+
+     FlutterSharedPreferences.xml holds the response cache, which keeps copies
+     of the signed-in account's documents (profile, bookings, messages). The
+     app clears it on sign-out and when an account is deleted, so a backup
+     taken before that would bring the data back after it. The keystore key
+     that decrypts FlutterSecureStorage.xml never leaves the device, so a
+     restored copy of that file is useless ciphertext.
+
+     Only these two files are left out. The rest of the app's data is still
+     backed up as before. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+        <exclude domain="sharedpref" path="FlutterSecureStorage.xml"/>
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+        <exclude domain="sharedpref" path="FlutterSecureStorage.xml"/>
+    </device-transfer>
+</data-extraction-rules>

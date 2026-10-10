@@ -948,6 +948,19 @@ final class CampaignService
         $now    = date('Y-m-d H:i:s');
 
         try {
+            // The list was built when the campaign was queued. An account
+            // deleted or banned since then is never sent to: its pending rows
+            // are failed here, inside the lock, before the batch is read.
+            Database::execute(
+                "UPDATE `campaign_recipients` cr
+                   JOIN `users` u ON u.`id` = cr.`user_id`
+                    SET cr.`status` = 'failed',
+                        cr.`error_message` = 'Not sent: the account was closed or blocked after the list was built.'
+                  WHERE cr.`campaign_id` = :campaign_id AND cr.`status` = 'pending'
+                    AND (u.`deleted_at` IS NOT NULL OR u.`status` IN ('deleted', 'banned'))",
+                ['campaign_id' => $campaignId]
+            );
+
             $batch = Database::select(
                 "SELECT cr.`id`, cr.`user_id`, cr.`destination`, cr.`tracking_token`, u.`name` AS `user_name`
                    FROM `campaign_recipients` cr
@@ -1180,11 +1193,18 @@ final class CampaignService
         return $body . $footer . self::trackingPixel((string) ($recipient['tracking_token'] ?? ''));
     }
 
+    /** The support address, else the sender address, else support@zusty.app. */
     private static function replyTo(): string
     {
-        $value = Config::settingString('general', 'support_email', '');
+        $support = trim(Config::settingString('general', 'support_email', ''));
 
-        return $value !== '' ? $value : Config::settingString('mail', 'from_address', 'support@zustee.com');
+        if (filter_var($support, FILTER_VALIDATE_EMAIL) !== false) {
+            return $support;
+        }
+
+        $from = trim(Config::settingString('mail', 'from_address', ''));
+
+        return filter_var($from, FILTER_VALIDATE_EMAIL) !== false ? $from : MailService::DEFAULT_SUPPORT_ADDRESS;
     }
 
     /**

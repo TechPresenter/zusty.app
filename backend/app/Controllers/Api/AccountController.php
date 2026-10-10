@@ -71,6 +71,17 @@ final class AccountController extends BaseApiController
         $existing = AuthService::loadUser($userId);
         $updates  = [];
 
+        // Email and phone are not profile fields. They are how the account is
+        // reached and recovered, and where step-up codes and security notices
+        // go, so they move only through /me/contacts, where the owner proves it
+        // is them and the new address proves it works. Writing them here let a
+        // stolen session redirect every later code to an address it reads.
+        //
+        // The rules above still run, so a malformed or taken value is a
+        // validation error as before, and re-sending the current values (the
+        // apps send the whole form) is not a change.
+        self::assertNoContactChange($data, $existing);
+
         // The name a blue tick is drawn next to cannot move while the tick is
         // showing — otherwise a verified account could rename itself to a
         // better-known brand and keep the badge. Only a real change is refused:
@@ -84,31 +95,6 @@ final class AccountController extends BaseApiController
         foreach (['name', 'bio', 'company_name', 'website', 'gst_number', 'city', 'state', 'country', 'postal_code', 'locale'] as $field) {
             if (array_key_exists($field, $data)) {
                 $updates[$field] = $data[$field];
-            }
-        }
-
-        // Changing a verified identifier resets its verification.
-        if (!empty($data['email']) && strtolower((string) $data['email']) !== strtolower((string) ($existing['email'] ?? ''))) {
-            $updates['email']             = strtolower((string) $data['email']);
-            $updates['email_verified_at'] = null;
-        }
-
-        if (!empty($data['phone'])) {
-            [$countryCode, $phone] = Str::splitPhone((string) $data['phone']);
-
-            if ($phone !== (string) ($existing['phone'] ?? '')) {
-                $taken = Database::scalar(
-                    'SELECT 1 FROM `users` WHERE `phone_country_code` = :cc AND `phone` = :phone AND `id` <> :id AND `deleted_at` IS NULL',
-                    ['cc' => $countryCode, 'phone' => $phone, 'id' => $userId]
-                );
-
-                if ($taken !== null) {
-                    throw HttpException::unprocessable('That phone number is already in use.', 'phone_taken');
-                }
-
-                $updates['phone_country_code'] = $countryCode;
-                $updates['phone']              = $phone;
-                $updates['phone_verified_at']  = null;
             }
         }
 
@@ -133,7 +119,7 @@ final class AccountController extends BaseApiController
         }
 
         if ($updates !== []) {
-            Database::update('users', $updates, ['id' => $userId]);
+            self::updateLiveUser($userId, $updates);
             ActivityLogger::user($existing, 'profile.updated', 'user', $userId, 'Profile updated.', array_keys($updates));
         }
 
@@ -141,6 +127,85 @@ final class AccountController extends BaseApiController
             ['user' => self::presentUser($userId)],
             'Profile updated.'
         );
+    }
+
+    /**
+     * Refuse an email or phone that differs from the account's own.
+     *
+     * A phone counts as changed when its national number differs, or when it
+     * carries an explicit +code that differs; the apps re-send the stored
+     * number without one, which is not a change.
+     *
+     * @param array<string,mixed> $data     validated input
+     * @param array<string,mixed> $existing the users row
+     */
+    private static function assertNoContactChange(array $data, array $existing): void
+    {
+        $changed = [];
+
+        if (!empty($data['email'])
+            && strtolower(trim((string) $data['email'])) !== strtolower(trim((string) ($existing['email'] ?? '')))) {
+            $changed[] = 'email';
+        }
+
+        if (!empty($data['phone'])) {
+            $phone = trim((string) $data['phone']);
+
+            [$countryCode, $national] = Str::splitPhone($phone);
+
+            if ($national !== (string) ($existing['phone'] ?? '')
+                || (str_starts_with(Str::normalizePhone($phone), '+')
+                    && $countryCode !== (string) ($existing['phone_country_code'] ?? ''))) {
+                $changed[] = 'phone';
+            }
+        }
+
+        if ($changed === []) {
+            return;
+        }
+
+        $message = 'Change your email or mobile number from Contact details, where we confirm it first.';
+
+        throw new HttpException(
+            $message,
+            422,
+            'contact_change_required',
+            array_fill_keys($changed, [$message])
+        );
+    }
+
+    /**
+     * Write to the account only while it is live.
+     *
+     * The deleted_at guard is in the UPDATE itself, so a write racing an
+     * erasure waits for it and then lands on nothing, instead of putting a
+     * name or a bio back onto the tombstone. The row count alone cannot tell
+     * "gone" from "nothing changed" (MySQL counts changed rows), so a zero is
+     * checked once more before it is reported.
+     *
+     * @param array<string,mixed> $updates
+     */
+    private static function updateLiveUser(int $userId, array $updates): void
+    {
+        $sets     = [];
+        $bindings = ['id' => $userId];
+
+        foreach ($updates as $column => $value) {
+            $sets[]                     = Database::quoteIdentifier($column) . ' = :set_' . $column;
+            $bindings['set_' . $column] = $value;
+        }
+
+        $changed = Database::execute(
+            'UPDATE `users` SET ' . implode(', ', $sets) . ' WHERE `id` = :id AND `deleted_at` IS NULL',
+            $bindings
+        );
+
+        if ($changed === 0 && Database::scalar(
+            'SELECT 1 FROM `users` WHERE `id` = :id AND `deleted_at` IS NULL',
+            ['id' => $userId]
+        ) === null) {
+            throw HttpException::unauthorized('Account not found.', 'account_missing');
+        }
     }
 
     /**
@@ -180,9 +245,9 @@ final class AccountController extends BaseApiController
             array_map('boolval', array_filter($data, static fn ($v): bool => $v !== null))
         );
 
-        Database::update('users', [
+        self::updateLiveUser($userId, [
             'notification_prefs' => json_encode($preferences, JSON_UNESCAPED_UNICODE),
-        ], ['id' => $userId]);
+        ]);
 
         Response::success(['preferences' => $preferences], 'Notification preferences saved.');
     }

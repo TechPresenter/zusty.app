@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/support.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/core_providers.dart';
+import '../../shared/widgets/z_html.dart';
 
 /// Every FAQ the help centre may show this user, in the admin's order.
 ///
@@ -95,37 +96,7 @@ class FaqLaunch {
 
 final faqLaunchProvider = StateProvider<FaqLaunch?>((_) => null);
 
-/// FAQ answers are written in the admin panel's rich-text editor, so they can
-/// arrive as HTML. The help centre shows them as plain paragraphs: tags
-/// become line breaks or disappear, and the common entities are decoded.
-String faqPlainText(String raw) {
-  if (!raw.contains('<') && !raw.contains('&')) return raw.trim();
-
-  var text = raw
-      .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
-      .replaceAll(RegExp(r'</(p|div|li|h[1-6])>', caseSensitive: false), '\n')
-      .replaceAll(RegExp(r'<li[^>]*>', caseSensitive: false), '• ')
-      .replaceAll(RegExp(r'<[^>]+>'), '');
-
-  const entities = {
-    '&nbsp;': ' ',
-    '&quot;': '"',
-    '&#39;': "'",
-    '&apos;': "'",
-    '&lt;': '<',
-    '&gt;': '>',
-    '&rsquo;': '’',
-    '&lsquo;': '‘',
-    '&ldquo;': '“',
-    '&rdquo;': '”',
-    '&ndash;': '–',
-    '&mdash;': '—',
-    '&hellip;': '…',
-    '&#8377;': '₹',
-    // Last, so an escaped entity ("&amp;lt;") decodes once, not twice.
-    '&amp;': '&',
-  };
-  entities.forEach((entity, char) => text = text.replaceAll(entity, char));
-
-  return text.replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
-}
+/// An FAQ answer (HTML from the admin panel's rich-text editor) as plain
+/// text. Uses the same parser as [ZHtml], so it matches what the help centre
+/// draws; see [htmlToPlainText].
+String faqPlainText(String raw) => htmlToPlainText(raw);

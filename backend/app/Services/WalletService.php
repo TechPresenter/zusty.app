@@ -194,6 +194,14 @@ final class WalletService
                 throw HttpException::server('Wallet not found.');
             }
 
+            // An erased account's wallet is closed (AccountDeletionService).
+            // Read from the locked wallet row, never by locking `users` here:
+            // the erasure locks users then wallets, so that would deadlock.
+            // Admin postings still go through, so finance can settle it.
+            if (!empty($wallet['closed_at']) && ($options['performed_by_type'] ?? 'system') !== 'admin') {
+                throw new HttpException('This account has been deleted.', 409, 'wallet_closed');
+            }
+
             if ((bool) $wallet['is_frozen'] && ($options['performed_by_type'] ?? 'system') !== 'admin') {
                 throw new HttpException(
                     'This wallet is frozen. ' . (string) ($wallet['frozen_reason'] ?? 'Contact support.'),
@@ -508,6 +516,42 @@ final class WalletService
 
             return $row;
         });
+    }
+
+    /**
+     * Whether the spendable balance could be paid out right now, and if not,
+     * every reason why, in this order: below_minimum (wallet.min_withdrawal),
+     * kyc_required (wallet.require_kyc_for_withdrawal with KYC not verified,
+     * as requestWithdrawal() checks) and contact_unverified (neither email
+     * nor phone verified, which the withdraw route requires).
+     *
+     * [$balance] lets a caller that already holds the wallet row pass it.
+     *
+     * @return array{possible:bool,reason:?string,reasons:list<string>}
+     */
+    public static function withdrawability(int $userId, ?float $balance = null): array
+    {
+        $balance = Money::round($balance ?? self::balance($userId)['balance']);
+        $reasons = [];
+
+        if ($balance < Money::round(Config::settingFloat('wallet', 'min_withdrawal', 1000))) {
+            $reasons[] = 'below_minimum';
+        }
+
+        $user = Database::selectOne(
+            'SELECT `kyc_status`, `email_verified_at`, `phone_verified_at` FROM `users` WHERE `id` = :id',
+            ['id' => $userId]
+        ) ?? [];
+
+        if (Config::settingBool('wallet', 'require_kyc_for_withdrawal', true) && ($user['kyc_status'] ?? null) !== 'verified') {
+            $reasons[] = 'kyc_required';
+        }
+
+        if (empty($user['email_verified_at']) && empty($user['phone_verified_at'])) {
+            $reasons[] = 'contact_unverified';
+        }
+
+        return ['possible' => $reasons === [], 'reason' => $reasons[0] ?? null, 'reasons' => $reasons];
     }
 
     /** Finance marks a payout as settled: the locked amount leaves the wallet. */

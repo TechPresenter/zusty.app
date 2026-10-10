@@ -126,6 +126,8 @@ final class BookingService
         $deliveryDays = Config::settingInt('booking', 'default_delivery_days', 7);
 
         return Database::transaction(static function () use ($brandUserId, $creator, $input, $pricing, $packageId, $expiryHours, $deliveryDays): array {
+            self::assertPartiesStillLive($brandUserId, (int) $creator['id'], (int) $creator['creator_user_id']);
+
             $bookingId = Database::insert('bookings', [
                 'code'              => 'PENDING',
                 'campaign_id'       => isset($input['campaign_id']) && (int) $input['campaign_id'] > 0 ? (int) $input['campaign_id'] : null,
@@ -193,6 +195,49 @@ final class BookingService
 
             return $booking;
         });
+    }
+
+    /**
+     * Re-read both parties with shared locks inside the booking's transaction.
+     *
+     * The checks above ran before it began. An account erasure locks the
+     * users row, then the creator row: these wait for it in the same order
+     * (users first, so the two never deadlock) and then see the committed
+     * tombstone, so a booking can never be written onto a deleted account.
+     */
+    private static function assertPartiesStillLive(int $brandUserId, int $creatorId, int $creatorUserId): void
+    {
+        $creatorUser = Database::selectOne(
+            'SELECT `status`, `deleted_at` FROM `users` WHERE `id` = :id LOCK IN SHARE MODE',
+            ['id' => $creatorUserId]
+        );
+
+        $creator = Database::selectOne(
+            'SELECT `status`, `deleted_at`, `user_id` FROM `creators` WHERE `id` = :id LOCK IN SHARE MODE',
+            ['id' => $creatorId]
+        );
+
+        if ($creatorUser === null || $creator === null || $creatorUser['deleted_at'] !== null
+            || $creator['deleted_at'] !== null || (int) $creator['user_id'] !== $creatorUserId) {
+            throw HttpException::notFound('Creator not found.');
+        }
+
+        if ($creator['status'] !== 'approved' || $creatorUser['status'] !== 'active') {
+            throw HttpException::unprocessable('This creator is not accepting bookings right now.');
+        }
+
+        $brand = Database::selectOne(
+            'SELECT `status`, `deleted_at` FROM `users` WHERE `id` = :id LOCK IN SHARE MODE',
+            ['id' => $brandUserId]
+        );
+
+        if ($brand === null || $brand['deleted_at'] !== null) {
+            throw HttpException::notFound('Account not found.');
+        }
+
+        if ($brand['status'] !== 'active') {
+            throw HttpException::unprocessable('This account cannot make bookings right now.');
+        }
     }
 
     // -----------------------------------------------------------------

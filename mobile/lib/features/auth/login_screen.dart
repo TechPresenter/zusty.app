@@ -111,7 +111,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             .method('email_password')
             ?.flag('forgot_password_enabled', fallback: true) ??
         true;
-    final showOtp = authConfig.isEnabled('mobile_otp');
+    // Mobile OTP can be on only to verify numbers. A code signs someone in
+    // only when the operator has also allowed OTP sign-in; otherwise the
+    // server just confirms the code and no session follows.
+    final showOtp =
+        authConfig.isEnabled('mobile_otp') &&
+        (authConfig.method('mobile_otp')?.flag('login_enabled') ?? false);
     final showGuest = authConfig.guest.enabled;
 
     return AuthScaffold(

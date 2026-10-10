@@ -67,29 +67,97 @@ for support, force a password reset, and export.
 **Suspension is immediate.** The user's tokens are revoked, so open apps are signed out
 on their next request.
 
+**Erase account erases.** The Danger zone's **Erase account** (`users.delete`) runs the
+same erasure as the user deleting their account in the app: personal data removed,
+the row left as an anonymous "Deleted user" for the records the law keeps, and the
+same confirmation sent to the user. It cannot be undone or restored, so it asks for
+the same two things as Privacy requests: type `DELETE`, and write how you confirmed
+the request comes from the owner (stored with the deletion record). Without both,
+nothing is changed. Anything still in progress (a booking, a dispute, money in the
+wallet, a withdrawal or refund) refuses it with the reasons. To stop someone using
+Zusty without erasing their data, suspend or ban them instead. For a request the owner
+sent by email, Privacy requests → Act on a request (below) also shows what would be
+erased and kept, and can give up a small balance.
+An erased account's wallet still takes a wallet adjustment from here, which is how
+money still owed to or by it is settled; nobody is notified.
+
 **KYC** lives under this module (`/admin/kyc`). Submitted documents are decrypted for
 review only when opened, and each decision — approve or reject with a reason — is
 recorded against the reviewer.
 
 ### Privacy requests
 
-`/admin/privacy-requests`, read-only. Users download their data and delete their
-accounts themselves, from Settings → Privacy & data in the apps, after confirming with
-their password or a one-time code. This screen is your record of both.
+`/admin/privacy-requests`. Users download their data and delete their accounts
+themselves, from Settings → Privacy & data in the apps, after confirming it is them.
+Someone who cannot use the app writes in instead, and you act for them here. Three
+tabs:
 
 - **Account deletions** — when, brand or creator, the reason they chose and anything
-  they wrote, how they confirmed, and how many records were kept. A deletion row has no
-  name or contact details, because the erasure removed them. "Why people leave"
-  totals the reasons.
+  they wrote, how it was confirmed (Password, Email code, SMS code, Google/Apple
+  sign-in, **Support request (staff)**, or **Closed before erasure existed**), where
+  from (Android, iOS, web, or **Support**), who did it (the account owner or the staff
+  member), the clean-up, how many records were kept, and **Gave up ₹X** when the owner
+  gave up a balance that could not be paid out. A deletion row has no name or contact
+  details, because the erasure removed them. "Why people leave" totals the reasons.
 - **Data exports** — who asked, when, the archive size, downloads used, when the link
-  expires, and the requesting IP. If someone says "I never asked for this", this is
-  where you check.
+  expires, and the requesting IP. The status is the link's real state: Ready, Used up,
+  Expired, Link revoked (after a password change or "sign out everywhere"), Preparing
+  or Failed. "Export links still live" counts only links someone could use right now.
+  If someone says "I never asked for this", this is where you check.
+- **Act on a request** — find an account by ID or email, see what an erasure would do
+  to it (anything in the way, what is erased, what is kept), then **Erase account** or
+  **Email a copy of the data**. Below it, **Deleted by staff but not erased** lists
+  accounts deleted from the user page before Delete became an erasure: hidden, but
+  with their name and contact details still stored. Review each one and erase it
+  deliberately.
 
-A deleted account becomes an anonymous **Deleted user** everywhere: bookings, payments,
-invoices and reviews stay, as tax law requires, without the name. It cannot be
-restored, so there is nothing to undo here. The export link lifetime, download limit
-and cooldown are under Settings → Security, and expired archives are deleted by the
-`privacy:purge-exports` job (System → Jobs).
+**Handling a request sent by email** (deletion or a copy of the data):
+
+1. Confirm the request comes from the account's owner. Reply to the email address on
+   the account — not to a different address the request came from — and act only on
+   an answer from it. Never send account details to any other address.
+2. Find the account under **Act on a request**.
+3. To erase: read what is in the way and settle it first (the same blockers as the
+   app). Type `DELETE` and write how you confirmed the request (for example "Ticket
+   1234, confirmed by reply from the account email"); the note is stored with the
+   deletion record. If the owner has a small balance that cannot be paid out and has
+   agreed to give it up, tick the box that names it; otherwise pay it out first. The
+   owner gets the usual confirmation.
+4. To send a copy: **Email a copy of the data** prepares the same ZIP the app makes and
+   emails the download link to the account's own address. The link is never shown in
+   the panel, and the account's cooldown applies.
+
+Erasing needs `users.delete`; sending a copy needs `users.edit`. **Users → Erase
+account** erases too, with the same typed `DELETE` and note, but cannot give up a
+balance, so use this tab for requests. The same actions work from the command line:
+
+```bash
+php scripts/privacy_support_request.php delete --user=ID_OR_EMAIL --admin=YOUR_ADMIN_EMAIL \
+    --note="how the request was confirmed"          # shows what would happen; changes nothing
+php scripts/privacy_support_request.php delete ... --confirm [--forfeit=AMOUNT]
+php scripts/privacy_support_request.php export --user=ID_OR_EMAIL --admin=YOUR_ADMIN_EMAIL
+```
+
+**Clean-up.** The erasure itself is immediate. Deleting the uploaded files, data
+exports, KYC documents and the Firebase sign-in record comes straight after it, and the
+`privacy:finish-deletions` job (every 10 minutes) retries anything that failed. The
+Clean-up column says **Completed**, **Clean-up pending** (what is left and the next
+try) or, after 8 failed tries, **Needs attention** with the last error, such as
+Firebase not being configured; fix the cause and the job finishes on its next run. The
+"Clean-ups pending" figure counts the unfinished ones.
+
+**Accounts closed before erasure existed.** Before migration 043 the app's "Delete
+account" only hid an account. Erase those once, after deploying 048, with
+`php scripts/privacy_erase_legacy_deletions.php --dry-run` (lists them) and then
+without `--dry-run`. They appear as "Closed before erasure existed".
+
+A deleted account becomes an anonymous **Deleted user** everywhere. Bookings,
+payments, invoices and refunds stay, as tax and accounting law requires; tax invoices
+and payout statements keep the billing name, address and GSTIN printed on them.
+Reviews stay without the name. It cannot be restored, and it is not in the recycle
+bin. The export link lifetime, download limit and cooldown are under Settings →
+Security, and expired archives are deleted by the `privacy:purge-exports` job (System
+→ Jobs).
 
 ### Creators
 
@@ -290,7 +358,13 @@ foreground.
 - **Saved Filters** — name a filter combination and pin it to the sidebar. Private to
   you unless shared.
 - **Recycle Bin** — soft-deleted rows from every module that supports it. Restore or
-  purge permanently. Purging is final.
+  purge permanently. Purging is final. Erased accounts are not in it, and neither is
+  anything that belongs to one: an account deleted by its owner or erased by staff has
+  no personal data left to restore, and the records the law keeps still point at it.
+  So the bin neither lists, counts, restores nor purges (one at a time, with Empty, or
+  with the retention purge) the tombstone, the erased creator's profile, the erased
+  brand's campaigns, or bookings, reviews, messages, files, packages, portfolio items
+  and payout accounts keyed to an erased account.
 - **Revisions** — content history with a side-by-side diff and one-click restore.
 - **Import CSV** — bulk import with column mapping, a dry-run validation pass that
   reports errors per row before anything is written, and a full result report.
@@ -511,10 +585,37 @@ Operations:
   job manually, or disable one. **If notifications are not arriving, check
   `queue:dispatch` here first** — it is the job whose absence is silent.
 - **Backups** — take one now, download, restore, and see the retention window.
-  Restoring overwrites the current database and asks you to confirm.
+  Restoring overwrites the current database and asks you to confirm. It then erases
+  again every account deleted since the backup was taken, from the record kept in
+  `storage/privacy/erasure-ledger.jsonl`, as the privacy policy promises.
+  `deploy.sh --rollback` does the same. After any other restore (for example a dump
+  imported through the hosting panel), run
+  `php scripts/privacy_support_request.php reapply-erasures` straight away. The policy
+  also tells users a backup is kept for up to `BACKUP_RETENTION_DAYS` days (14 by
+  default): delete any backup file you download, and any off-site copy, within the
+  same window.
 - **Logs** — application and system logs with level filters, and a clear action.
 - **Optimize** — `OPTIMIZE TABLE` across the schema. Safe, occasionally useful after
   large deletions.
+
+### What is deleted automatically
+
+The privacy policy states these periods, and the jobs below keep them:
+
+| Data | Kept for | Job |
+|---|---|---|
+| Copies of sent email, SMS and push messages | 7 days after sending | `tokens:prune` (daily) |
+| Failed or never-sent messages | 30 days | `tokens:prune` |
+| Payment gateway callbacks (webhooks), any outcome | 90 days | `tokens:prune` |
+| Database backups | `BACKUP_RETENTION_DAYS` (14 by default) | `tokens:prune` and every backup |
+| Sign-in history (Security → Login History) | 1 year | `logs:rotate` (weekly) |
+| Activity log | 1 year | `logs:rotate` |
+| API request logs (Developer → API Logs) | 180 days | `logs:rotate` |
+| Debug, info and notice system logs | 60 days | `logs:rotate` |
+| Data export archives | Until the link expires or is used up | `privacy:purge-exports` (hourly) |
+
+If one of these jobs stops, the period stops holding: check System → Jobs. A job that
+is disabled there does not run, whatever the crontab says.
 
 ---
 
@@ -548,3 +649,4 @@ Operations:
 | The app reports an error the panel does not show | Developer → API Logs |
 | An integration silently stopped working | Integrations → its error log and last sync |
 | Someone changed something unexpectedly | Access → Activity Log |
+| A deletion's clean-up says Needs attention | Its last error on Privacy requests → Account deletions; then System → Jobs, `privacy:finish-deletions` |

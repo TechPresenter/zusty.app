@@ -192,13 +192,18 @@ final class Response
         self::finish();
     }
 
-    public static function html(string $content, int $status = 200): never
+    /**
+     * @param bool $allowForms let the page's own forms submit to this origin
+     *                         (`form-action 'self'`). Off by default: only the
+     *                         data-export landing page needs it, for its POST.
+     */
+    public static function html(string $content, int $status = 200, bool $allowForms = false): never
     {
         // API responses carry `default-src 'none'`, which also blocks a page's
         // own <style>, its logo and the invoice's Print button. The documents
-        // the API serves (invoices, the expired export-link page) are
-        // self-contained, so let them style themselves, show images and run
-        // that one handler (allowed by hash), and still load nothing else.
+        // the API serves (invoices, the data-export pages) are self-contained,
+        // so let them style themselves, show images and run that one handler
+        // (allowed by hash), and still load nothing else.
         if (str_starts_with(self::$headers['Content-Security-Policy'] ?? '', "default-src 'none'")) {
             self::header('Content-Security-Policy', implode('; ', [
                 "default-src 'none'",
@@ -207,7 +212,7 @@ final class Response
                 // sha256 of "window.print()", InvoiceService::renderHtml's button.
                 "script-src 'unsafe-hashes' 'sha256-MguIPR6qNR8D3B+eAlK+bIRTZe8t3wkOY4B/56Me9FU='",
                 "base-uri 'none'",
-                "form-action 'none'",
+                $allowForms ? "form-action 'self'" : "form-action 'none'",
                 "frame-ancestors 'none'",
             ]));
         }
@@ -373,8 +378,14 @@ final class Response
     {
         self::$sent = true;
 
+        // Hand the response to the client before shutdown work runs (the
+        // post-commit erasure steps, for one). PHP-FPM has
+        // fastcgi_finish_request(); LiteSpeed's LSAPI (Hostinger) has
+        // litespeed_finish_request() instead.
         if (function_exists('fastcgi_finish_request')) {
             fastcgi_finish_request();
+        } elseif (function_exists('litespeed_finish_request')) {
+            litespeed_finish_request();
         }
 
         exit;

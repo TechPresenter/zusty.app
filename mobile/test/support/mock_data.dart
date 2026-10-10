@@ -1,4 +1,7 @@
-import 'package:zuste/core/utils/placeholder_image.dart';
+/// Deterministic placeholder imagery for fixtures. Test-only: the app itself
+/// never builds a stock-photo URL.
+String placeholderPhoto(String seed, [int width = 600, int height = 750]) =>
+    'https://picsum.photos/seed/$seed/$width/$height';
 
 /// In-memory fixtures mirroring the API envelope's `data` blocks.
 ///

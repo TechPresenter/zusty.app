@@ -8,9 +8,11 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/validators.dart';
 import '../../../models/account_settings.dart';
+import '../../../models/privacy.dart';
 import '../../../providers/account_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/core_providers.dart';
+import '../../../providers/privacy_provider.dart';
 import '../../../router/routes.dart';
 import '../../../shared/widgets/states.dart';
 import '../../../shared/widgets/z_button.dart';
@@ -18,6 +20,7 @@ import '../../../shared/widgets/z_dialogs.dart';
 import '../../../shared/widgets/status_chip.dart';
 import '../../../shared/widgets/z_feedback.dart';
 import '../../../shared/widgets/z_text_field.dart';
+import '../../privacy/widgets/reauth_panel.dart';
 
 /// "1.4.0 (37)" from the installed build, or null where the platform cannot
 /// say (widget tests, an unsupported desktop target).
@@ -51,18 +54,44 @@ Future<void> confirmAndLogout(BuildContext context, WidgetRef ref) async {
   if (context.mounted) context.go(Routes.login);
 }
 
-/// Change password, then sign in again.
+bool _passwordSheetLoading = false;
+
+/// Change password, or set a first one, then sign in again.
 ///
 /// The server revokes every session when the password changes — that is the
 /// point of changing it after a scare — so this device is signed out too, and
 /// the person is told so before it happens rather than finding out on their
 /// next tap.
+///
+/// An account with a password confirms with it. One without (it signed up
+/// with Google, Apple or a phone number) first confirms it is the owner some
+/// other way: a code to its own email or phone, or a fresh Google or Apple
+/// sign-in. Otherwise anyone holding the open session could set a password
+/// and use it to confirm a data export or a deletion.
 Future<void> showChangePassword(BuildContext context, WidgetRef ref) async {
+  // A second tap while the options load would open a second sheet.
+  if (_passwordSheetLoading) return;
+
+  final VerificationOptions options;
+  _passwordSheetLoading = true;
+  try {
+    options = (await ref.read(privacyRepositoryProvider).overview()).verification;
+  } on ApiFailure catch (failure) {
+    if (context.mounted) showZSnack(context, failure.message, isError: true);
+    return;
+  } finally {
+    _passwordSheetLoading = false;
+  }
+
+  if (!context.mounted) return;
+
   final changed = await showZSheet<bool>(
     context,
-    title: 'Change password',
+    title: options.hasPassword ? 'Change password' : 'Set a password',
     subtitle: 'You will be signed out on every device, including this one.',
-    builder: (_) => const _ChangePasswordForm(),
+    builder: (_) => options.hasPassword
+        ? const _ChangePasswordForm()
+        : _SetPasswordForm(options: options),
   );
 
   if (changed != true || !context.mounted) return;
@@ -143,9 +172,8 @@ class _ChangePasswordFormState extends ConsumerState<_ChangePasswordForm> {
             obscure: true,
             prefixIcon: Icons.lock_outline_rounded,
             textInputAction: TextInputAction.next,
-            helper:
-                'Signed up with Google or Apple? Leave this blank to set '
-                'your first password.',
+            validator: (value) =>
+                Validators.required(value, field: 'Current password'),
             errorText: _currentError,
           ),
           const SizedBox(height: AppSpacing.md),
@@ -183,6 +211,141 @@ class _ChangePasswordFormState extends ConsumerState<_ChangePasswordForm> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A first password for an account that signed up without one. It is proved
+/// first with a code to the account's own email or phone, or a fresh Google
+/// or Apple sign-in: never with a password, which is what is being set.
+class _SetPasswordForm extends ConsumerStatefulWidget {
+  const _SetPasswordForm({required this.options});
+
+  final VerificationOptions options;
+
+  @override
+  ConsumerState<_SetPasswordForm> createState() => _SetPasswordFormState();
+}
+
+class _SetPasswordFormState extends ConsumerState<_SetPasswordForm> {
+  final _form = GlobalKey<FormState>();
+  final _next = TextEditingController();
+  final _confirm = TextEditingController();
+
+  late final ReauthController _reauth = ReauthController(
+    options: widget.options,
+    purpose: PrivacyPurpose.setPassword,
+    repository: ref.read(privacyRepositoryProvider),
+    firebaseToken: ref.read(firebaseTokenSourceProvider),
+  );
+
+  bool _busy = false;
+  String? _nextError;
+  String? _error;
+
+  @override
+  void dispose() {
+    _next.dispose();
+    _confirm.dispose();
+    _reauth.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    setState(() {
+      _nextError = null;
+      _error = null;
+    });
+    final proof = _reauth.proof;
+    if (!(_form.currentState?.validate() ?? false) || proof == null || _busy) {
+      return;
+    }
+
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _busy = true);
+
+    try {
+      await ref
+          .read(authRepositoryProvider)
+          .changePassword(updated: _next.text, proof: proof);
+      if (mounted) Navigator.of(context).pop(true);
+    } on ApiFailure catch (e) {
+      if (!mounted) return;
+      // A wrong or used-up code lands beside the code field.
+      if (_reauth.applyFailure(e)) return;
+      setState(() {
+        _nextError = e.errorFor('password');
+        _error = _nextError == null ? e.message : null;
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: _reauth,
+      builder: (context, _) {
+        // Nothing to confirm with: the panel explains, and points to support.
+        if (!_reauth.canVerify) return ReauthPanel(controller: _reauth);
+
+        return Form(
+          key: _form,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Your account has no password yet. To add one, first confirm '
+                'it\'s you.',
+                style: AppTypography.bodyMedium.copyWith(
+                  color: AppColors.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              IgnorePointer(
+                ignoring: _busy,
+                child: ReauthPanel(controller: _reauth),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              ZTextField(
+                label: 'New password',
+                controller: _next,
+                obscure: true,
+                prefixIcon: Icons.password_rounded,
+                textInputAction: TextInputAction.next,
+                helper: 'At least 8 characters, with a letter and a number.',
+                validator: Validators.password,
+                errorText: _nextError,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              ZTextField(
+                label: 'Confirm new password',
+                controller: _confirm,
+                obscure: true,
+                prefixIcon: Icons.password_rounded,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _submit(),
+                validator: (value) =>
+                    Validators.required(value, field: 'Confirmation') ??
+                    Validators.confirmPassword(value, _next.text),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                ZInfoBanner(message: _error!, tone: StatusTone.error),
+              ],
+              const SizedBox(height: AppSpacing.lg),
+              ZButton(
+                label: 'Set password',
+                isLoading: _busy,
+                onPressed: _reauth.isComplete ? _submit : null,
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

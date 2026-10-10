@@ -171,6 +171,40 @@ final class ProductivityController extends BaseAdminController
         ],
     ];
 
+    /**
+     * Rows that belong to an erased account, per bin type.
+     *
+     * An erased account is the anonymous tombstone an account deletion leaves
+     * (AccountDeletionService), marked by its deletion record. Its rows are
+     * not binned rows: the erasure soft-deletes the creator profile and the
+     * brand's campaigns itself, and whatever else is still keyed to the
+     * account is what the law keeps or what the other party relies on.
+     * Restoring one would revive an empty shell (or re-publish an erased
+     * profile), and purging one would destroy a kept record, so the bin
+     * leaves them out everywhere: the list, the counts, the cascade figures,
+     * every restore and every permanent delete (one row, Empty, and the
+     * retention sweep).
+     *
+     * Each entry is the condition, over `a` (account_deletion_requests) and
+     * the type's own unaliased table, under which a row belongs to an erased
+     * account. Types not listed (categories, blogs, coupons, popups,
+     * marketing campaigns, admins) are never keyed to a user.
+     *
+     * @var array<string,string>
+     */
+    private const ERASED_OWNER = [
+        'users'             => 'a.`user_id` = `users`.`id`',
+        'creators'          => 'a.`user_id` = `creators`.`user_id`',
+        'campaigns'         => 'a.`user_id` = `campaigns`.`brand_user_id`',
+        'bookings'          => 'a.`user_id` IN (`bookings`.`brand_user_id`, `bookings`.`creator_user_id`)',
+        'reviews'           => 'a.`user_id` IN (`reviews`.`reviewer_id`, `reviews`.`reviewee_id`)',
+        'media'             => '`media`.`uploader_type` = \'user\' AND a.`user_id` = `media`.`uploader_id`',
+        'messages'          => '`messages`.`sender_type` = \'user\' AND a.`user_id` = `messages`.`sender_id`',
+        'creator_packages'  => 'a.`user_id` = (SELECT c.`user_id` FROM `creators` c WHERE c.`id` = `creator_packages`.`creator_id`)',
+        'creator_portfolio' => 'a.`user_id` = (SELECT c.`user_id` FROM `creators` c WHERE c.`id` = `creator_portfolio`.`creator_id`)',
+        'bank_accounts'     => 'a.`user_id` = `bank_accounts`.`user_id`',
+    ];
+
     /** Cache group invalidated whenever the bin changes (the row counts). */
     private const BIN_CACHE_GROUP = 'recyclebin';
 
@@ -601,6 +635,11 @@ final class ProductivityController extends BaseAdminController
 
             $clauses  = ['`deleted_at` IS NOT NULL'];
             $bindings = [];
+            $erased   = self::erasedOwner($type);
+
+            if ($erased !== '') {
+                $clauses[] = 'NOT ' . $erased;
+            }
 
             if ($params['search'] !== '') {
                 $clauses[]          = '(' . $titleCol . " LIKE :search ESCAPE '\\\\' OR " . $subCol . " LIKE :search ESCAPE '\\\\')";
@@ -671,10 +710,23 @@ final class ProductivityController extends BaseAdminController
         [$type, $definition, $row] = $this->binRow($request);
 
         $this->authorizeBinType($request, $type);
+        $this->refuseErasedAccount($type, $row);
 
-        Database::update($definition['table'], ['deleted_at' => null], ['id' => (int) $row['id']]);
+        // Re-checked in the write itself, so an erasure that lands between
+        // the check above and this UPDATE still cannot be undone from here.
+        $erased = self::erasedOwner($type);
+
+        $restored = Database::execute(
+            'UPDATE ' . Database::quoteIdentifier($definition['table']) . ' SET `deleted_at` = NULL
+              WHERE `id` = :id AND `deleted_at` IS NOT NULL' . ($erased !== '' ? ' AND NOT ' . $erased : ''),
+            ['id' => (int) $row['id']]
+        );
 
         Cache::forgetGroup(self::BIN_CACHE_GROUP);
+
+        if ($restored === 0) {
+            $this->back('error', 'That record is no longer in the recycle bin, so nothing was restored.', '/admin/recycle-bin?type=' . rawurlencode($type));
+        }
 
         $label = $this->binLabel($definition, $row);
 
@@ -691,6 +743,7 @@ final class ProductivityController extends BaseAdminController
         [$type, $definition, $row] = $this->binRow($request);
 
         $this->authorizeBinType($request, $type);
+        $this->refuseErasedAccount($type, $row);
 
         $label  = $this->binLabel($definition, $row);
         $back   = '/admin/recycle-bin?type=' . rawurlencode($type);
@@ -823,6 +876,12 @@ final class ProductivityController extends BaseAdminController
         $table  = Database::quoteIdentifier(self::RECYCLABLE[$type]['table']);
         $where  = '`deleted_at` IS NOT NULL' . ($condition !== '' ? ' AND ' . $condition : '');
         $result = ['deleted' => 0, 'kyc_kept' => 0, 'referenced' => 0, 'erased' => 0, 'erase_failed' => 0];
+        $erased = self::erasedOwner($type);
+
+        // Rows of erased accounts are not in the bin at all (see ERASED_OWNER).
+        if ($erased !== '') {
+            $where .= ' AND NOT ' . $erased;
+        }
 
         if (self::RECYCLABLE[$type]['table'] === 'users') {
             $result['kyc_kept'] = (int) Database::scalar(
@@ -1463,12 +1522,15 @@ final class ProductivityController extends BaseAdminController
                     continue; // No soft deletes on this table — nothing to bin.
                 }
 
+                $erased = self::erasedOwner($key);
+
                 $result[$key] = [
                     'label'    => $definition['label'],
                     'singular' => $definition['singular'],
                     'icon'     => $definition['icon'],
                     'count'    => (int) Database::scalar(
                         'SELECT COUNT(*) FROM ' . Database::quoteIdentifier($definition['table']) . ' WHERE `deleted_at` IS NOT NULL'
+                        . ($erased !== '' ? ' AND NOT ' . $erased : '')
                     ),
                 ];
             }
@@ -1542,6 +1604,57 @@ final class ProductivityController extends BaseAdminController
         }
 
         return [$type, $definition, $row];
+    }
+
+    /**
+     * The SQL condition under which a row of this bin type belongs to an
+     * erased account (see ERASED_OWNER), or '' for a type never keyed to a
+     * user. Written against the type's own unaliased table.
+     */
+    private static function erasedOwner(string $type): string
+    {
+        $match = self::ERASED_OWNER[$type] ?? '';
+
+        return $match === ''
+            ? ''
+            : 'EXISTS (SELECT 1 FROM `account_deletion_requests` a WHERE ' . $match . ')';
+    }
+
+    /**
+     * Refuse to restore or purge a row that belongs to an erased account (see
+     * ERASED_OWNER): the tombstone itself, or the erased creator's profile,
+     * the erased brand's campaigns and anything else keyed to it. The bin
+     * never lists one, so this only answers a hand-made request, and leaves
+     * `deleted_at` exactly as it was.
+     *
+     * @param array<string,mixed> $row
+     */
+    private function refuseErasedAccount(string $type, array $row): void
+    {
+        $erased = self::erasedOwner($type);
+
+        if ($erased === '') {
+            return;
+        }
+
+        $table   = Database::quoteIdentifier(self::RECYCLABLE[$type]['table']);
+        $belongs = Database::scalar(
+            'SELECT 1 FROM ' . $table . ' WHERE `id` = :id AND ' . $erased . ' LIMIT 1',
+            ['id' => (int) $row['id']]
+        ) !== null;
+
+        if (!$belongs) {
+            return;
+        }
+
+        $this->back(
+            'error',
+            self::RECYCLABLE[$type]['table'] === 'users'
+                ? 'This account was erased, so it can\'t be restored. Its personal data is gone, and the records the law keeps still point at it.'
+                : 'This ' . strtolower(self::RECYCLABLE[$type]['singular']) . ' belongs to an erased account, so it can\'t be restored '
+                    . 'or deleted for good. It stays as the erasure left it.',
+            '/admin/recycle-bin?type=' . rawurlencode($type)
+        );
     }
 
     /**

@@ -108,14 +108,22 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (auth.stage == AuthStage.unknown) return null;
 
       // The goodbye after an account deletion is shown signed out: the
-      // session ended with the account. Anyone signed in has no business here.
+      // session ended with the account. Anyone signed in has no business
+      // here, and a signed-out visitor only while this device has just
+      // deleted its account. A reload, a restored tab, a history entry or a
+      // rebuilt router that starts on this address falls through to the
+      // normal gates below (onboarding, sign-in): the flag lives in memory,
+      // so after a reload it is gone and the goodbye would be a false claim.
       if (location == Routes.accountDeleted) {
-        return auth.isAuthenticated ? Routes.home : null;
+        if (auth.isAuthenticated) return Routes.home;
+        if (ref.read(accountDeletedProvider)) return null;
       }
 
       // Just deleted: wherever the rebuilt router starts (on the web that is
       // the address the app was first opened on, not initialLocation), the
-      // signed-out user lands on the goodbye until they leave it.
+      // signed-out user lands on the goodbye until they leave it. This relies
+      // on the flag being raised before the sign-out, which
+      // finishAccountDeletion guarantees.
       if (!auth.isAuthenticated && ref.read(accountDeletedProvider)) {
         return Routes.accountDeleted;
       }
@@ -582,6 +590,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: Routes.deleteAccount,
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const DeleteAccountScreen(),
+        // Not while the deletion is on its way (browser Back, a link, a
+        // programmatic go): the screen hands the device over once the server
+        // answers. The sign-out that follows replaces the whole router, so
+        // the move to the goodbye screen never asks this.
+        onExit: (_, _) => !ref.read(deletionInFlightProvider),
       ),
       GoRoute(
         path: Routes.accountDeleted,

@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/network/api_failure.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/utils/json.dart';
 import '../../models/booking.dart';
 import '../../models/wallet.dart';
 import '../../providers/booking_provider.dart';
@@ -20,6 +18,7 @@ import '../../shared/widgets/z_feedback.dart';
 import '../../shared/widgets/z_scaffold.dart';
 import '../../shared/widgets/z_text_field.dart';
 import 'widgets/booking_ui.dart';
+import 'widgets/gateway_checkout.dart';
 
 /// Screen 15 — Payment Details.
 ///
@@ -119,11 +118,10 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
           .payBooking(widget.bookingId, gateway: _method!);
 
       // Wallet settles server-side in one call; a gateway needs the payer to
-      // finish on its own checkout page first.
-      if (Json.boolean(order['requires_client_action'])) {
-        final confirmed = await _completeAtGateway(order);
-        if (!confirmed) return;
-      }
+      // finish on its own checkout page first, confirmed with our backend.
+      if (!mounted) return;
+      final confirmed = await completeGatewayPayment(context, ref, order);
+      if (!confirmed) return;
 
       _onPaid();
     } on ApiFailure catch (e) {
@@ -131,64 +129,6 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     } finally {
       if (mounted) setState(() => _paying = false);
     }
-  }
-
-  /// Sends the payer to the gateway's hosted checkout and then confirms the
-  /// outcome with our own backend.
-  ///
-  /// The hosted page keeps card details out of the app entirely and works the
-  /// same on Android, iOS and web. If the payer never comes back, the
-  /// gateway's webhook still settles the booking server-side — this path only
-  /// makes the app catch up sooner.
-  Future<bool> _completeAtGateway(Map<String, dynamic> order) async {
-    final checkoutUrl = Json.str(order['checkout_url']);
-    final orderId = Json.str(order['order_id']);
-    final gateway = Json.str(order['gateway']);
-
-    if (checkoutUrl.isEmpty || orderId.isEmpty) {
-      if (mounted) {
-        showZSnack(
-          context,
-          'This payment method is not available right now.',
-          isError: true,
-        );
-      }
-      return false;
-    }
-
-    final launched = await launchUrl(
-      Uri.parse(checkoutUrl),
-      mode: LaunchMode.externalApplication,
-    );
-
-    if (!launched) {
-      if (mounted) {
-        showZSnack(context, 'Could not open the payment page.', isError: true);
-      }
-      return false;
-    }
-
-    if (!mounted) return false;
-
-    final finished =
-        await showModalBottomSheet<bool>(
-          context: context,
-          isDismissible: false,
-          enableDrag: false,
-          useSafeArea: true,
-          sheetAnimationStyle: zSheetMotion(context),
-          builder: (_) => const _AwaitingPaymentSheet(),
-        ) ??
-        false;
-
-    if (!finished) return false;
-
-    await ref.read(walletActionsProvider).verifyPayment({
-      'gateway': gateway,
-      'order_id': orderId,
-    });
-
-    return true;
   }
 
   void _onPaid() {
@@ -480,7 +420,10 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
             const SizedBox(width: 4),
             Flexible(
               child: Text(
-                'Secured by Razorpay and Stripe · PCI-DSS compliant',
+                // Neutral on purpose: which gateway takes the payment is an
+                // operator setting, and naming one that is switched off (or
+                // claiming a certification for it) would be untrue.
+                'Payments are processed securely by our payment partner',
                 textAlign: TextAlign.center,
                 style: AppTypography.labelSmall,
               ),
@@ -627,72 +570,6 @@ class _MethodTile extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Shown while the payer is on the gateway's hosted checkout page.
-///
-/// The app cannot observe another tab or app, so it asks rather than guesses —
-/// and either answer is safe: confirming re-checks with the gateway, and
-/// cancelling leaves the booking unpaid until the webhook says otherwise.
-class _AwaitingPaymentSheet extends StatelessWidget {
-  const _AwaitingPaymentSheet();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.lg,
-        AppSpacing.lg,
-        AppSpacing.lg,
-        AppSpacing.md,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              color: AppColors.primaryFixed,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.open_in_new_rounded,
-              color: AppColors.primary,
-              size: 28,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Text(
-            'Finish paying in your browser',
-            style: AppTypography.headlineSmall,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            'Come back here once the payment is done and we will confirm it '
-            'with your bank.',
-            style: AppTypography.bodyMedium.copyWith(
-              color: AppColors.onSurfaceVariant,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          ZButton(
-            label: "I've completed the payment",
-            icon: Icons.check_rounded,
-            onPressed: () => Navigator.of(context).pop(true),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          ZButton(
-            label: 'Cancel',
-            variant: ZButtonVariant.text,
-            onPressed: () => Navigator.of(context).pop(false),
-          ),
-        ],
       ),
     );
   }

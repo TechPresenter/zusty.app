@@ -16,6 +16,24 @@ import '../../shared/widgets/z_text_field.dart';
 import 'new_ticket.dart';
 import 'support_providers.dart';
 
+/// What search looks through for each FAQ, worked out once per FAQ.
+final _searchText = Expando<String>('faq search text');
+
+/// The question, the answer as the reader sees it, and the category name.
+///
+/// The answer is HTML from the admin editor, so it is searched as the text
+/// [ZHtml] draws: a search for "help & support" finds "Help &amp; Support",
+/// and one for "strong" finds nothing. The question and category name are
+/// plain text and are never run through the HTML parser, which would mangle
+/// a question such as "Fees for <10k followers?".
+String _haystack(Faq faq) => _searchText[faq] ??= _normalised(
+  '${faq.question}\n${htmlToPlainText(faq.answer)}\n${faq.categoryName}',
+);
+
+/// Lower case, with every run of whitespace (newlines included) one space.
+String _normalised(String text) =>
+    text.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+
 /// Screen 28 — FAQs.
 ///
 /// A searchable accordion grouped by category, with a topic filter and a
@@ -74,10 +92,7 @@ class _FaqsScreenState extends ConsumerState<FaqsScreen> {
     if (_category != null && faq.category != _category) return false;
     if (_query.isEmpty) return true;
 
-    final lower = _query.toLowerCase();
-    return faq.question.toLowerCase().contains(lower) ||
-        faq.answer.toLowerCase().contains(lower) ||
-        faq.categoryName.toLowerCase().contains(lower);
+    return _haystack(faq).contains(_normalised(_query));
   }
 
   /// Brings the launched question into view once its tile exists.

@@ -179,7 +179,9 @@ if (version_compare(PHP_VERSION, '8.1.0', '<')) {
     fail('PHP 8.1 or newer is required. This server runs ' . PHP_VERSION . '.');
 }
 
-$required = ['pdo_mysql', 'openssl', 'mbstring', 'json', 'curl', 'fileinfo'];
+// zip: "Download my data" is a ZIP built with ZipArchive; without it every
+// data export fails.
+$required = ['pdo_mysql', 'openssl', 'mbstring', 'json', 'curl', 'fileinfo', 'zip'];
 $missing  = array_values(array_filter($required, static fn (string $ext): bool => !extension_loaded($ext)));
 
 if ($missing !== []) {

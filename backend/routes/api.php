@@ -32,6 +32,7 @@ use Zuste\Controllers\Api\ReviewController;
 use Zuste\Controllers\Api\SystemController;
 use Zuste\Controllers\Api\TaxonomyController;
 use Zuste\Controllers\Api\WalletController;
+use Zuste\Controllers\Web\LandingController as WebLandingController;
 use Zuste\Controllers\Web\PageController as WebPageController;
 use Zuste\Core\Router;
 
@@ -66,12 +67,19 @@ return static function (Router $router): void {
         $router->post('/webhooks/stripe', [SystemController::class, 'stripeWebhook']);
         $router->post('/webhooks/cashfree', [SystemController::class, 'cashfreeWebhook']);
 
-        // A data-export download link. The token in the query IS the
-        // credential — it is what lets a browser, or the link in the email,
-        // fetch the archive without a bearer header — so it is long, bound to
-        // one export, hashed at rest, short-lived and capped in uses.
-        $router->get('/privacy/exports/download', [PrivacyController::class, 'download'])
-            ->middleware('throttle:30,3600,privacy-download');
+        // A data-export download link. The token IS the credential — it is
+        // what lets a browser fetch the archive without a bearer header — so
+        // it is long, bound to one export, hashed at rest, short-lived and
+        // capped in uses.
+        //
+        // The GET only shows a landing page and never counts a use, so link
+        // scanners and prefetchers cannot spend the downloads. Its form POSTs
+        // the token in the body, and only that POST streams the archive.
+        //
+        // No route throttle: both are throttled per IP inside the controller,
+        // so a browser that hits the limit still gets a readable page.
+        $router->get('/privacy/exports/download', [PrivacyController::class, 'download']);
+        $router->post('/privacy/exports/download', [PrivacyController::class, 'downloadArchive']);
 
         // -------------------------------------------------------------
         // Authentication
@@ -95,7 +103,9 @@ return static function (Router $router): void {
             $router->post('/change-password', [AuthController::class, 'changePassword'])->middleware('auth', 'no-guest', 'throttle:5,900,password');
             $router->get('/sessions', [AuthController::class, 'sessions'])->middleware('auth');
             $router->delete('/sessions/{id:\d+}', [AuthController::class, 'revokeSession'])->middleware('auth');
-            $router->delete('/account', [AuthController::class, 'deleteAccount'])->middleware('auth');
+            // Same bucket as POST /me/privacy/delete-account: after `auth` the
+            // throttle keys on the user id, so both routes share one budget.
+            $router->delete('/account', [AuthController::class, 'deleteAccount'])->middleware('auth', 'throttle:10,3600,privacy-delete');
         });
 
         // -------------------------------------------------------------
@@ -176,6 +186,11 @@ return static function (Router $router): void {
                 ->middleware('throttle:5,900,privacy-code');
             $router->post('/privacy/exports', [PrivacyController::class, 'requestExport'])
                 ->middleware('throttle:5,3600,privacy-export');
+            // A link is shown once, when it is issued. Getting a fresh one for
+            // a copy that is still on the server asks for the same proof, and
+            // retires every earlier link.
+            $router->post('/privacy/exports/{id:\d+}/link', [PrivacyController::class, 'exportLink'])
+                ->middleware('throttle:10,3600,privacy-link');
             $router->post('/privacy/delete-account', [PrivacyController::class, 'deleteAccount'])
                 ->middleware('throttle:10,3600,privacy-delete');
 
@@ -458,4 +473,15 @@ return static function (Router $router): void {
     // -----------------------------------------------------------------
     $router->get('/{slug:' . implode('|', WebPageController::SLUGS) . '}', [WebPageController::class, 'show']);
     $router->get('/account-deletion', [WebPageController::class, 'accountDeletion']);
+    // /pages/{slug} is how CMS content links to these pages; they live at
+    // /{slug} on the website, so the old form answers with a permanent redirect.
+    $router->get('/pages/{slug:' . implode('|', WebPageController::SLUGS) . '}', [WebPageController::class, 'legacy']);
+    // Where the links the app shares land: a referral invite
+    // (referral.share_base_url) and a creator's profile or QR code
+    // (CreatorEngagementService::shareUrl). Both send people to the app.
+    $router->get('/invite/{code}', [WebPageController::class, 'invite']);
+    $router->get('/creators/{handle}', [WebPageController::class, 'creator']);
+    // The landing page at the site root. HEAD is routed explicitly: the
+    // router does not map HEAD to GET, and uptime checks and link previews use it.
+    $router->match(['GET', 'HEAD'], '/', [WebLandingController::class, 'index']);
 };

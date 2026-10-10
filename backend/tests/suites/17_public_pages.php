@@ -78,6 +78,56 @@ Suite::check(
 );
 
 // ---------------------------------------------------------------------
+Suite::group('Public pages — where shared links land');
+// ---------------------------------------------------------------------
+
+// A referral link from the app: referral.share_base_url + the code.
+$invite = Http::get($origin . '/invite/ZT4TEST9');
+Suite::status('an invite link is a public page', $invite, 200);
+Suite::check('it shows the code to enter at sign-up', str_contains($invite->body, 'ZT4TEST9'));
+Suite::check('it is kept out of search results', str_contains((string) $invite->header('x-robots-tag'), 'noindex'));
+Suite::status('a malformed invite code is a 404', Http::get($origin . '/invite/' . rawurlencode('<b>x</b>')), 404);
+
+// A creator's shared profile or QR code (CreatorEngagementService::shareUrl).
+$publicCreator = Database::selectOne(
+    "SELECT c.`handle`, c.`display_name` FROM `creators` c
+       INNER JOIN `users` u ON u.`id` = c.`user_id`
+      WHERE c.`status` = 'approved' AND c.`is_public` = 1
+        AND c.`deleted_at` IS NULL AND u.`deleted_at` IS NULL
+      ORDER BY c.`id` LIMIT 1"
+);
+
+if ($publicCreator === null) {
+    Suite::check('a public creator is seeded', false);
+} else {
+    $profile = Http::get($origin . '/creators/' . rawurlencode((string) $publicCreator['handle']));
+    Suite::status('a public creator\'s shared link is a page', $profile, 200);
+    Suite::check(
+        'it names the creator',
+        str_contains($profile->body, $e((string) ($publicCreator['display_name'] ?: '@' . $publicCreator['handle'])))
+    );
+}
+
+$hiddenHandle = Database::scalar(
+    "SELECT `handle` FROM `creators` WHERE `is_public` = 0 OR `status` <> 'approved' ORDER BY `id` LIMIT 1"
+);
+if ($hiddenHandle !== null) {
+    Suite::status(
+        'a creator who is not public is the same 404 as no creator',
+        Http::get($origin . '/creators/' . rawurlencode((string) $hiddenHandle)),
+        404
+    );
+}
+Suite::status('an unknown creator is a 404', Http::get($origin . '/creators/no.such.creator.zz'), 404);
+
+$shareBase = rtrim(Config::settingString('referral', 'share_base_url', ''), '/');
+Suite::check(
+    'invite links are built on the invite page path',
+    $shareBase === '' || str_ends_with($shareBase, '/invite'),
+    $shareBase
+);
+
+// ---------------------------------------------------------------------
 Suite::group('Public pages — only published pages');
 // ---------------------------------------------------------------------
 

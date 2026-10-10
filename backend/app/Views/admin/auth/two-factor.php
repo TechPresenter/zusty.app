@@ -57,7 +57,7 @@ $assetVersion = $this->e((string) \Zuste\Core\Config::get('app.version', '1.0.0'
     </div>
 
     <p style="font-size:12px;opacity:.75">
-      &copy; <?= date('Y') ?> <?= $this->e(\Zuste\Core\Config::settingString('general', 'company_name', 'Zuste Technologies')) ?>
+      &copy; <?= date('Y') ?> <?= $this->e(trim(\Zuste\Core\Config::settingString('general', 'company_name', '')) ?: $appName) ?>
     </p>
   </aside>
 

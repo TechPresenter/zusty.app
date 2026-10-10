@@ -416,16 +416,23 @@ if (!$kvReady) {
     Suite::ok('valid creator details are saved', $save);
 
     // A PAN / Aadhaar change is the event an account takeover would leave;
-    // it must say where it came from.
+    // it must say where it came from. The applicant's own events keep the IP
+    // but neither their browser nor a copy of their name: the trail is
+    // append-only and outlives an account erasure, and the name is read from
+    // the account when the trail is shown.
     $detailsEvent = Database::selectOne(
-        "SELECT e.`ip_address`, e.`user_agent` FROM `kyc_events` e
+        "SELECT e.`ip_address`, e.`user_agent`, e.`actor_name` FROM `kyc_events` e
            JOIN `kyc_profiles` p ON p.`id` = e.`profile_id`
           WHERE p.`user_id` = :u AND e.`action` = 'details_updated'
           ORDER BY e.`id` DESC LIMIT 1",
         ['u' => $kvCreatorId]
     ) ?? [];
     Suite::check('the details_updated event records the request IP', !empty($detailsEvent['ip_address']), json_encode(array_map('bin2hex', array_filter($detailsEvent, 'is_string'))));
-    Suite::equals('and its user agent', $detailsEvent['user_agent'] ?? null, 'it-kycv-app/1.0');
+    Suite::check(
+        'but neither the browser nor a copy of the name',
+        $detailsEvent !== [] && $detailsEvent['user_agent'] === null && $detailsEvent['actor_name'] === null,
+        json_encode(['user_agent' => $detailsEvent['user_agent'] ?? 'missing', 'actor_name' => $detailsEvent['actor_name'] ?? 'missing'])
+    );
     Suite::equals('the Aadhaar comes back masked to its last four', $save->at('data.details.aadhaar_masked'), 'XXXX XXXX ' . substr($aadhaarA, -4));
     Suite::equals('the PAN comes back masked', $save->at('data.details.pan_masked'), 'XXXXXX' . substr($creatorPan, -4));
     Suite::check(

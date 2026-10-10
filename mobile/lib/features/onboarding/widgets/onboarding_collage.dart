@@ -1,20 +1,23 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
-import '../../../core/utils/placeholder_image.dart';
 import '../../../models/onboarding_slide.dart';
 import '../../../shared/widgets/z_image.dart';
+import '../../../shared/widgets/zuste_logo.dart';
 
-/// The photo collage at the top of an onboarding slide.
+/// The artwork at the top of an onboarding slide.
 ///
 /// Built from whatever the admin uploaded for the slide:
 ///
-/// * three or more photos (or none, which falls back to seeded placeholder
-///   portraits) — an editorial collage: a tall hero with two smaller
-///   portraits overlapping it;
+/// * three or more photos — an editorial collage: a tall hero with two
+///   smaller portraits overlapping it;
 /// * two photos — the hero with one portrait;
 /// * one photo — a single large rounded hero sitting on soft brand shapes, so
-///   one strong image is shown big rather than padded out with stock.
+///   one strong image is shown big rather than padded out with stock;
+/// * none — the bundled brand mark on the same shapes, with the slide's own
+///   symbol. This is the first screen every new user sees, so it never fetches
+///   anything: it used to fill the gap with random stock portraits from a
+///   third-party photo host.
 ///
 /// The composition is laid out in fractions of a fixed-aspect box, so it keeps
 /// its proportions from a 360dp phone to a tablet and never overflows when the
@@ -29,17 +32,7 @@ class OnboardingCollage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final artwork = slide.artwork;
-
-    // No admin artwork yet: the same deterministic placeholders the slide has
-    // always used, so the screen is never an empty frame.
-    final photos = artwork.isEmpty
-        ? [
-            placeholderPhoto(slide.heroSeed, 600, 760),
-            placeholderPhoto(slide.satelliteSeeds.first, 400, 440),
-            placeholderPhoto(slide.satelliteSeeds.last, 400, 440),
-          ]
-        : artwork;
+    final photos = slide.artwork;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -54,13 +47,17 @@ class OnboardingCollage extends StatelessWidget {
           boxWidth = height / _aspect;
         }
 
+        final icon = _iconFor(slide.icon);
+
         return Center(
           child: SizedBox(
             width: boxWidth,
             height: boxHeight,
-            child: photos.length == 1
-                ? _SingleHero(url: photos.first, icon: _iconFor(slide.icon))
-                : _Collage(photos: photos, icon: _iconFor(slide.icon)),
+            child: switch (photos.length) {
+              0 => _BrandComposition(icon: icon),
+              1 => _SingleHero(url: photos.first, icon: icon),
+              _ => _Collage(photos: photos, icon: icon),
+            },
           ),
         );
       },
@@ -225,6 +222,78 @@ class _SingleHero extends StatelessWidget {
               left: 0,
               bottom: h * 0.10,
               child: _IconBadge(icon: icon, size: (w * 0.17).clamp(44.0, 64.0)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// No admin artwork: the bundled brand mark on soft brand shapes, with the
+/// slide's own symbol. Everything here ships in the app, so the first screen
+/// renders offline and sends no request anywhere.
+class _BrandComposition extends StatelessWidget {
+  const _BrandComposition({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, box) {
+        final w = box.maxWidth;
+        final h = box.maxHeight;
+        final tile = w * 0.58;
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned(
+              left: -w * 0.04,
+              top: h * 0.04,
+              child: _Blob(size: w * 0.66, color: AppColors.primaryFixed),
+            ),
+            Positioned(
+              right: -w * 0.02,
+              bottom: h * 0.06,
+              child: _Blob(size: w * 0.48, color: AppColors.secondaryFixed),
+            ),
+            Positioned(
+              right: w * 0.06,
+              top: h * 0.02,
+              child: _Ring(size: w * 0.16),
+            ),
+            Positioned(
+              left: w * 0.06,
+              bottom: h * 0.02,
+              child: _Ring(size: w * 0.11),
+            ),
+            Positioned(
+              left: (w - tile) / 2,
+              top: (h - tile) / 2,
+              width: tile,
+              height: tile,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceContainerLowest,
+                  borderRadius: BorderRadius.circular(AppRadius.xxl),
+                  boxShadow: AppShadows.raised,
+                ),
+                child: Padding(
+                  padding: EdgeInsets.all(tile * 0.16),
+                  child: Image.asset(
+                    BrandAssets.mark,
+                    fit: BoxFit.contain,
+                    excludeFromSemantics: true,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: w * 0.10,
+              bottom: h * 0.14,
+              child: _IconBadge(icon: icon, size: (w * 0.18).clamp(48.0, 72.0)),
             ),
           ],
         );

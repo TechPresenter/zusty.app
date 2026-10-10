@@ -1,6 +1,8 @@
 import '../../core/network/api_endpoints.dart';
+import '../../core/network/api_failure.dart';
 import '../../core/storage/key_value_cache.dart';
 import '../../core/storage/secure_store.dart';
+import '../../models/privacy.dart';
 import '../../models/user.dart';
 import 'base_repository.dart';
 
@@ -197,16 +199,31 @@ class AuthRepository extends BaseRepository {
     );
   }
 
+  /// Changes the password, or sets the first one.
+  ///
+  /// An account that has a password confirms with [current]. An account
+  /// without one (it signed up with Google, Apple or a phone number) must
+  /// send [proof] instead: a code or a fresh Google/Apple sign-in. Either way
+  /// the server signs every session out afterwards.
   Future<void> changePassword({
-    required String current,
+    String current = '',
     required String updated,
+    Reauth? proof,
   }) async {
+    // A password proof is the current password. It travels as
+    // current_password, because its own `password` key would replace the new
+    // password in the body.
+    final proofFields = <String, dynamic>{...?proof?.toJson()};
+    final proofPassword = '${proofFields.remove('password') ?? ''}';
+    final currentPassword = current.isNotEmpty ? current : proofPassword;
+
     await client.post(
       ApiEndpoints.changePassword,
       body: {
-        'current_password': current,
+        ...proofFields,
         'password': updated,
         'password_confirmation': updated,
+        if (currentPassword.isNotEmpty) 'current_password': currentPassword,
       },
     );
   }
@@ -233,18 +250,23 @@ class AuthRepository extends BaseRepository {
     } catch (_) {
       // A failed server-side logout must not strand the user inside the app.
     }
-    await _store.clear();
-    await _cache.clearAll();
+    await clearLocalSession();
   }
 
   /// Forgets this device's session without calling the server.
   ///
-  /// For after an account deletion. The server has already revoked every
-  /// token and removed every device, so a logout request would only fail
-  /// against an account that no longer exists.
+  /// For after an account deletion, and for a session the server has already
+  /// ended. Every token is revoked by then, so a logout request would only
+  /// fail. The cached documents, recent searches and city go with the
+  /// tokens, so the next person to use the device finds nothing of this
+  /// account's. The cache is cleared even when the token store cannot be;
+  /// that failure is still reported to the caller.
   Future<void> clearLocalSession() async {
-    await _store.clear();
-    await _cache.clearAll();
+    try {
+      await _store.clear();
+    } finally {
+      await _cache.clearAccountData();
+    }
   }
 
   /// Runs an auth call and persists the returned token pair.
@@ -256,13 +278,26 @@ class AuthRepository extends BaseRepository {
   /// back a fabricated session and a fake token, and persisting both. The user
   /// would appear signed in as somebody who does not exist.
   ///
-  /// A sign-in that cannot reach the server must fail, visibly.
+  /// A sign-in that cannot reach the server must fail, visibly. So must one
+  /// that reaches it but gets no session back (a code verified without
+  /// signing anyone in answers `{verified: true}`): treating that as signed
+  /// in would leave the app with a user and no tokens.
   Future<AuthResult> _authenticate(Future<AuthResult> Function() live) async {
     final result = await live();
+    final tokens = result.tokens;
 
-    if (result.tokens != null) {
-      await _store.save(result.tokens!);
+    if (tokens == null) {
+      throw const UnknownFailure(
+        message: 'Sign-in did not return a session. Please try again.',
+        code: 'no_session',
+      );
     }
+
+    // A new session never inherits the last one's cached responses. That
+    // session may have ended without this device hearing about it: the app
+    // was closed first, or the keystore could not be read.
+    await _cache.clearAll();
+    await _store.save(tokens);
     await _cache.setOnboardingComplete();
 
     return result;

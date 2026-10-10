@@ -129,9 +129,14 @@ account, so install with `php scripts/install.php --with-demo` and `APP_ENV=loca
 ## Scheduled jobs
 
 Background work (the email and push queues, escrow release, booking expiry, backups,
-data-export clean-up and more) runs through `php scripts/cron.php <job>`. Register
-every job that `php scripts/cron.php --list` prints. On Hostinger, add the jobs in
-hPanel as described in [DEPLOYMENT.md](backend/docs/DEPLOYMENT.md).
+data-export clean-up, finishing account erasures and more) runs through
+`php scripts/cron.php <job>`. Register every job that `php scripts/cron.php --list`
+prints; `php scripts/cron.php --crontab` prints a ready-to-paste crontab line for each,
+including `privacy:finish-deletions`, which retries the clean-up after an account is
+erased every 10 minutes. On shared hosting such as Hostinger, one crontab entry that
+runs `php scripts/cron.php --due` every minute replaces the per-job entries: it starts
+each job when its schedule (System → Jobs) comes round. See
+[DEPLOYMENT.md](backend/docs/DEPLOYMENT.md).
 [backend/deploy/cron/zustee-crontab](backend/deploy/cron/zustee-crontab) is the
 equivalent crontab for a VPS; it schedules every job in the `scheduled_jobs` table.
 

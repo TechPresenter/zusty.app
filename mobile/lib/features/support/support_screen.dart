@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/external_link.dart';
 import '../../models/support.dart';
 import '../../models/taxonomy.dart';
 import '../../providers/account_provider.dart';
@@ -31,10 +31,9 @@ class SupportScreen extends ConsumerWidget {
   const SupportScreen({super.key});
 
   /// Used only until a config has been fetched, or when the operator has left
-  /// the setting blank. Kept deliberately close to the seeded values so a cold
-  /// start does not show a plausible-looking but wrong address.
-  static const _fallbackEmail = 'support@zustee.com';
-  static const _fallbackPhone = '+91 1800 123 456';
+  /// the setting blank. There is no fallback phone number: a made-up one is
+  /// worse than none, so the call row is left out until one is configured.
+  static const _fallbackEmail = 'support@zusty.app';
 
   /// Opens the FAQs screen on [launch] — a topic, a question, or search.
   static void _openFaqs(BuildContext context, WidgetRef ref, FaqLaunch launch) {
@@ -55,9 +54,7 @@ class SupportScreen extends ConsumerWidget {
     final supportEmail = identity.supportEmail.isNotEmpty
         ? identity.supportEmail
         : _fallbackEmail;
-    final supportPhone = identity.supportPhone.isNotEmpty
-        ? identity.supportPhone
-        : _fallbackPhone;
+    final supportPhone = identity.supportPhone.trim();
 
     return ZScaffold(
       backgroundColor: AppColors.surface,
@@ -210,24 +207,32 @@ class SupportScreen extends ConsumerWidget {
             const SizedBox(height: AppSpacing.sm),
             ZMenuSection(
               children: [
+                // A device with no email app or dialler says so and offers
+                // to copy the address, instead of the tap doing nothing.
                 _ContactTile(
                   icon: Icons.mail_outline_rounded,
                   label: 'Email support',
                   value: supportEmail,
-                  onTap: () =>
-                      launchUrl(Uri(scheme: 'mailto', path: supportEmail)),
-                ),
-                _ContactTile(
-                  icon: Icons.phone_outlined,
-                  label: 'Call us',
-                  value: supportPhone,
-                  hint: 'Mon–Sat, 10am–7pm IST',
-                  // The operator types the number for humans ("+91 90000
-                  // 00000"); `tel:` wants it without the spacing.
-                  onTap: () => launchUrl(
-                    Uri(scheme: 'tel', path: supportPhone.replaceAll(' ', '')),
+                  onTap: () => openExternalUri(
+                    context,
+                    Uri(scheme: 'mailto', path: supportEmail),
+                    copyText: supportEmail,
                   ),
                 ),
+                if (supportPhone.isNotEmpty)
+                  _ContactTile(
+                    icon: Icons.phone_outlined,
+                    label: 'Call us',
+                    value: supportPhone,
+                    hint: 'Mon–Sat, 10am–7pm IST',
+                    // The operator types the number for humans ("+91 90000
+                    // 00000"); `tel:` wants it without the spacing.
+                    onTap: () => openExternalUri(
+                      context,
+                      Uri(scheme: 'tel', path: supportPhone.replaceAll(' ', '')),
+                      copyText: supportPhone,
+                    ),
+                  ),
                 _ContactTile(
                   icon: Icons.description_outlined,
                   label: 'Terms & policies',

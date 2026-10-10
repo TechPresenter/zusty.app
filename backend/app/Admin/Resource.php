@@ -240,7 +240,7 @@ final class Resource
             ],
             fields: [
                 ['name' => 'title', 'label' => 'Title', 'type' => 'text', 'rules' => 'required|string|min:2|max:191'],
-                ['name' => 'slug', 'label' => 'Slug', 'type' => 'text', 'rules' => 'nullable|slug|max:120|unique:pages,slug', 'hint' => 'Used in the URL: /pages/{slug}'],
+                ['name' => 'slug', 'label' => 'Slug', 'type' => 'text', 'rules' => 'nullable|slug|max:120|unique:pages,slug', 'hint' => 'The app opens it at /pages/{slug}. The legal pages (about, terms, privacy, refund-policy, community-guidelines, contact) are also published on the website at /{slug}, and /pages/{slug} redirects there: link to those as /{slug}, which works in the app and on the website.'],
                 ['name' => 'subtitle', 'label' => 'Subtitle', 'type' => 'text', 'rules' => 'nullable|string|max:255'],
                 ['name' => 'content', 'label' => 'Content', 'type' => 'html', 'rules' => 'required|string', 'rows' => 18],
                 ['name' => 'template', 'label' => 'Template', 'type' => 'select', 'rules' => 'nullable|in:default,legal,landing,contact', 'options' => ['default' => 'Default', 'legal' => 'Legal', 'landing' => 'Landing', 'contact' => 'Contact'], 'group' => 'Visibility'],

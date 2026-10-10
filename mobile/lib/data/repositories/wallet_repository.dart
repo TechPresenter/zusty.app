@@ -1,4 +1,5 @@
 import '../../core/network/api_endpoints.dart';
+import '../../core/network/api_failure.dart';
 import '../../core/network/api_response.dart';
 import '../../models/invoice.dart';
 import '../../models/wallet.dart';
@@ -153,13 +154,27 @@ class WalletRepository extends BaseRepository {
     return response.data.toString();
   }
 
+  /// Gateways whose payments this build can see through to the end: Cashfree
+  /// on its hosted checkout page, and the wallet, which settles server-side.
+  ///
+  /// Razorpay and Stripe need their native checkout SDKs, which this build
+  /// does not ship. The server will still create an order for either, but it
+  /// returns no checkout URL, so offering them only produced "This payment
+  /// method is not available right now" after the payer had picked one.
+  static const completableGateways = {'cashfree', 'wallet'};
+
+  /// What the checkout and the top-up sheet may offer: the server's enabled
+  /// gateways, less any this build cannot complete.
   Future<List<PaymentMethod>> paymentMethods() => readThrough(
         () async {
           final response = await client.get(ApiEndpoints.paymentMethods);
           final gateways = response.listAt('gateways');
 
           if (gateways.isNotEmpty) {
-            return gateways.map(PaymentMethod.fromGateway).toList();
+            return gateways
+                .map(PaymentMethod.fromGateway)
+                .where((g) => completableGateways.contains(g.gateway))
+                .toList();
           }
 
           final rows = response.dataList.isNotEmpty
@@ -240,51 +255,55 @@ class WalletRepository extends BaseRepository {
         (_) {},
       );
 
-  /// Starts a wallet deposit.
+  /// Starts a wallet deposit and returns the gateway order the server created.
   ///
-  /// [method] is what the sheet offers — an instrument (`upi`, `card`,
-  /// `netbanking`) or a gateway id. The endpoint names the field `gateway` and
-  /// only accepts a gateway id, so an instrument is resolved against the
-  /// gateways the backend actually has switched on. Sending `method` (the old
-  /// key) made every top-up fail validation before it reached a gateway.
-  Future<void> topup({required double amount, required String method}) =>
+  /// Nothing is added to the wallet by this call: the reply carries
+  /// `requires_client_action` and a `checkout_url`, and the money arrives
+  /// only once the payer has paid there and the payment is confirmed
+  /// (`completeGatewayPayment`), or the gateway's webhook settles it.
+  ///
+  /// [method] is an optional instrument (`upi`, `card`, `netbanking`) or a
+  /// gateway id; the top-up sheet sends none, because the payer picks the
+  /// instrument on the gateway's hosted page. The endpoint names the field
+  /// `gateway` and only accepts a gateway id, so anything that is not one is
+  /// resolved against the gateways the backend actually has switched on.
+  /// Sending `method` (the old key) made every top-up fail validation before
+  /// it reached a gateway.
+  Future<Map<String, dynamic>> topup({
+    required double amount,
+    String? method,
+  }) =>
       writeThrough(
         () async {
-          await client.post(
+          final response = await client.post(
             ApiEndpoints.walletTopup,
             body: {'amount': amount, 'gateway': await _gatewayFor(method)},
           );
+          return response.dataMap;
         },
         'noop',
-        (_) {},
+        (_) => const {'requires_client_action': false, 'status': 'captured'},
       );
 
-  /// Gateway ids `POST /wallet/topup` accepts. `wallet` is deliberately absent
-  /// — a wallet cannot fund itself.
-  static const _topupGateways = {'razorpay', 'stripe', 'cashfree'};
+  /// Gateway ids `POST /wallet/topup` accepts and this build can complete.
+  /// `wallet` is deliberately absent — a wallet cannot fund itself.
+  static const _topupGateways = {'cashfree'};
 
-  /// Maps a payment instrument onto an enabled gateway.
-  ///
-  /// Falls back to the value it was given so an unresolvable choice is
-  /// answered by the server's own validation message rather than a guess.
-  Future<String> _gatewayFor(String method) async {
-    if (_topupGateways.contains(method)) return method;
+  /// Maps a payment instrument (or none) onto an enabled gateway this build
+  /// can complete, or explains that there is none.
+  Future<String> _gatewayFor(String? method) async {
+    if (method != null && _topupGateways.contains(method)) return method;
 
-    try {
-      final gateways = await paymentMethods();
-      final supports = gateways.firstWhere(
-        (g) => _topupGateways.contains(g.gateway) && g.key == method,
-        orElse: () => gateways.firstWhere(
-          (g) => _topupGateways.contains(g.gateway),
-          orElse: () => const PaymentMethod(key: '', label: '', gateway: ''),
-        ),
-      );
-      if (supports.gateway.isNotEmpty) return supports.gateway;
-    } on Object {
-      // Fall through — the top-up itself reports the real problem.
+    final gateways = await paymentMethods();
+
+    for (final gateway in gateways) {
+      if (_topupGateways.contains(gateway.gateway)) return gateway.gateway;
     }
 
-    return method;
+    throw const ConflictFailure(
+      message: 'Adding money is not available right now. Please try again later.',
+      code: 'topup_unavailable',
+    );
   }
 
   Future<void> withdraw({

@@ -193,7 +193,13 @@ final class Database
 
             $normalised = self::normaliseSql($sql);
             $hash       = md5($normalised);
-            $route      = mb_substr((string) ($_SERVER['REQUEST_URI'] ?? 'cli'), 0, 191);
+
+            // The path only, never the query string: a query string can carry
+            // a credential (a data-export download link's token, for one), and
+            // this column is shown to staff in the admin's Query Monitor
+            // (developer.queries). Same parsing as Request::capture().
+            $uri   = (string) ($_SERVER['REQUEST_URI'] ?? '');
+            $route = $uri === '' ? 'cli' : mb_substr((string) (parse_url($uri, PHP_URL_PATH) ?: '/'), 0, 191);
 
             // One statement: insert the first sighting, or fold into the existing
             // row. Avoids a read-then-write race between concurrent requests.

@@ -20,6 +20,9 @@ declare(strict_types=1);
  * Safe against a seeded development database: the suite creates its own
  * throwaway accounts, prefixes anything it writes with `IT-`, and cleans up
  * after itself. It never mutates seeded demo rows.
+ *
+ * Two suite runs must not share a database at the same time: suites clear the
+ * rate-limit buckets and reuse fixed test accounts, so one run would break the other.
  */
 
 use Zuste\Core\App;

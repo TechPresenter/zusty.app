@@ -18,10 +18,14 @@ declare(strict_types=1);
  *     commission is "no override" (NULL), not 0%.
  *   * KYC document records on the user screens are for kyc.view holders only,
  *     and the legacy queue lists legacy documents only.
- *   * Deleting a user from the panel erases their identity documents.
+ *   * Deleting a brand or creator from the panel erases it, exactly as its
+ *     owner deleting it in the app does: an anonymous tombstone with a
+ *     deletion record, its identity documents purged, the verification
+ *     record kept. Needs migration 048; skipped without it.
  *   * The recycle bin never hard-deletes an account with a KYC history (the
  *     kyc_events trail would cascade away without the append-only triggers
- *     firing) and handles a row a RESTRICT foreign key still points at.
+ *     firing), handles a row a RESTRICT foreign key still points at, and
+ *     never lists or restores an erased account.
  *
  * The panel is session + CSRF protected, so it is driven the way a browser
  * drives it: sign in, read the form's token, post, read the toast. Everything
@@ -32,6 +36,7 @@ declare(strict_types=1);
  */
 
 use Zuste\Core\Database;
+use Zuste\Services\AccountDeletionService;
 use Zuste\Services\DocumentVault;
 use Zuste\Services\KycService;
 use Zuste\Tests\Actors;
@@ -530,18 +535,37 @@ if (!$ilPanelReady || $ilBrandId <= 0) {
 }
 
 // -----------------------------------------------------------------
+// Deleting a brand or creator from the panel is an erasure, the same one the
+// owner runs from the app (AccountDeletionService, operator mode). The row
+// stays as an anonymous tombstone with a deletion record, and the identity
+// documents go in the erasure's clean-up.
 Suite::group('Admin panel — deleting a user erases their KYC documents');
 
+// The erasure writes the deletion columns migration 048 adds.
+$ilErasable = (int) Database::scalar(
+    "SELECT COUNT(*) FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND ((TABLE_NAME = 'account_deletion_requests' AND COLUMN_NAME IN ('pending_steps', 'performed_by_admin_id'))
+          OR (TABLE_NAME = 'wallets' AND COLUMN_NAME = 'closed_at'))"
+) === 3;
+
 $ilDeleted    = 0;
+$ilBinned     = 0;
 $ilNoKyc      = 0;
 $ilReferenced = 0;
 $ilPaymentId  = 0;
 $ilDocPath    = '';
 $ilProfileId  = 0;
+$ilBinProfile = 0;
 
 try {
-    if (!$ilPanelReady) {
-        Suite::skipGroup('Admin panel — deleting a user erases their KYC documents', 'the throwaway administrators could not sign in');
+    if (!$ilPanelReady || !$ilErasable) {
+        Suite::skipGroup(
+            'Admin panel — deleting a user erases their KYC documents',
+            $ilPanelReady
+                ? 'migration 048 is not applied: deleting a user is an erasure, which writes its columns'
+                : 'the throwaway administrators could not sign in'
+        );
     } else {
         $ilDeleted   = $ilInsertUser('deleted');
         $ilProfileId = (int) KycService::profileFor($ilDeleted, 'creator')['id'];
@@ -557,15 +581,41 @@ try {
 
         Suite::check('the fixture document is in the vault', $ilFileExists($ilDocPath));
 
-        $r = $ilSubmit($ilFullJar, '/admin/users/' . $ilDeleted, '/admin/users/' . $ilDeleted . '/delete', []);
+        // Erase account asks for the typed DELETE and a note, as Privacy requests does.
+        $ilEraseFields = ['confirmation' => 'DELETE', 'note' => 'IT: identity lock suite, confirmed by reply'];
+
+        $r = $ilSubmit($ilFullJar, '/admin/users/' . $ilDeleted, '/admin/users/' . $ilDeleted . '/delete', $ilEraseFields);
         Suite::check(
-            'the panel deletes the account and says the documents went',
-            $r['toast'][0] === 'success' && str_contains($r['toast'][1], 'identity documents were erased'),
+            'the panel erases the account and says it cannot be restored',
+            $r['toast'][0] === 'success' && str_contains($r['toast'][1], 'Account erased') && str_contains($r['toast'][1], 'cannot be restored'),
             implode(': ', $r['toast'])
         );
 
-        $user = Database::selectOne('SELECT `status`, `deleted_at` FROM `users` WHERE `id` = :u', ['u' => $ilDeleted]) ?? [];
-        Suite::check('the account is closed and binned', ($user['status'] ?? '') === 'deleted' && ($user['deleted_at'] ?? null) !== null, json_encode($user));
+        $user = Database::selectOne('SELECT `name`, `email`, `status`, `deleted_at` FROM `users` WHERE `id` = :u', ['u' => $ilDeleted]) ?? [];
+        Suite::check(
+            'the row is left as an anonymous tombstone',
+            ($user['status'] ?? '') === 'deleted' && ($user['deleted_at'] ?? null) !== null
+                && ($user['name'] ?? '') === 'Deleted user' && array_key_exists('email', $user) && $user['email'] === null,
+            json_encode($user)
+        );
+
+        $deletion = Database::select(
+            'SELECT `verified_via`, `platform`, `performed_by_admin_id` FROM `account_deletion_requests` WHERE `user_id` = :u',
+            ['u' => $ilDeleted]
+        );
+        Suite::check(
+            'with one deletion record, made by support and naming the administrator',
+            count($deletion) === 1
+                && $deletion[0]['verified_via'] === 'operator'
+                && $deletion[0]['platform'] === 'admin'
+                && (int) $deletion[0]['performed_by_admin_id'] === (int) ($ilAdminIds[0] ?? -1),
+            json_encode($deletion)
+        );
+        Suite::check(
+            'the user page says it was erased and offers no second erase',
+            str_contains($r['page']['body'], 'This account was erased on') && !str_contains($r['page']['body'], 'Erase account'),
+            'status ' . $r['page']['status']
+        );
         Suite::check('the identity document file is gone from the vault', !$ilFileExists($ilDocPath));
 
         $doc = Database::selectOne('SELECT `purged_at`, `file_path`, `holder_name` FROM `kyc_documents` WHERE `id` = :id', ['id' => $docId]) ?? [];
@@ -579,17 +629,33 @@ try {
             Database::scalar('SELECT `purged_at` FROM `kyc_profiles` WHERE `id` = :p', ['p' => $ilProfileId]) !== null
                 && (int) Database::scalar("SELECT COUNT(*) FROM `kyc_events` WHERE `profile_id` = :p AND `action` = 'purged'", ['p' => $ilProfileId]) > 0
         );
+
+        // The form is gone from the page; a hand-made second request is
+        // answered, and nothing is done twice.
+        $again = $ilSubmit($ilFullJar, '/admin/users/' . $ilDeleted, '/admin/users/' . $ilDeleted . '/delete', $ilEraseFields);
+        Suite::check(
+            'deleting it again says it was already erased, and changes nothing',
+            $again['toast'][0] === 'success' && str_contains($again['toast'][1], 'already erased')
+                && (int) Database::scalar('SELECT COUNT(*) FROM `account_deletion_requests` WHERE `user_id` = :u', ['u' => $ilDeleted]) === 1,
+            implode(': ', $again['toast'])
+        );
     }
 
     // -----------------------------------------------------------------
     Suite::group('Recycle bin — accounts with a KYC history are kept');
 
-    if (!$ilPanelReady || $ilDeleted <= 0) {
-        Suite::skipGroup('Recycle bin — accounts with a KYC history are kept', 'the previous group did not produce a binned account with KYC');
+    if (!$ilPanelReady) {
+        Suite::skipGroup('Recycle bin — accounts with a KYC history are kept', 'the throwaway administrators could not sign in');
     } else {
         $longAgo = date('Y-m-d H:i:s', time() - 4000 * 86400);
 
-        Database::update('users', ['deleted_at' => $longAgo], ['id' => $ilDeleted]);
+        // An account staff binned before Delete became an erasure: soft-deleted
+        // with its personal data, its identity documents already erased, its
+        // verification record kept.
+        $ilBinned     = $ilInsertUser('binned', $longAgo);
+        $ilBinProfile = (int) KycService::profileFor($ilBinned, 'creator')['id'];
+        KycService::purgeForUser($ilBinned, 'Account deleted by an administrator.');
+
         $ilNoKyc      = $ilInsertUser('nokyc', $longAgo);
         $ilReferenced = $ilInsertUser('paid', $longAgo);
         $ilPaymentId  = Database::insert('payments', [
@@ -597,26 +663,46 @@ try {
             'created_at' => date('Y-m-d H:i:s'),
         ]);
 
-        $events  = static fn (): int => (int) Database::scalar('SELECT COUNT(*) FROM `kyc_events` WHERE `profile_id` = :p', ['p' => $ilProfileId]);
+        $events  = static fn (): int => (int) Database::scalar('SELECT COUNT(*) FROM `kyc_events` WHERE `profile_id` = :p', ['p' => $ilBinProfile]);
         $exists  = static fn (int $id): bool => Database::scalar('SELECT 1 FROM `users` WHERE `id` = :u', ['u' => $id]) !== null;
         $before  = $events();
         $binPage = '/admin/recycle-bin?type=users';
 
-        $list = $ilPanel($ilFullJar, 'GET', $binPage . '&q=' . rawurlencode('it-idlock-deleted-' . $ilStamp));
+        $list = $ilPanel($ilFullJar, 'GET', $binPage . '&q=' . rawurlencode('it-idlock-binned-' . $ilStamp));
         Suite::check(
             'the bin marks the account as kept for its KYC history',
             $list['status'] === 200 && str_contains($list['body'], 'KYC history — kept'),
             'status ' . $list['status']
         );
 
-        $r = $ilSubmit($ilFullJar, $binPage, '/admin/recycle-bin/delete', ['type' => 'users', 'id' => $ilDeleted]);
+        $r = $ilSubmit($ilFullJar, $binPage, '/admin/recycle-bin/delete', ['type' => 'users', 'id' => $ilBinned]);
         Suite::check(
             'a permanent delete of that account is refused, with the reason',
             $r['toast'][0] === 'warning' && str_contains($r['toast'][1], 'KYC verification history'),
             implode(': ', $r['toast'])
         );
-        Suite::check('the account row is still there', $exists($ilDeleted));
+        Suite::check('the account row is still there', $exists($ilBinned));
         Suite::equals('and not one KYC event was lost', $events(), $before);
+
+        // The erased account from the previous group is not binned: it is a
+        // tombstone the kept records point at.
+        if ($ilDeleted > 0) {
+            $tombstones = $ilPanel($ilFullJar, 'GET', $binPage . '&q=' . rawurlencode('Deleted user'));
+            Suite::check(
+                'an erased account is not listed in the bin',
+                $tombstones['status'] === 200 && !str_contains($tombstones['body'], 'name="id" value="' . $ilDeleted . '"'),
+                'status ' . $tombstones['status']
+            );
+
+            $deletedAt = Database::scalar('SELECT `deleted_at` FROM `users` WHERE `id` = :u', ['u' => $ilDeleted]);
+            $r         = $ilSubmit($ilFullJar, $binPage, '/admin/recycle-bin/restore', ['type' => 'users', 'id' => $ilDeleted]);
+            Suite::check(
+                'and a hand-made restore of it is refused, leaving it erased',
+                $r['toast'][0] === 'error' && str_contains($r['toast'][1], 'erased')
+                    && Database::scalar('SELECT `deleted_at` FROM `users` WHERE `id` = :u', ['u' => $ilDeleted]) === $deletedAt,
+                implode(': ', $r['toast'])
+            );
+        }
 
         $r = $ilSubmit($ilFullJar, $binPage, '/admin/recycle-bin/delete', ['type' => 'users', 'id' => $ilReferenced]);
         Suite::check(
@@ -643,7 +729,7 @@ try {
             $others += (int) Database::scalar(
                 'SELECT COUNT(*) FROM ' . Database::quoteIdentifier($table) . '
                   WHERE `deleted_at` < DATE_SUB(NOW(), INTERVAL 3650 DAY)'
-                . ($table === 'users' ? ' AND `id` NOT IN (' . $ilDeleted . ', ' . $ilNoKyc . ', ' . $ilReferenced . ')' : '')
+                . ($table === 'users' ? ' AND `id` NOT IN (' . $ilBinned . ', ' . $ilNoKyc . ', ' . $ilReferenced . ')' : '')
             );
         }
 
@@ -656,7 +742,7 @@ try {
             $r = $ilSubmit($ilFullJar, '/admin/recycle-bin', '/admin/recycle-bin/purge', ['days' => 3650]);
 
             Suite::check('"purge older than" deletes an ordinary old account', !$exists($ilNoKyc));
-            Suite::check('keeps the account with a KYC history', $exists($ilDeleted));
+            Suite::check('keeps the account with a KYC history', $exists($ilBinned));
             Suite::check('keeps the account a payment points at', $exists($ilReferenced));
             Suite::equals('without losing a KYC event', $events(), $before);
             Suite::check(
@@ -671,7 +757,30 @@ try {
         Database::execute('DELETE FROM `payments` WHERE `id` = :id', ['id' => $ilPaymentId]);
     }
 
-    foreach ([$ilDeleted, $ilNoKyc, $ilReferenced] as $uid) {
+    if ($ilDeleted > 0) {
+        // The deletion record holds the tombstone's row (RESTRICT): it goes
+        // first. So does the goodbye the erasure queued to its old address.
+        Database::execute('DELETE FROM `account_deletion_requests` WHERE `user_id` = :u', ['u' => $ilDeleted]);
+        Database::execute("DELETE FROM `email_queue` WHERE `to_email` LIKE 'it-idlock-%@zuste.test'");
+
+        // The erasure ledger outlives the database on purpose; this run's line goes.
+        $ilLedger = AccountDeletionService::ledgerPath();
+
+        if (is_file($ilLedger)) {
+            $ilKeep = array_values(array_filter(
+                file($ilLedger, FILE_IGNORE_NEW_LINES) ?: [],
+                static function (string $line) use ($ilDeleted): bool {
+                    $entry = json_decode($line, true);
+
+                    return !is_array($entry) || (int) ($entry['user_id'] ?? 0) !== $ilDeleted;
+                }
+            ));
+
+            file_put_contents($ilLedger, $ilKeep === [] ? '' : implode("\n", $ilKeep) . "\n", LOCK_EX);
+        }
+    }
+
+    foreach ([$ilDeleted, $ilBinned, $ilNoKyc, $ilReferenced] as $uid) {
         if ($uid > 0) {
             $ilClearTick($uid);
             Database::execute('DELETE FROM `users` WHERE `id` = :u', ['u' => $uid]);

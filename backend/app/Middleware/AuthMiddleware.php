@@ -53,20 +53,28 @@ final class AuthMiddleware
             return;
         }
 
+        $userId = (int) ($payload['sub'] ?? 0);
+
         $jti = (string) ($payload['jti'] ?? '');
         if ($jti !== '' && Jwt::isRevoked($jti)) {
             if ($required) {
+                // The deletion revokes the token that asked for it, so a client
+                // whose delete response never arrived lands here: tell it the
+                // account is gone rather than that its session merely ended.
+                self::rejectIfErased($userId);
+
                 throw HttpException::unauthorized('This session has been revoked. Please sign in again.', 'token_revoked');
             }
 
             return;
         }
 
-        $userId = (int) ($payload['sub'] ?? 0);
-        $user   = $userId > 0 ? self::loadUser($userId) : null;
+        $user = $userId > 0 ? self::loadUser($userId) : null;
 
         if ($user === null) {
             if ($required) {
+                self::rejectIfErased($userId);
+
                 throw HttpException::unauthorized('Account not found.', 'account_missing');
             }
 
@@ -212,6 +220,35 @@ final class AuthMiddleware
               LIMIT 1',
             $params
         ) !== null;
+    }
+
+    /**
+     * Refuse with account_deleted when the account was erased by its owner.
+     *
+     * Keyed on the deletion request row, which is written in the same
+     * transaction as the tombstone. An account staff soft-deleted, or a closed
+     * guest, has no such row and keeps account_missing / token_revoked.
+     * Reached only on the two rejection paths, after the signature and expiry
+     * checks, so it costs nothing on a normal request and only the token's
+     * holder learns the account is gone.
+     */
+    private static function rejectIfErased(int $userId): void
+    {
+        if ($userId <= 0) {
+            return;
+        }
+
+        $erased = Database::scalar(
+            'SELECT 1 FROM `account_deletion_requests` r
+               JOIN `users` u ON u.`id` = r.`user_id` AND u.`deleted_at` IS NOT NULL
+              WHERE r.`user_id` = :id
+              LIMIT 1',
+            ['id' => $userId]
+        );
+
+        if ($erased !== null) {
+            throw HttpException::unauthorized('This account has been deleted.', 'account_deleted');
+        }
     }
 
     /** @return array<string,mixed>|null */

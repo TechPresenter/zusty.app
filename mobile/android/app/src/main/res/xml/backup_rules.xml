@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 (API 30) and earlier: the same rules as
+     data_extraction_rules.xml. This older format has no separate sections:
+     an exclude here applies to the cloud backup and to a device-to-device
+     transfer alike.
+
+     FlutterSharedPreferences.xml holds the response cache, with copies of the
+     signed-in account's documents, which must not outlive a sign-out or an
+     account deletion through a backup. FlutterSecureStorage.xml is encrypted
+     with a keystore key that never leaves the device, so a restored copy is
+     useless. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml"/>
+</full-backup-content>

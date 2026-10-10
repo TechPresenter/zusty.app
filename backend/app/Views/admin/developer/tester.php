@@ -35,7 +35,7 @@ $statusTone = static fn (int $code): string => match (true) {
       <strong>The tester has no host to call.</strong>
       It only ever calls the address in <code class="mono">APP_URL</code>, and that value is missing or is not a
       plain <code class="mono">http://</code> or <code class="mono">https://</code> address. Set it in the
-      environment file — for example <code class="mono">APP_URL=https://zustee.com</code> — and reload this page.
+      environment file — for example <code class="mono">APP_URL=https://zusty.app</code> — and reload this page.
       The host is never taken from the browser, so there is nothing to fall back to.
     </div>
   </div>

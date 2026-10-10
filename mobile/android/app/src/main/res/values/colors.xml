@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tint for the notification icon and its accent, the brand primary the
+         server also sends with each push (FirebaseService::sendToToken). -->
+    <color name="notification_accent">#B80049</color>
+</resources>

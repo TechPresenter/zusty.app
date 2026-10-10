@@ -1,12 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/network/api_failure.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
+import '../../data/repositories/privacy_repository.dart';
 import '../../models/privacy.dart';
 import '../../providers/privacy_provider.dart';
+import '../../router/routes.dart';
 import '../../shared/motion/motion.dart';
 import '../../shared/widgets/states.dart';
 import '../../shared/widgets/status_chip.dart';
@@ -23,8 +28,11 @@ import 'widgets/reauth_panel.dart';
 ///
 /// The archive is built while the user waits, right after they confirm it is
 /// them, and arrives with a link that works for a limited time and number of
-/// downloads. The server also emails a security notice, so an export the
-/// owner did not ask for never goes unnoticed.
+/// downloads. The link is shown here, once: the overview never carries it,
+/// and the server's email is only a security notice, with no link in it, so
+/// an export the owner did not ask for never goes unnoticed. A copy that is
+/// still available gets a fresh link after the same check, which also
+/// cancels every earlier link to it.
 class DataExportScreen extends ConsumerStatefulWidget {
   const DataExportScreen({super.key});
 
@@ -33,8 +41,29 @@ class DataExportScreen extends ConsumerStatefulWidget {
 }
 
 class _DataExportScreenState extends ConsumerState<DataExportScreen> {
-  /// The export made on this visit, for the "ready" moment at the top.
+  /// The copy this visit holds a link to: one just prepared, or a fresh link
+  /// to the latest copy.
   DataExport? _created;
+
+  /// Catches the card's "downloads left" up once the browser has the file.
+  Timer? _catchUp;
+
+  @override
+  void dispose() {
+    _catchUp?.cancel();
+    super.dispose();
+  }
+
+  /// Reloads the overview and waits for it, so pull-to-refresh spins until
+  /// the page is current. A failure stays in the provider, where the page
+  /// shows it beside the last good copy.
+  Future<void> _refresh() async {
+    try {
+      await ref.refresh(privacyOverviewProvider.future).then((_) {});
+    } catch (_) {
+      // Shown from the provider's state.
+    }
+  }
 
   Future<void> _request(PrivacyOverview overview) async {
     final export = await showZSheet<DataExport>(
@@ -43,26 +72,68 @@ class _DataExportScreenState extends ConsumerState<DataExportScreen> {
       subtitle:
           'For your security, confirm your identity before we prepare a copy '
           'of your data.',
-      builder: (_) => _ExportConfirmSheet(options: overview.verification),
+      // A swipe is the one way out the sheet cannot refuse while it works.
+      enableDrag: false,
+      builder: (_) => _ExportConfirmSheet(
+        options: overview.verification,
+        submitLabel: 'Prepare my data',
+        busyNote: 'Preparing your data. This usually takes a few seconds, so keep this open.',
+        submit: (repository, proof) => repository.requestExport(proof),
+      ),
     );
 
-    if (export == null || !mounted) return;
+    if (!mounted) return;
+    if (export != null) setState(() => _created = export);
 
-    setState(() => _created = export);
+    // Whatever closed the sheet, the server may have made a copy and started
+    // the cooldown, so the page asks again.
     ref.invalidate(privacyOverviewProvider);
   }
 
-  Future<void> _download(DataExport export) async {
+  Future<void> _download(DataExport export, PrivacyOverview overview) async {
     final url = export.downloadUrl;
-    if (url == null) return;
+    if (url != null) {
+      // Straight from the tap, with no wait before it, so a browser does not
+      // treat the new tab as an unrequested popup.
+      await _launch(url);
+      return;
+    }
 
-    final opened = await launchUrl(
-      Uri.parse(url),
-      mode: LaunchMode.externalApplication,
-      // A new tab on the web: the archive downloads there, and the app
-      // stays where it is even if the link has just expired.
-      webOnlyWindowName: '_blank',
+    // The overview never carries a link. A fresh one needs the same check as
+    // a new copy, and the Ready card then offers it for a tap of its own.
+    final fresh = await showZSheet<DataExport>(
+      context,
+      title: 'Confirm it\'s you',
+      subtitle:
+          'For your security, confirm your identity before we give you a link '
+          'to download your data.',
+      enableDrag: false,
+      builder: (_) => _ExportConfirmSheet(
+        options: overview.verification,
+        submitLabel: 'Get download link',
+        busyNote: 'Getting your download link, so keep this open.',
+        submit: (repository, proof) => repository.exportLink(export.id, proof),
+      ),
     );
+
+    if (!mounted) return;
+    if (fresh != null) setState(() => _created = fresh);
+    ref.invalidate(privacyOverviewProvider);
+  }
+
+  Future<void> _launch(String url) async {
+    bool opened;
+    try {
+      opened = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+        // A new tab on the web: the archive downloads there, and the app
+        // stays where it is even if the link has just expired.
+        webOnlyWindowName: '_blank',
+      );
+    } catch (_) {
+      opened = false;
+    }
 
     if (!mounted) return;
 
@@ -73,7 +144,8 @@ class _DataExportScreenState extends ConsumerState<DataExportScreen> {
 
     // The server counts each download, so the card's "downloads left"
     // catches up once the browser has fetched the file.
-    Future.delayed(const Duration(seconds: 3), () {
+    _catchUp?.cancel();
+    _catchUp = Timer(const Duration(seconds: 3), () {
       if (mounted) ref.invalidate(privacyOverviewProvider);
     });
   }
@@ -81,8 +153,11 @@ class _DataExportScreenState extends ConsumerState<DataExportScreen> {
   @override
   Widget build(BuildContext context) {
     final overview = ref.watch(privacyOverviewProvider);
-    final margin = AppBreakpoints.pageMargin(context);
     final data = overview.valueOrNull;
+
+    // Only a current overview may be acted on: not one still reloading, and
+    // not the last good copy kept on screen after a failed refresh.
+    final settled = !overview.isLoading && !overview.hasError;
 
     return ZScaffold(
       padded: false,
@@ -92,100 +167,138 @@ class _DataExportScreenState extends ConsumerState<DataExportScreen> {
           : ZButton(
               label: _created != null ? 'Request another copy' : 'Request my data',
               icon: Icons.download_rounded,
-              onPressed: data.export.canRequest && data.verification.canVerify
+              onPressed: settled && data.export.canRequest && data.verification.canVerify
                   ? () => _request(data)
                   : null,
             ),
-      body: AsyncView(
-        value: overview,
-        onRetry: () => ref.invalidate(privacyOverviewProvider),
-        builder: (data) => ZRefresh(
-          onRefresh: () async => ref.invalidate(privacyOverviewProvider),
-          child: ListView(
-            padding: EdgeInsets.fromLTRB(margin, AppSpacing.md, margin, AppSpacing.xxl),
-            children: [
-              const Reveal(
-                index: 0,
-                child: PrivacyHero(
-                  icon: Icons.inventory_2_outlined,
-                  title: 'Get a copy of your data',
-                  message:
-                      'Download the personal data Zusty holds about your '
-                      'account: your profile, bookings, messages, payments and '
-                      'more, as a ZIP of JSON files you can open in any text '
-                      'editor.',
-                ),
-              ),
-              if (_created != null && _created!.isReady) ...[
-                const SizedBox(height: AppSpacing.lg),
-                Reveal(
-                  index: 1,
-                  child: _ReadyCard(
-                    export: _created!,
-                    onDownload: () => _download(_created!),
-                  ),
-                ),
-              ] else if (data.export.latest != null) ...[
-                const PrivacySectionTitle('Your latest copy'),
-                Reveal(
-                  index: 1,
-                  child: _LatestExportCard(
-                    export: data.export.latest!,
-                    onDownload: () => _download(data.export.latest!),
-                  ),
-                ),
-              ],
-              if (!data.export.canRequest && data.export.nextAvailableAt != null) ...[
-                const SizedBox(height: AppSpacing.md),
-                ZInfoBanner(
-                  tone: StatusTone.info,
-                  message:
-                      'You can request a new copy after '
-                      '${Formatters.dateTime(data.export.nextAvailableAt)}. '
-                      'Your latest copy can still be downloaded while its link works.',
-                ),
-              ],
-              if (!data.verification.canVerify) ...[
-                const SizedBox(height: AppSpacing.md),
-                const ZInfoBanner(
-                  tone: StatusTone.warning,
-                  message:
-                      'We can\'t confirm it\'s you in the app because your account '
-                      'has no password, email or mobile number. Contact support '
-                      'for a copy of your data.',
-                ),
-              ],
-              const PrivacySectionTitle('What\'s included'),
-              Reveal(
-                index: 2,
-                child: PrivacyListCard(
-                  items: data.export.includes,
-                  icon: Icons.check_circle_rounded,
-                  iconColor: AppColors.success,
-                  footer:
-                      'Not included: your password, security codes, full bank '
-                      'account numbers, identity document numbers and images, and '
-                      'messages other people sent you.',
-                ),
-              ),
-              const PrivacySectionTitle('How it works'),
-              Reveal(
-                index: 3,
-                child: _HowItWorks(
-                  linkHours: data.export.linkHours,
-                  maxDownloads: data.export.maxDownloads,
-                  cooldownHours: data.export.cooldownHours,
-                ),
-              ),
-            ],
+      // `skipError`: once there is an overview, a failed refresh is reported
+      // above it instead of replacing the page with an error.
+      body: overview.when(
+        skipError: true,
+        data: (data) => _body(data, staleError: overview.hasError ? overview.error : null),
+        loading: () => const ListSkeleton(),
+        error: (error, _) => ErrorState(error: error, onRetry: _refresh),
+      ),
+    );
+  }
+
+  Widget _body(PrivacyOverview data, {Object? staleError}) {
+    final margin = AppBreakpoints.pageMargin(context);
+    final latest = data.export.latest;
+    final created = _created;
+
+    // The copy this visit holds a link to, with the server's latest counts
+    // and state, so a copy used up or expired meanwhile stops offering it.
+    final current = created == null
+        ? null
+        : latest != null && latest.id == created.id
+            ? created.mergedWith(latest)
+            : created;
+
+    return ZRefresh(
+      onRefresh: _refresh,
+      child: ListView(
+        // A page shorter than the screen can still be pulled to refresh.
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(margin, AppSpacing.md, margin, AppSpacing.xxl),
+        children: [
+          if (staleError != null) ...[
+            ZInfoBanner(
+              tone: StatusTone.warning,
+              icon: staleError is OfflineFailure
+                  ? Icons.wifi_off_rounded
+                  : Icons.sync_problem_rounded,
+              message: staleError is OfflineFailure
+                  ? 'You are offline. This is the page as it was last loaded.'
+                  : 'We couldn\'t refresh this page. This is how it was last loaded.',
+              actionLabel: 'Retry',
+              onAction: _refresh,
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
+          const Reveal(
+            index: 0,
+            child: PrivacyHero(
+              icon: Icons.inventory_2_outlined,
+              title: 'Get a copy of your data',
+              message:
+                  'Download the personal data Zusty holds about your '
+                  'account: your profile, bookings, messages, payments and '
+                  'more, as a ZIP of JSON files you can open in any text '
+                  'editor.',
+            ),
           ),
-        ),
+          if (current != null && current.isReady) ...[
+            const SizedBox(height: AppSpacing.lg),
+            Reveal(
+              index: 1,
+              child: _ReadyCard(
+                export: current,
+                onDownload: () => _download(current, data),
+              ),
+            ),
+          ] else if (latest != null) ...[
+            const PrivacySectionTitle('Your latest copy'),
+            Reveal(
+              index: 1,
+              child: _LatestExportCard(
+                export: latest,
+                onDownload: () => _download(latest, data),
+              ),
+            ),
+          ],
+          if (!data.export.canRequest && data.export.nextAvailableAt != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            ZInfoBanner(
+              tone: StatusTone.info,
+              message:
+                  'You can request a new copy after '
+                  '${Formatters.dateTime(data.export.nextAvailableAt)}. '
+                  'Your latest copy can still be downloaded until it expires '
+                  'or its downloads run out.',
+            ),
+          ],
+          if (!data.verification.canVerify) ...[
+            const SizedBox(height: AppSpacing.md),
+            ZInfoBanner(
+              tone: StatusTone.warning,
+              title: 'We can\'t confirm it\'s you in the app',
+              message: reauthBlockedMessage(data.verification),
+              actionLabel: 'Contact support',
+              onAction: () => context.push(Routes.newTicket),
+            ),
+          ],
+          const PrivacySectionTitle('What\'s included'),
+          Reveal(
+            index: 2,
+            child: PrivacyListCard(
+              items: data.export.includes,
+              icon: Icons.check_circle_rounded,
+              iconColor: AppColors.success,
+              footer:
+                  'Not included: your password, security codes, full bank '
+                  'account numbers, identity document images and full document '
+                  'numbers, messages other people sent you, and our team\'s '
+                  'internal notes.',
+            ),
+          ),
+          const PrivacySectionTitle('How it works'),
+          Reveal(
+            index: 3,
+            child: _HowItWorks(
+              linkHours: data.export.linkHours,
+              maxDownloads: data.export.maxDownloads,
+              cooldownHours: data.export.cooldownHours,
+              providers: data.verification.appProviders,
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// The moment a fresh copy is ready.
+/// The moment a copy is ready, with the link this visit was handed.
 class _ReadyCard extends StatelessWidget {
   const _ReadyCard({required this.export, required this.onDownload});
 
@@ -194,6 +307,8 @@ class _ReadyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final notice = export.securityNotice;
+
     return ZCard(
       shadow: false,
       color: AppColors.successContainer.withValues(alpha: 0.45),
@@ -209,9 +324,9 @@ class _ReadyCard extends StatelessWidget {
           Text('Your data is ready', style: AppTypography.headlineSmall),
           const SizedBox(height: AppSpacing.xs),
           Text(
-            'The link works until ${Formatters.dateTime(export.expiresAt)} and can '
-            'be used ${export.maxDownloads} times. We\'ve also emailed it to you '
-            'with a security notice.',
+            'The link works until ${Formatters.dateTime(export.expiresAt)}, with '
+            '${export.downloadsLeft} of ${export.maxDownloads} downloads left. '
+            '${notice != null ? 'We\'ve sent a security notice to ${notice.destination}.' : 'Keep this link private: anyone who has it can download your data until it expires.'}',
             textAlign: TextAlign.center,
             style: AppTypography.bodyMedium.copyWith(color: AppColors.onSurfaceVariant),
           ),
@@ -245,7 +360,7 @@ class _LatestExportCard extends StatelessWidget {
       'ready' => (
           'Used up',
           StatusTone.neutral,
-          'This link has been used the maximum number of times.',
+          'This copy has been downloaded the maximum number of times.',
         ),
       'failed' => (
           'Failed',
@@ -260,7 +375,7 @@ class _LatestExportCard extends StatelessWidget {
       _ => (
           'Expired',
           StatusTone.neutral,
-          'This link has expired and the file was deleted. Request a new copy.',
+          'This copy has expired and the file was deleted. Request a new copy.',
         ),
     };
 
@@ -305,19 +420,31 @@ class _HowItWorks extends StatelessWidget {
     required this.linkHours,
     required this.maxDownloads,
     required this.cooldownHours,
+    required this.providers,
   });
 
   final int linkHours;
   final int maxDownloads;
   final int cooldownHours;
 
+  /// Google or Apple, when the account can confirm with them.
+  final List<String> providers;
+
   String _hours(int hours) =>
       hours % 24 == 0 && hours >= 48 ? '${hours ~/ 24} days' : '$hours hours';
 
   @override
   Widget build(BuildContext context) {
+    final signIn = providers.map(providerLabel).join(' or ');
+
     final steps = [
-      ('Confirm it\'s you', 'With your password, or a one-time code sent to your email or phone.'),
+      (
+        'Confirm it\'s you',
+        providers.isEmpty
+            ? 'With your password, or a one-time code sent to your email or phone.'
+            : 'With your password, a one-time code sent to your email or phone, '
+                'or your $signIn sign-in.',
+      ),
       ('We prepare your file', 'Straight away. It usually takes a few seconds.'),
       (
         'Download it',
@@ -369,13 +496,30 @@ class _HowItWorks extends StatelessWidget {
   }
 }
 
-/// The confirmation sheet: proves it is the owner, then builds the export.
-/// Errors about the password or code land beside the field, and the sheet
-/// stays open to try again.
+/// The confirmation sheet: proves it is the owner, then runs [submit], which
+/// prepares a new copy or issues a fresh link to the latest one. Errors about
+/// the password or code land beside the field, and the sheet stays open to
+/// try again.
+///
+/// Once the request is on its way the sheet cannot be closed (Back, the X, a
+/// tap outside; the caller turns off the swipe), and the proof cannot change.
+/// The page behind refreshes whenever the sheet closes.
 class _ExportConfirmSheet extends ConsumerStatefulWidget {
-  const _ExportConfirmSheet({required this.options});
+  const _ExportConfirmSheet({
+    required this.options,
+    required this.submitLabel,
+    required this.busyNote,
+    required this.submit,
+  });
 
   final VerificationOptions options;
+
+  /// "Prepare my data" or "Get download link".
+  final String submitLabel;
+
+  /// Shown under the button while the request runs.
+  final String busyNote;
+  final Future<DataExport> Function(PrivacyRepository repository, Reauth proof) submit;
 
   @override
   ConsumerState<_ExportConfirmSheet> createState() => _ExportConfirmSheetState();
@@ -386,10 +530,15 @@ class _ExportConfirmSheetState extends ConsumerState<_ExportConfirmSheet> {
     options: widget.options,
     purpose: PrivacyPurpose.export,
     repository: ref.read(privacyRepositoryProvider),
+    firebaseToken: ref.read(firebaseTokenSourceProvider),
   );
 
   bool _busy = false;
   String? _error;
+
+  /// The server refused for a reason no other proof can fix (the cooldown,
+  /// a copy that has gone), so the button stays off.
+  bool _refused = false;
 
   @override
   void dispose() {
@@ -399,7 +548,10 @@ class _ExportConfirmSheetState extends ConsumerState<_ExportConfirmSheet> {
 
   Future<void> _submit() async {
     final proof = _reauth.proof;
-    if (proof == null || _busy) return;
+    if (proof == null || _busy || _refused) return;
+
+    // Nothing may change the proof while it is checked.
+    FocusManager.instance.primaryFocus?.unfocus();
 
     setState(() {
       _busy = true;
@@ -407,10 +559,33 @@ class _ExportConfirmSheetState extends ConsumerState<_ExportConfirmSheet> {
     });
 
     try {
-      final export = await ref.read(privacyRepositoryProvider).requestExport(proof);
+      final export = await widget.submit(ref.read(privacyRepositoryProvider), proof);
       if (mounted) Navigator.of(context).pop(export);
     } on ApiFailure catch (failure) {
       if (!mounted) return;
+
+      // Refused before the proof was checked: the code is still unused, and
+      // the page behind says until when once it refreshes.
+      if (failure.code == 'export_cooldown' || failure.code == 'export_unavailable') {
+        ref.invalidate(privacyOverviewProvider);
+        setState(() {
+          _refused = true;
+          _error = failure.message;
+        });
+        return;
+      }
+
+      if (failure is TimeoutFailure) {
+        // The archive may still have been built, using the code and starting
+        // the cooldown. The panel asks for a new code; the page checks again.
+        _reauth.applyFailure(failure);
+        ref.invalidate(privacyOverviewProvider);
+        setState(() => _error =
+            'This is taking longer than usual. Your copy may still be ready, '
+            'so check this page again in a minute.');
+        return;
+      }
+
       if (!_reauth.applyFailure(failure)) setState(() => _error = failure.message);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -419,25 +594,42 @@ class _ExportConfirmSheetState extends ConsumerState<_ExportConfirmSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: _reauth,
-      builder: (context, _) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ReauthPanel(controller: _reauth, onSubmitted: _submit),
-          if (_error != null) ...[
-            const SizedBox(height: AppSpacing.sm),
-            ZInfoBanner(message: _error!, tone: StatusTone.error),
+    return PopScope(
+      canPop: !_busy,
+      child: ListenableBuilder(
+        listenable: _reauth,
+        builder: (context, _) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IgnorePointer(
+              ignoring: _busy,
+              child: ReauthPanel(controller: _reauth, onSubmitted: _submit),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              ZInfoBanner(
+                message: _error!,
+                tone: _refused ? StatusTone.info : StatusTone.error,
+              ),
+            ],
+            const SizedBox(height: AppSpacing.lg),
+            ZButton(
+              label: widget.submitLabel,
+              icon: Icons.inventory_2_outlined,
+              isLoading: _busy,
+              onPressed: !_refused && _reauth.canVerify && _reauth.isComplete ? _submit : null,
+            ),
+            if (_busy) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                widget.busyNote,
+                textAlign: TextAlign.center,
+                style: AppTypography.bodySmall,
+              ),
+            ],
           ],
-          const SizedBox(height: AppSpacing.lg),
-          ZButton(
-            label: _busy ? 'Preparing your data…' : 'Prepare my data',
-            icon: Icons.inventory_2_outlined,
-            isLoading: _busy,
-            onPressed: widget.options.canVerify && _reauth.isComplete ? _submit : null,
-          ),
-        ],
+        ),
       ),
     );
   }

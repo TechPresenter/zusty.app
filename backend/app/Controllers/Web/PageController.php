@@ -8,6 +8,7 @@ use Zuste\Core\Config;
 use Zuste\Core\Database;
 use Zuste\Core\Request;
 use Zuste\Core\Response;
+use Zuste\Helpers\SiteUrl;
 use Zuste\Helpers\Str;
 use Zuste\Services\AccountDeletionService;
 use Zuste\Services\PrivacyService;
@@ -28,6 +29,7 @@ final class PageController
 
     /** Footer links, in order. */
     private const LINKS = [
+        '/'                     => 'Home',
         '/about'                => 'About',
         '/terms'                => 'Terms',
         '/privacy'              => 'Privacy',
@@ -75,6 +77,22 @@ final class PageController
         );
     }
 
+    /**
+     * GET /pages/{slug} — one of SLUGS, at the path the app uses for these
+     * pages. A link written that way in page content keeps working on the
+     * website: it is permanently redirected to /{slug}.
+     */
+    public function legacy(Request $request): never
+    {
+        $slug = (string) $request->routeParam('slug', '');
+
+        if (!in_array($slug, self::SLUGS, true)) {
+            $this->render('Page not found', '<p class="lead">This page does not exist or is no longer published.</p>', status: 404);
+        }
+
+        Response::redirect('/' . $slug, 301);
+    }
+
     /** GET /account-deletion — the page Google Play asks for. */
     public function accountDeletion(Request $request): never
     {
@@ -108,7 +126,7 @@ final class PageController
             </ol>
             <p>You're signed out on every device straight away.</p>
             <p>Want a copy of your data first? Use <strong>Settings → Privacy &amp; data → Download my data</strong> before you delete.</p>
-            <p>Bookings in progress, open disputes, a wallet balance or a pending withdrawal need settling first. The app shows exactly what is in the way.</p>
+            <p>Bookings in progress, open disputes, money in your wallet and withdrawals or refunds still being processed need settling first. A small balance that can't be paid out can be given up instead. The app shows exactly what is in the way.</p>
 
             <h2>Can't use the app?</h2>
             <p>{$contact} We'll confirm the request comes from you, then delete your account and the data listed below.</p>
@@ -128,6 +146,130 @@ final class PageController
         );
     }
 
+    /**
+     * GET /invite/{code} — where a referral link from the app lands
+     * (ReferralService share_url, referral.share_base_url + code).
+     *
+     * The code is printed, never looked up: the page reads the same whether or
+     * not the code belongs to anyone, so it confirms nothing about an account.
+     * The sign-up form checks the code.
+     */
+    public function invite(Request $request): never
+    {
+        $code    = trim((string) $request->routeParam('code', ''));
+        $appName = Config::settingString('general', 'app_name', 'Zusty');
+
+        // A personal link, not content: keep it out of search results.
+        Response::header('X-Robots-Tag', 'noindex, nofollow');
+
+        if (preg_match('/^[A-Za-z0-9]{4,32}$/', $code) !== 1) {
+            $this->render(
+                'Invite not found',
+                '<p class="lead">This invite link is not valid. You can still get the app and sign up.</p>'
+                    . $this->storeButton(''),
+                status: 404
+            );
+        }
+
+        $name   = Str::e($appName);
+        $shown  = Str::e($code);
+        $button = $this->storeButton($code);
+
+        $body = <<<HTML
+            <p class="lead">You've been invited to {$name}, where brands book verified creators and creators get booked for paid campaigns.</p>
+            <p class="code">Your invite code<strong>{$shown}</strong></p>
+            <p>Install the app, choose <strong>Sign up</strong> and enter the code under <strong>Have a referral code?</strong> so you both get the reward.</p>
+            {$button}
+            HTML;
+
+        $this->render(
+            "You're invited to " . $appName,
+            $body,
+            description: 'Join ' . $appName . ' with an invite code.'
+        );
+    }
+
+    /**
+     * GET /creators/{handle} — where a shared creator profile or its QR code
+     * lands (CreatorEngagementService::shareUrl).
+     *
+     * Shows only what the public profile API already shows to anyone, and
+     * only for a profile that is approved and switched on; anything else is
+     * the same 404 as a handle that never existed.
+     */
+    public function creator(Request $request): never
+    {
+        $handle  = trim((string) $request->routeParam('handle', ''));
+        $appName = Config::settingString('general', 'app_name', 'Zusty');
+
+        $creator = preg_match('/^[A-Za-z0-9._]{1,64}$/', $handle) === 1
+            ? Database::selectOne(
+                "SELECT c.`display_name`, c.`handle`, c.`headline`
+                   FROM `creators` c
+                   INNER JOIN `users` u ON u.`id` = c.`user_id`
+                  WHERE c.`handle` = :handle
+                    AND c.`deleted_at` IS NULL AND u.`deleted_at` IS NULL
+                    AND c.`status` = 'approved' AND c.`is_public` = 1",
+                ['handle' => $handle]
+            )
+            : null;
+
+        if ($creator === null) {
+            $this->render(
+                'Creator not found',
+                '<p class="lead">This profile is not available. Browse every verified creator in the app.</p>'
+                    . $this->storeButton(''),
+                status: 404
+            );
+        }
+
+        $display  = trim((string) $creator['display_name']) ?: '@' . (string) $creator['handle'];
+        $headline = trim((string) ($creator['headline'] ?? ''));
+
+        $body = '<p class="lead">@' . Str::e((string) $creator['handle']) . ' on ' . Str::e($appName) . '</p>'
+            . ($headline !== '' ? '<p>' . Str::e($headline) . '</p>' : '')
+            . '<p>Open the ' . Str::e($appName) . ' app to see ' . Str::e($display)
+            . "'s portfolio, rates and reviews, and to book a campaign.</p>"
+            . $this->storeButton('');
+
+        $this->render(
+            $display,
+            $body,
+            $display . ' · ' . $appName,
+            $headline !== '' ? $headline : $display . ' is a verified creator on ' . $appName . '.',
+            '/creators/' . rawurlencode((string) $creator['handle'])
+        );
+    }
+
+    /**
+     * The Google Play button, or a "coming soon" line while there is no live
+     * listing. Follows the same settings as the landing page: the update link
+     * the app uses (app.android_store_url), hidden while an
+     * app.android_store_live row says the listing is not public yet.
+     */
+    private function storeButton(string $inviteCode): string
+    {
+        $soon = '<p class="meta">The app is coming soon to Google Play.</p>';
+
+        $live = Config::setting('app', 'android_store_live', null);
+        if ($live !== null && !Config::settingBool('app', 'android_store_live', false)) {
+            return $soon;
+        }
+
+        $store = trim(Config::settingString('app', 'android_store_url', ''));
+        if ($store === '' || !str_starts_with($store, 'https://') || filter_var($store, FILTER_VALIDATE_URL) === false) {
+            return $soon;
+        }
+
+        // Play hands the referrer to the installed app (Install Referrer).
+        if ($inviteCode !== '' && str_contains((string) parse_url($store, PHP_URL_HOST), 'play.google.com')) {
+            $store .= (str_contains($store, '?') ? '&' : '?')
+                . 'referrer=' . rawurlencode('utm_source=invite&utm_content=' . $inviteCode);
+        }
+
+        return '<p><a class="button" href="' . Str::e($store) . '">Get it on Google Play</a></p>';
+    }
+
     /** Wrap a page body in the site chrome and send it. */
     private function render(
         string $heading,
@@ -139,7 +281,8 @@ final class PageController
     ): never {
         $appName = Config::settingString('general', 'app_name', 'Zusty');
         $company = Config::settingString('general', 'company_name', $appName);
-        $baseUrl = rtrim((string) Config::get('app.url', ''), '/');
+        // The same origin the landing page's canonical uses (SiteUrl::base()).
+        $baseUrl = SiteUrl::base();
 
         // Admins usually write the app name into a page's meta title already.
         $fullTitle = $title ?? $heading;
@@ -197,6 +340,12 @@ final class PageController
                 table { border-collapse: collapse; width: 100%; margin: 16px 0; }
                 th, td { border: 1px solid #f0d6dc; padding: 8px 10px; text-align: left; vertical-align: top; }
                 img { max-width: 100%; height: auto; }
+                /* The page editor's alignment classes. An image follows its block. */
+                .prose .z-ta-left{text-align:left} .prose .z-ta-center{text-align:center} .prose .z-ta-right{text-align:right} .prose .z-ta-justify{text-align:justify}
+                .button { display: inline-block; background: #b80049; color: #fff; padding: 12px 24px;
+                          border-radius: 999px; text-decoration: none; font-weight: 600; }
+                .code { margin: 20px 0; color: #5b3f43; }
+                .code strong { display: block; font-size: 28px; letter-spacing: .12em; color: #28171a; }
                 footer { margin-bottom: 40px; font-size: 14px; color: #8f6f73; }
                 footer nav { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 10px; }
                 footer a { color: #5b3f43; text-decoration: none; }
@@ -209,7 +358,7 @@ final class PageController
               </style>
             </head>
             <body>
-              <header><div class="bar"><a href="/about"><img src="/admin/assets/img/zusty-logo.png" width="148" height="32" alt="{$logoAlt}"></a></div></header>
+              <header><div class="bar"><a href="/"><img src="/admin/assets/img/zusty-logo.png" width="148" height="32" alt="{$logoAlt}"></a></div></header>
               <main><article><h1>{$h1}</h1>{$body}</article></main>
               <footer><nav aria-label="Legal">{$links}</nav>&copy; {$year} {$owner}</footer>
             </body>

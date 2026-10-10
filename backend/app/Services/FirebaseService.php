@@ -47,7 +47,11 @@ final class FirebaseService
     /**
      * Verify a Firebase ID token and return its claims.
      *
-     * @return array{uid:string,email:?string,email_verified:bool,phone:?string,name:?string,picture:?string,provider:string}
+     * `auth_time` is when the user last actually signed in (a refreshed
+     * token keeps the original sign-in time), so step-up re-authentication
+     * can insist on a recent sign-in. 0 when the token does not carry it.
+     *
+     * @return array{uid:string,email:?string,email_verified:bool,phone:?string,name:?string,picture:?string,provider:string,auth_time:int}
      * @throws HttpException 401 when the token is not valid for this project.
      */
     public static function verifyIdToken(string $idToken): array
@@ -132,6 +136,7 @@ final class FirebaseService
             'name'           => isset($claims['name']) ? (string) $claims['name'] : null,
             'picture'        => isset($claims['picture']) ? (string) $claims['picture'] : null,
             'provider'       => $provider,
+            'auth_time'      => (int) ($claims['auth_time'] ?? 0),
         ];
     }
 

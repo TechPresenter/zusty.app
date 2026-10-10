@@ -124,8 +124,11 @@ return static function (Router $router): void {
         $router->post('/users/{id:\d+}/wallet-adjust', [UserController::class, 'adjustWallet'])->middleware('permission:wallet.adjust');
         $router->post('/users/{id:\d+}/delete', [UserController::class, 'destroy'])->middleware('permission:users.delete');
 
-        // Data exports and self-service account deletions, with reasons.
+        // Data exports and account deletions, with reasons, and the actions
+        // support takes on a request it has confirmed with the account's owner.
         $router->get('/privacy-requests', [PrivacyController::class, 'index'])->middleware('permission:users.view');
+        $router->post('/privacy-requests/erase', [PrivacyController::class, 'erase'])->middleware('permission:users.delete');
+        $router->post('/privacy-requests/export', [PrivacyController::class, 'export'])->middleware('permission:users.edit');
 
         // ---- Creators ----------------------------------------------
         $router->get('/creators', [UserController::class, 'creators'])->middleware('permission:creators.view');

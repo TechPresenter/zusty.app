@@ -17,6 +17,23 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+// A release build without the upload key would fall back to the debug key and
+// only be rejected when it is uploaded to Play. Stop it here instead. Set
+// ZUSTE_ALLOW_DEBUG_SIGNED_RELEASE=true to build a debug-signed release on
+// purpose, e.g. `flutter run --release` on a checkout without the key.
+val releaseRequested = gradle.startParameter.taskNames.any {
+    it.contains("Release", ignoreCase = true)
+}
+val debugSignedReleaseAllowed =
+    System.getenv("ZUSTE_ALLOW_DEBUG_SIGNED_RELEASE") == "true"
+if (releaseRequested && !keystorePropertiesFile.exists() && !debugSignedReleaseAllowed) {
+    throw GradleException(
+        "android/key.properties is missing: a release build must be signed " +
+            "with the upload key. See mobile/README.md, or set " +
+            "ZUSTE_ALLOW_DEBUG_SIGNED_RELEASE=true for a local-only build."
+    )
+}
+
 android {
     namespace = "com.zuste.zuste"
     compileSdk = flutter.compileSdkVersion
@@ -56,9 +73,9 @@ android {
     buildTypes {
         release {
             // Signed with the upload key when android/key.properties is present.
-            // Without it (a fresh checkout) the build falls back to the debug key
-            // so `flutter run --release` still works — such a build is NOT
-            // accepted by Google Play.
+            // Without it the build stops (above) unless a debug-signed release
+            // was explicitly allowed — such a build is NOT accepted by Google
+            // Play.
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
             } else {

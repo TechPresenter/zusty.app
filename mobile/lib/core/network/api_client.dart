@@ -113,9 +113,13 @@ class ApiClient {
   /// invented fixtures. Null in contexts that have no storage (tests).
   final KeyValueCache? _responseCache;
 
-  /// Invoked once when the session cannot be recovered, so the app can route
-  /// back to the welcome screen. Set by the auth controller during bootstrap.
-  VoidCallback? onSessionExpired;
+  /// Invoked once when the session cannot be recovered, so the app can clear
+  /// the device and route back to the welcome screen. Set during bootstrap.
+  ///
+  /// Receives the server's code from the 401 that ended the session:
+  /// `account_deleted` when the account itself is gone, otherwise
+  /// `token_revoked`, `token_expired` and the like.
+  void Function(String code)? onSessionExpired;
 
   /// De-duplicates refreshes: the first 401 starts one and every other
   /// in-flight request awaits the same future instead of racing it.
@@ -225,8 +229,23 @@ class ApiClient {
       field: await MultipartFile.fromFile(filePath, filename: fileName),
     });
 
-    return _send(() => _dio.post(path, data: form, onSendProgress: onProgress));
+    return _send(
+      () => _dio.post(
+        path,
+        data: form,
+        onSendProgress: onProgress,
+        options: _uploadOptions,
+      ),
+    );
   }
+
+  /// Dio's send timeout covers the whole request body, so the client-wide 30
+  /// seconds failed any large video or scan on a mobile uplink. The server
+  /// also has to store and process what it received before it answers.
+  static Options get _uploadOptions => Options(
+    sendTimeout: AppConfig.uploadSendTimeout,
+    receiveTimeout: AppConfig.slowRequestTimeout,
+  );
 
   /// Multipart upload from bytes — the only option on Flutter Web, where
   /// `image_picker` hands back bytes rather than a readable path.
@@ -243,7 +262,14 @@ class ApiClient {
       field: MultipartFile.fromBytes(bytes, filename: fileName),
     });
 
-    return _send(() => _dio.post(path, data: form, onSendProgress: onProgress));
+    return _send(
+      () => _dio.post(
+        path,
+        data: form,
+        onSendProgress: onProgress,
+        options: _uploadOptions,
+      ),
+    );
   }
 
   // -- Response cache ------------------------------------------------------
@@ -321,7 +347,17 @@ class ApiClient {
       // Only a transport failure may be answered from cache. A 4xx is the
       // server telling us something true, and must reach the caller.
       if (_isTransportFailure(failure)) {
-        _enterBackoff(failure);
+        // A write that timed out waiting for its answer did reach the host,
+        // which may still be doing the work. That is no sign the host is
+        // down, and backing off would refuse the very request that checks
+        // what happened. Nor is a body that took too long to send — that is
+        // a slow uplink, and backing off would tell the whole app for 30
+        // seconds that Zusty cannot be reached.
+        final slowWrite =
+            (error.type == DioExceptionType.receiveTimeout ||
+                error.type == DioExceptionType.sendTimeout) &&
+            error.requestOptions.method.toUpperCase() != 'GET';
+        if (!slowWrite) _enterBackoff(failure);
         final cached = _replayFromCache(cacheKey);
         if (cached != null) return cached;
       }
@@ -383,22 +419,28 @@ class ApiClient {
       if (cached != null) return cached;
     }
 
-    // Exactly one transparent refresh-and-replay per originating request.
-    if (status == 401 && allowRefresh) {
-      if (await _refreshSession()) {
-        return _send(request, allowRefresh: false);
-      }
-
-      await _endSession();
-      throw UnauthorisedFailure(
+    if (status == 401) {
+      final code = (json['code'] ?? 'unauthenticated').toString();
+      final failure = UnauthorisedFailure(
         message: envelope.message.isEmpty
             ? 'Your session has ended. Please sign in again.'
             : envelope.message,
+        code: code,
       );
-    }
 
-    if (status == 401) {
-      await _endSession();
+      // Only a request that carried this device's session can lose it. A
+      // 401 from a sign-in call (a wrong password at /auth/login, a refused
+      // Google token) answers for the credentials sent, and must not sign
+      // anyone out or wipe the device.
+      if (!_carriedSession(response.requestOptions)) throw failure;
+
+      // Exactly one transparent refresh-and-replay per originating request.
+      if (allowRefresh && await _refreshSession()) {
+        return _send(request, allowRefresh: false);
+      }
+
+      await _endSession(code);
+      throw failure;
     }
 
     throw ApiFailureMapper.fromEnvelope(
@@ -445,9 +487,16 @@ class ApiClient {
     }
   }
 
-  Future<void> _endSession() async {
+  /// True when [options] went out with this device's bearer token.
+  static bool _carriedSession(RequestOptions options) =>
+      options.extra[_skipAuthKey] != true &&
+      options.headers['Authorization'] != null;
+
+  /// [code] is the server's code from the 401 that ended the session, so the
+  /// app can tell a deleted account from an expired or revoked session.
+  Future<void> _endSession(String code) async {
     await _secureStore.clear();
-    onSessionExpired?.call();
+    onSessionExpired?.call(code);
   }
 
   static Map<String, List<String>> _parseFieldErrors(dynamic raw) {

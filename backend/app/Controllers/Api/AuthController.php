@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 namespace Zuste\Controllers\Api;
 
+use Zuste\Core\Config;
 use Zuste\Core\Database;
 use Zuste\Core\HttpException;
 use Zuste\Core\Request;
 use Zuste\Core\Response;
 use Zuste\Helpers\Str;
-use Zuste\Services\AccountDeletionService;
 use Zuste\Services\ActivityLogger;
 use Zuste\Services\AuthService;
-use Zuste\Services\PrivacyService;
+use Zuste\Services\DataExportService;
 
 /**
  * Authentication endpoints.
@@ -21,6 +21,18 @@ use Zuste\Services\PrivacyService;
  */
 final class AuthController extends BaseApiController
 {
+    /**
+     * What the public, unauthenticated /auth/otp endpoints will issue or check
+     * a code for.
+     *
+     * Step-up purposes (PrivacyService::PURPOSES: data_export, delete_account,
+     * set_password, confirm_contact_change) are deliberately absent. They are
+     * issued only by the signed-in POST /me/privacy/verification-code, bound
+     * to that account. Open here, anyone could send, burn or expire another
+     * person's deletion code by naming their email address.
+     */
+    private const PUBLIC_OTP_PURPOSES = ['register', 'login', 'verify_phone', 'verify_email'];
+
     /** POST /auth/register */
     public function register(Request $request): never
     {
@@ -233,19 +245,41 @@ final class AuthController extends BaseApiController
         Response::success(null, 'Your password has been reset. Please sign in.');
     }
 
-    /** POST /auth/change-password */
+    /**
+     * POST /auth/change-password
+     *
+     * With a password: the current one. Without (a Google, Apple or phone
+     * account setting its first one): a code from POST
+     * /me/privacy/verification-code (purpose set_password) or a fresh
+     * id_token. A password is never proof for setting one.
+     */
     public function changePassword(Request $request): never
     {
         $data = $this->validate($request, [
             'current_password' => 'nullable|string|max:128',
             'password'         => 'required|string|password|confirmed|max:128',
+            'code'             => 'nullable|string|min:4|max:10',
+            'channel'          => 'nullable|in:email,sms',
+            'id_token'         => 'nullable|string|max:4096',
         ]);
 
-        $userId = $this->userId($request);
+        $user        = $this->user($request);
+        $userId      = (int) $user['id'];
+        $hadPassword = !empty($user['password_hash']);
 
-        AuthService::changePassword($userId, (string) ($data['current_password'] ?? ''), (string) $data['password']);
+        AuthService::changePassword(
+            $userId,
+            (string) ($data['current_password'] ?? ''),
+            (string) $data['password'],
+            [
+                'code'     => $data['code'] ?? null,
+                'channel'  => $data['channel'] ?? null,
+                'id_token' => $data['id_token'] ?? null,
+            ],
+            $this->deviceContext($request)
+        );
 
-        ActivityLogger::user($this->user($request), 'password.changed', 'user', $userId, 'Password changed.');
+        ActivityLogger::user($user, 'password.changed', 'user', $userId, $hadPassword ? 'Password changed.' : 'Password added.');
 
         Response::success(null, 'Password updated. Please sign in again.');
     }
@@ -256,25 +290,32 @@ final class AuthController extends BaseApiController
         $data = $this->validate($request, [
             'destination' => 'required|string|max:191',
             'channel'     => 'required|in:sms,email',
-            'purpose'     => 'required|in:register,login,verify_phone,verify_email,reset_password,delete_account',
+            'purpose'     => 'required|in:' . implode(',', self::PUBLIC_OTP_PURPOSES),
         ]);
 
-        $destination = (string) $data['destination'];
+        $channel = (string) $data['channel'];
+        $purpose = (string) $data['purpose'];
 
-        if ($data['channel'] === 'sms') {
-            $destination = Str::normalizePhone($destination);
-
-            if ($destination === '') {
-                throw HttpException::unprocessable('Enter a valid phone number.');
-            }
-        } elseif (filter_var($destination, FILTER_VALIDATE_EMAIL) === false) {
-            throw HttpException::unprocessable('Enter a valid email address.');
+        // The operator decides which channels can sign somebody up or in
+        // (auth.otp_channels); the app only hides the others.
+        if (in_array($purpose, ['login', 'register'], true)
+            && !in_array($channel, array_map('strval', Config::settingArray('auth', 'otp_channels', ['sms'])), true)) {
+            throw new HttpException(
+                $channel === 'email'
+                    ? "Codes can't be sent by email for this. Use your mobile number."
+                    : "Codes can't be sent by SMS for this. Use your email address.",
+                422,
+                'channel_not_allowed',
+                ['channel' => ['This way of receiving a code is not available.']]
+            );
         }
+
+        $destination = self::otpDestination((string) $data['destination'], $channel);
 
         $result = AuthService::sendOtp(
             $destination,
-            (string) $data['channel'],
-            (string) $data['purpose'],
+            $channel,
+            $purpose,
             // This route carries no auth middleware, so userId() is 0 for every
             // caller and `otp_verifications`.`user_id` was always NULL. Resolve
             // the account the destination belongs to instead, which is also the
@@ -282,20 +323,42 @@ final class AuthController extends BaseApiController
             $request->userId() ?: self::ownerOfDestination($destination)
         );
 
+        // The row id is for server-side binding only.
+        unset($result['otp_id']);
+
         Response::success($result, 'Verification code sent.');
     }
 
-    /** POST /auth/otp/verify */
+    /**
+     * POST /auth/otp/verify
+     *
+     * For purpose login this is the sign-in itself, and answers with a session
+     * like POST /auth/login. For the others it only confirms the code.
+     */
     public function verifyOtp(Request $request): never
     {
         $data = $this->validate($request, [
             'destination' => 'required|string|max:191',
             'code'        => 'required|string|min:4|max:8',
-            'purpose'     => 'required|in:register,login,verify_phone,verify_email,reset_password,delete_account',
+            'purpose'     => 'required|in:' . implode(',', self::PUBLIC_OTP_PURPOSES),
         ]);
 
         $destination = (string) $data['destination'];
         $purpose     = (string) $data['purpose'];
+
+        if ($purpose === 'login') {
+            // Normalised exactly as sendOtp() stored it, or the code is never found.
+            $result = AuthService::loginWithOtp(
+                self::otpDestination($destination, str_contains($destination, '@') ? 'email' : 'sms'),
+                (string) $data['code'],
+                $request->ip(),
+                $this->deviceContext($request)
+            );
+
+            AuthService::registerDevice((int) $result['user']['id'], $this->deviceContext($request));
+
+            Response::success(['user' => $result['user'], 'tokens' => $result['tokens']], 'Signed in successfully.');
+        }
 
         $record = AuthService::verifyOtp($destination, (string) $data['code'], $purpose);
 
@@ -325,6 +388,31 @@ final class AuthController extends BaseApiController
         }
 
         Response::success(['verified' => true], 'Verification successful.');
+    }
+
+    /**
+     * The destination as a code is stored against it: a phone as digits with
+     * its +country code when one was given, an email as typed.
+     */
+    private static function otpDestination(string $destination, string $channel): string
+    {
+        if ($channel === 'sms') {
+            $phone = Str::normalizePhone($destination);
+
+            if ($phone === '') {
+                throw HttpException::unprocessable('Enter a valid phone number.');
+            }
+
+            return $phone;
+        }
+
+        $email = trim($destination);
+
+        if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            throw HttpException::unprocessable('Enter a valid email address.');
+        }
+
+        return $email;
     }
 
     /**
@@ -375,41 +463,39 @@ final class AuthController extends BaseApiController
     public function revokeSession(Request $request): never
     {
         $sessionId = $request->routeParamInt('id');
+        $userId    = $this->userId($request);
 
         $revoked = Database::execute(
             "UPDATE `refresh_tokens`
              SET `revoked_at` = NOW(), `revoked_reason` = 'revoked_by_user'
              WHERE `id` = :id AND `user_id` = :user_id AND `revoked_at` IS NULL",
-            ['id' => $sessionId, 'user_id' => $this->userId($request)]
+            ['id' => $sessionId, 'user_id' => $userId]
         );
 
         if ($revoked === 0) {
             throw HttpException::notFound('Session not found.');
         }
 
+        // Signing a device out is what somebody does when they think it is
+        // not theirs any more, and that device may have been handed a data
+        // export link. The archive stays; a new link needs step-up.
+        DataExportService::revokeLinks($userId);
+
         Response::noContent('Session revoked.');
     }
 
     /**
-     * DELETE /auth/account: the original deletion endpoint, kept for older
-     * app builds.
+     * DELETE /auth/account: the original deletion endpoint.
      *
-     * A signed-up account goes through the same erasure and the same
-     * re-authentication as POST /me/privacy/delete-account. That means the
-     * password, or a one-time code for an account without one: it used to
-     * delete a Google- or Apple-only account with no proof at all. Older
-     * builds send no typed confirmation, so none is asked for here. A guest
-     * has no personal data and is simply closed.
+     * A guest has no personal data and is simply closed, as before. Every
+     * other account is sent to POST /me/privacy/delete-account, which asks
+     * for the typed confirmation, shows what blocks the deletion, and takes
+     * every kind of proof. Keeping a second, weaker way to erase an account
+     * meant keeping every check twice; older builds get a clear answer
+     * instead.
      */
     public function deleteAccount(Request $request): never
     {
-        $data = $this->validate($request, [
-            'password' => 'nullable|string|max:128',
-            'code'     => 'nullable|string|min:4|max:10',
-            'channel'  => 'nullable|in:email,sms',
-            'reason'   => 'nullable|string|max:500',
-        ]);
-
         $user = $this->user($request);
 
         if (($user['account_type'] ?? '') === 'guest') {
@@ -418,22 +504,10 @@ final class AuthController extends BaseApiController
             Response::success(null, 'Your account has been deleted.');
         }
 
-        AccountDeletionService::assertDeletable((int) $user['id']);
-
-        $verifiedVia = PrivacyService::verify($user, PrivacyService::PURPOSE_DELETE, $data);
-
-        AccountDeletionService::delete(
-            $user,
-            $verifiedVia,
-            null,
-            isset($data['reason']) ? (string) $data['reason'] : null,
-            [
-                'jti'       => (string) $request->attribute('token_jti', ''),
-                'token_exp' => (int) $request->attribute('token_exp', 0),
-                'platform'  => strtolower($request->header('x-platform')),
-            ]
+        throw new HttpException(
+            'This endpoint has been retired. Delete your account in the app: Settings → Privacy & data → Delete my account.',
+            410,
+            'endpoint_retired'
         );
-
-        Response::success(null, 'Your account has been deleted. We are sorry to see you go.');
     }
 }

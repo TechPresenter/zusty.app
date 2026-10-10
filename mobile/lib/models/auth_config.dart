@@ -48,13 +48,32 @@ class AuthConfig {
 
   bool isEnabled(String key) => method(key)?.enabled ?? false;
 
-  /// Social providers that are on **and** available on this platform —
-  /// Sign in with Apple, for instance, has no Android implementation.
+  /// Social providers that are on, available on this platform, **and** able to
+  /// finish a sign-in with what the server is serving.
+  ///
+  /// Sign in with Apple has no Android implementation. Google and Apple both
+  /// exchange their credential through Firebase, so neither can work while
+  /// the Firebase options are incomplete, and Google on Android also needs the
+  /// Web client ID as its server client ID. A half-configured server used to
+  /// produce a button that only ever answered "not available in this build";
+  /// now the button is simply not there. Facebook has no client in this build.
   List<AuthMethod> socialFor(String platform) => enabled
-      .where((m) =>
-          const {'google', 'apple', 'facebook'}.contains(m.key) &&
-          m.availableOn(platform))
+      .where((m) => m.availableOn(platform) && _canComplete(m, platform))
       .toList(growable: false);
+
+  bool _canComplete(AuthMethod method, String platform) => switch (method.key) {
+        'google' => firebase.isUsable &&
+            (platform == 'android'
+                ? method.string('server_client_id').isNotEmpty
+                : method.string('client_id').isNotEmpty ||
+                    method.string('server_client_id').isNotEmpty),
+        // Off iOS the plugin needs the web flow, which needs both of these.
+        'apple' => firebase.isUsable &&
+            (platform == 'ios' ||
+                method.string('service_id').isNotEmpty &&
+                    method.string('redirect_uri').isNotEmpty),
+        _ => false,
+      };
 
   /// True when the app has never successfully read a config from the server.
   bool get isEmpty => methods.isEmpty;

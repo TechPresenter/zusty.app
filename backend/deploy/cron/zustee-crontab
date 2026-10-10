@@ -13,6 +13,12 @@
 # Every job is idempotent and takes a lock, so an overlapping run is a no-op
 # rather than a double-charge. Verify with:
 #   php scripts/cron.php --list
+#
+# `php scripts/cron.php --crontab` prints a line for every registered job from
+# the scheduled_jobs table, so you can check this file against it after an
+# upgrade adds a job. On shared hosting (Hostinger) that only allows a few
+# entries, one line replaces everything below:
+#   * * * * * cd $APP && $PHP scripts/cron.php --due >> storage/logs/cron.log 2>&1
 # =====================================================================
 
 SHELL=/bin/bash
@@ -30,6 +36,12 @@ PHP=/usr/bin/php8.2
 # --- every 5 minutes -------------------------------------------------
 */5 * * * * cd $APP && $PHP scripts/cron.php automation:run    >> storage/logs/cron.log 2>&1
 */5 * * * * cd $APP && $PHP scripts/cron.php marketing:dispatch >> storage/logs/cron.log 2>&1
+
+# --- every 10 minutes ------------------------------------------------
+# Finishes account erasures. The erasure itself commits at once; deleting the
+# uploaded files, data exports, KYC documents and the Firebase sign-in record
+# comes after it, and this retries whatever failed until it has all gone.
+*/10 * * * * cd $APP && $PHP scripts/cron.php privacy:finish-deletions >> storage/logs/cron.log 2>&1
 
 # --- every 15 minutes ------------------------------------------------
 # Bookings a creator never answered. Late expiry means a brand's money sits
@@ -58,8 +70,11 @@ PHP=/usr/bin/php8.2
 #   01:40 KYC retention     (deletes documents and identity details past their
 #                            retention window; after expiry has run)
 #   02:00 database backup   (after every nightly mutation has finished)
-#   03:00 token prune
+#   03:00 token prune       (also deletes old sent messages, gateway callbacks
+#                            and backups past their retention window)
 #   04:00 guest purge
+# Account-erasure clean-up (privacy:finish-deletions) is not in this order:
+# it runs every 10 minutes, above, and depends on nothing here.
 10 0 * * * cd $APP && $PHP scripts/cron.php analytics:rollup   >> storage/logs/cron.log 2>&1
 30 0 * * * cd $APP && $PHP scripts/cron.php creators:refresh   >> storage/logs/cron.log 2>&1
 45 0 * * * cd $APP && $PHP scripts/cron.php creators:badges    >> storage/logs/cron.log 2>&1

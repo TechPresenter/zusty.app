@@ -21,6 +21,39 @@ use Zuste\Helpers\Str;
  */
 final class MailService
 {
+    /**
+     * The mailboxes used when settings name none. zusty.app is the mail
+     * domain; zustee.com takes no mail, so it must never be a fallback.
+     */
+    public const DEFAULT_SUPPORT_ADDRESS = 'support@zusty.app';
+    public const DEFAULT_FROM_ADDRESS    = 'no-reply@zusty.app';
+
+    /** Used for absolute links in mail when app.url is not set. */
+    private const DEFAULT_APP_URL = 'https://zusty.app';
+
+    /**
+     * Where people are told to write for help: Settings → General → support
+     * email when it is a valid address, otherwise support@zusty.app. Never
+     * empty, so a "contact …" sentence always names a mailbox.
+     */
+    public static function supportAddress(): string
+    {
+        $value = trim(Config::settingString('general', 'support_email', ''));
+
+        return filter_var($value, FILTER_VALIDATE_EMAIL) !== false ? $value : self::DEFAULT_SUPPORT_ADDRESS;
+    }
+
+    /**
+     * The envelope sender: Settings → Mail → from address, then MAIL_FROM_ADDRESS,
+     * then no-reply@zusty.app.
+     */
+    public static function fromAddress(): string
+    {
+        $value = trim(self::setting('from_address', self::DEFAULT_FROM_ADDRESS));
+
+        return filter_var($value, FILTER_VALIDATE_EMAIL) !== false ? $value : self::DEFAULT_FROM_ADDRESS;
+    }
+
     /** Queue a message for the cron worker. */
     public static function queue(
         string $toEmail,
@@ -47,22 +80,48 @@ final class MailService
         ]);
     }
 
-    /** Send immediately, bypassing the queue. Returns success. */
+    /**
+     * Send immediately, bypassing the queue. Returns success.
+     *
+     * @param bool $queueOnFailure false for mail that must arrive now or not at
+     *                             all: a one-time code that turns up after the
+     *                             app said it could not be sent is worse than
+     *                             none, and may already have been replaced.
+     */
     public static function sendNow(
         string $toEmail,
         string $toName,
         string $subject,
         string $htmlBody,
         ?string $textBody = null,
-        ?string $replyTo = null
+        ?string $replyTo = null,
+        bool $queueOnFailure = true
     ): bool {
         try {
-            return self::deliver($toEmail, $toName, $subject, $htmlBody, $textBody ?? self::htmlToText($htmlBody), $replyTo);
+            $sent = self::deliver($toEmail, $toName, $subject, $htmlBody, $textBody ?? self::htmlToText($htmlBody), $replyTo);
+
+            // Only the 'mail' driver reports failure this way. Logged, not
+            // queued: PHP's mail() has already handed the message on or
+            // refused it, and a retry could deliver it twice.
+            if (!$sent) {
+                Logger::warning('Mail was not accepted for immediate delivery', ['to' => Str::maskEmail($toEmail)]);
+            }
+
+            return $sent;
         } catch (\Throwable $e) {
-            Logger::error('Immediate mail delivery failed; falling back to the queue', [
-                'to'    => Str::maskEmail($toEmail),
-                'error' => $e->getMessage(),
-            ]);
+            Logger::error(
+                $queueOnFailure
+                    ? 'Immediate mail delivery failed; falling back to the queue'
+                    : 'Immediate mail delivery failed; not queued',
+                [
+                    'to'    => Str::maskEmail($toEmail),
+                    'error' => $e->getMessage(),
+                ]
+            );
+
+            if (!$queueOnFailure) {
+                return false;
+            }
 
             // Fall back to the queue rather than dropping the message.
             //
@@ -169,7 +228,7 @@ final class MailService
             return true;
         }
 
-        $fromAddress = self::setting('from_address', 'no-reply@zustee.com');
+        $fromAddress = self::fromAddress();
         $fromName    = self::setting('from_name', 'Zusty');
 
         $boundary = 'zuste-' . bin2hex(random_bytes(12));
@@ -387,8 +446,8 @@ final class MailService
         $title    = $titleHtml;
         $body     = $bodyHtml;
         $appName  = Config::settingString('general', 'app_name', 'Zusty');
-        $appUrl   = (string) Config::get('app.url', 'https://zustee.com');
-        $support  = Config::settingString('general', 'support_email', 'support@zustee.com');
+        $appUrl   = trim((string) Config::get('app.url', '')) ?: self::DEFAULT_APP_URL;
+        $support  = self::supportAddress();
         $year     = date('Y');
 
         // Operator settings are text too.
@@ -447,13 +506,30 @@ final class MailService
 HTML;
     }
 
+    /**
+     * Purposes whose code confirms an action inside a signed-in account, and
+     * what the code is for. A code nobody asked for there means somebody else
+     * is signed in, so "ignore this email" is the wrong advice.
+     */
+    private const STEP_UP_OTP_PURPOSES = [
+        'data_export'            => 'confirm your data export',
+        'delete_account'         => 'confirm that you want to delete your account',
+        'set_password'           => 'add a password to your account',
+        'confirm_contact_change' => 'confirm the change to your email address or mobile number',
+    ];
+
     /** OTP email with a large, copyable code. */
     public static function renderOtp(string $code, string $purpose, int $validMinutes): string
     {
+        $stepUp = self::STEP_UP_OTP_PURPOSES[str_replace(' ', '_', strtolower(trim($purpose)))] ?? null;
+
         // Plain text: the layout escapes it (this used to be pre-escaped and
         // then string-replaced back into the rendered page).
-        $body = 'Use the verification code below to ' . str_replace('_', ' ', $purpose) . '. '
-              . 'It expires in ' . $validMinutes . ' minutes. If you did not request this, you can safely ignore this email.';
+        $body = 'Use the verification code below to ' . ($stepUp ?? str_replace('_', ' ', $purpose)) . '. '
+              . 'It expires in ' . $validMinutes . ' minutes. '
+              . ($stepUp !== null
+                  ? 'If you did not ask for this, someone may be signed in to your account: sign out of all devices and change your password.'
+                  : 'If you did not request this, you can safely ignore this email.');
 
         $codeBlock = '<div style="margin:20px 0;padding:20px;background:#FFF0F1;border-radius:16px;text-align:center">'
             . '<div style="font-size:34px;font-weight:800;letter-spacing:0.32em;color:#B80049;font-family:monospace">'

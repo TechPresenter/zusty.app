@@ -715,6 +715,32 @@ Suite::check(
     'blocks present: ' . implode(', ', array_keys($config->data()))
 );
 
+// A social method exchanges its credential through Firebase, so the block must
+// never offer one while the Firebase options are incomplete: the app would
+// show a button that can only fail.
+$authBlock = (array) ($config->at('data.auth') ?? []);
+$socialOn  = array_values(array_map(
+    static fn (array $method): string => (string) $method['key'],
+    array_filter(
+        (array) ($authBlock['methods'] ?? []),
+        static fn (mixed $method): bool => is_array($method)
+            && in_array($method['key'] ?? '', ['google', 'apple', 'facebook'], true)
+            && ($method['enabled'] ?? false) === true
+    )
+));
+
+Suite::check(
+    'no social sign-in is offered while Firebase is not configured',
+    static fn (): bool => ($authBlock['firebase']['enabled'] ?? false) === true || $socialOn === [],
+    'firebase.enabled=' . json_encode($authBlock['firebase']['enabled'] ?? null) . ', social on: ' . implode(', ', $socialOn)
+);
+
+Suite::check(
+    'the social divider shows only when a social method is offered',
+    static fn (): bool => ($authBlock['ui']['show_social_divider'] ?? null) === ($socialOn !== []),
+    'show_social_divider=' . json_encode($authBlock['ui']['show_social_divider'] ?? null)
+);
+
 $features = $config->at('data.features');
 
 Suite::check(

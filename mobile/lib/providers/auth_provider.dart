@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/auth/social_sign_in_service.dart';
 import '../features/kyc/kyc_share_cache.dart';
 import '../models/user.dart';
 import 'core_providers.dart';
@@ -158,15 +159,45 @@ class AuthController extends Notifier<AuthState> {
     state = AuthState(stage: AuthStage.authenticated, user: result.user);
   }
 
+  /// Signs out: tells the server, then clears this device.
+  ///
+  /// Always ends signed out. Each clearing step runs on its own, so one
+  /// failing (an unreadable keystore, say) cannot leave the rest undone or
+  /// keep the user inside the app.
   Future<void> logout() async {
     // Before the tokens go: blanking the device's push token needs an
     // authenticated write, and there is no DELETE route for it.
     await _unregisterDevice();
 
-    await ref.read(authRepositoryProvider).logout();
-    await _forgetAccountScopedConfig();
-    _forgetDocumentCopies();
-    state = const AuthState(stage: AuthStage.unauthenticated);
+    try {
+      try {
+        await ref.read(authRepositoryProvider).logout();
+      } catch (_) {
+        // It already swallows a failed server call; this covers the device.
+      }
+
+      await _socialSignOut();
+
+      try {
+        await _forgetAccountScopedConfig();
+      } catch (_) {
+        // Ignored, as above.
+      }
+
+      _forgetDocumentCopies();
+    } finally {
+      state = const AuthState(stage: AuthStage.unauthenticated);
+    }
+  }
+
+  /// Ends any Firebase or Google session on this device. Sign-in no longer
+  /// keeps one, but an older install may still hold one. Never throws.
+  Future<void> _socialSignOut({bool revoke = false}) async {
+    try {
+      await ref.read(socialSignOutProvider)(revoke: revoke);
+    } catch (_) {
+      // Intentionally ignored — sign-out must always complete.
+    }
   }
 
   /// Sweeps any decrypted verification document a share left on the device,
@@ -194,20 +225,46 @@ class AuthController extends Notifier<AuthState> {
   /// Clears this device after the server has deleted the account.
   ///
   /// The deletion already revoked every session and push registration
-  /// server-side, so nothing is sent: the local push token, the stored
-  /// session, the caches and the account-scoped config are all dropped here,
-  /// and the next person to open the app on this device starts clean.
-  Future<void> signOutAfterDeletion() async {
-    try {
-      await ref.read(pushServiceProvider).deleteToken();
-    } catch (_) {
-      // Intentionally ignored: the account is gone either way.
-    }
+  /// server-side, so nothing is sent: the local push token, the Firebase and
+  /// Google sessions, the stored session, the caches, the recent searches
+  /// and the account-scoped config are all dropped here, and the next person
+  /// to open the app on this device starts clean.
+  ///
+  /// Never throws, and always ends signed out: each step runs on its own, so
+  /// one failing cannot keep the others from running. The delete screen and
+  /// the session-expiry handler may both call this, even at the same moment;
+  /// concurrent calls share one run.
+  Future<void> signOutAfterDeletion() => _signingOut ??=
+      _signOutAfterDeletion().whenComplete(() => _signingOut = null);
 
-    await ref.read(authRepositoryProvider).clearLocalSession();
-    await _forgetAccountScopedConfig();
-    _forgetDocumentCopies();
-    state = const AuthState(stage: AuthStage.unauthenticated);
+  Future<void>? _signingOut;
+
+  Future<void> _signOutAfterDeletion() async {
+    try {
+      try {
+        await ref.read(pushServiceProvider).deleteToken();
+      } catch (_) {
+        // Intentionally ignored: the account is gone either way.
+      }
+
+      await _socialSignOut(revoke: true);
+
+      try {
+        await ref.read(authRepositoryProvider).clearLocalSession();
+      } catch (_) {
+        // Ignored, as above. The server no longer knows this session.
+      }
+
+      try {
+        await _forgetAccountScopedConfig();
+      } catch (_) {
+        // Ignored, as above.
+      }
+
+      _forgetDocumentCopies();
+    } finally {
+      state = const AuthState(stage: AuthStage.unauthenticated);
+    }
   }
 
   /// Drops the parts of `/app/config` that were resolved for the account that
@@ -229,6 +286,13 @@ class AuthController extends Notifier<AuthState> {
 
 final authProvider =
     NotifierProvider<AuthController, AuthState>(AuthController.new);
+
+/// Signs this device out of Firebase and Google; `revoke` also withdraws the
+/// app's Google grant. A provider so tests can see it called without
+/// Firebase.
+final socialSignOutProvider = Provider<Future<void> Function({bool revoke})>(
+  (ref) => SocialSignInService.signOut,
+);
 
 /// The signed-in user, or null before sign-in.
 final currentUserProvider = Provider<User?>((ref) {

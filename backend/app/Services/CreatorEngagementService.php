@@ -1024,8 +1024,8 @@ final class CreatorEngagementService
 
         // The setting is a PATH, and anything that looks like a whole address
         // is rejected outright rather than patched up. An operator who typed
-        // "https://zustee.com/{handle}" into the box used to get
-        // "https://zustee.com/https://zustee.com/aanya.kapoor" — a dead link,
+        // "https://zusty.app/{handle}" into the box used to get
+        // "https://zusty.app/https://zusty.app/aanya.kapoor" — a dead link,
         // and one that goes on printed QR codes and into share sheets, where
         // it cannot be fixed by a release. Falling back to the known-good
         // default is recoverable; a mangled URL in the wild is not.

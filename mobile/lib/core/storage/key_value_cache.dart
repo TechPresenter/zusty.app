@@ -22,6 +22,14 @@ class CachedDocument {
 /// Nothing secret goes in here — tokens live in [SecureStore]. Everything is
 /// stored as JSON so the read-through pattern below works for any endpoint.
 ///
+/// Cached responses are still personal data, so they leave the device with
+/// the account: [clearAccountData] runs at sign-out and whenever a session
+/// ends. Android leaves this store out of Auto Backup and device transfers
+/// (res/xml/data_extraction_rules.xml and backup_rules.xml). On iOS it lives
+/// in NSUserDefaults, which iCloud and computer backups include, so a backup
+/// taken while signed in still holds a copy until the cache moves to a file
+/// excluded from backup.
+///
 /// ## The read-through pattern screen agents should reuse
 ///
 /// ```dart
@@ -132,7 +140,8 @@ class KeyValueCache {
     }
   }
 
-  /// Wipes every cached response. Runs on sign-out.
+  /// Wipes every cached response. Runs on sign-out, and before a new session
+  /// is saved, so one account never replays another's documents.
   Future<void> clearAll() async {
     final keys = _prefs
         .getKeys()
@@ -143,6 +152,17 @@ class KeyValueCache {
     for (final key in keys) {
       await _prefs.remove(key);
     }
+  }
+
+  /// Forgets everything this device holds about the account that is leaving:
+  /// every cached response, the recent searches and the chosen city.
+  ///
+  /// Runs on sign-out and when a session ends. The theme, locale, onboarding
+  /// flag and device id stay: they belong to the device, not the account.
+  Future<void> clearAccountData() async {
+    await clearAll();
+    await _prefs.remove(_recentSearchKey);
+    await _prefs.remove(_cityKey);
   }
 
   // -- App-shell preferences ----------------------------------------------

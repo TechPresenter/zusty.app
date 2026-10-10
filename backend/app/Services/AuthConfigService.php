@@ -138,6 +138,23 @@ final class AuthConfigService
             $methods[$index]['order'] = ($index + 1) * 10;
         }
 
+        // Google, Apple and Facebook all exchange their credential through
+        // Firebase, so none of them can complete while the Firebase options
+        // are incomplete. Reporting them as on regardless gave every app a
+        // button that could only answer "not available". The switch in the
+        // panel is untouched; the method comes back the moment Firebase is
+        // configured.
+        $firebase = self::firebaseBlock($platform);
+
+        if (!$firebase['enabled']) {
+            foreach ($methods as $index => $method) {
+                if (in_array($method['key'], ['google', 'apple', 'facebook'], true) && $method['enabled']) {
+                    $methods[$index]['enabled']            = false;
+                    $methods[$index]['unavailable_reason'] = 'firebase_not_configured';
+                }
+            }
+        }
+
         $socialEnabled = false;
 
         foreach ($methods as $method) {
@@ -160,7 +177,7 @@ final class AuthConfigService
                 'session_days'      => Config::settingInt('auth', 'guest_session_days', 30),
                 'upgrade_endpoint'  => '/auth/guest/upgrade',
             ],
-            'firebase' => self::firebaseBlock($platform),
+            'firebase' => $firebase,
             'signup'   => [
                 // Reused from the `app` group, which the features block already
                 // publishes — same source, so the two can never disagree.

@@ -90,16 +90,25 @@ Future<bool> showZConfirm(
 
 /// A modal sheet with a title row and a close button, sized to its content
 /// and lifted above the keyboard.
+///
+/// [enableDrag] false stops a swipe down from closing it. A swipe is the one
+/// way out a `PopScope` inside the sheet cannot refuse, so a sheet that must
+/// stay open while it works turns it off. [isDismissible] false does the same
+/// for a tap on the scrim.
 Future<T?> showZSheet<T>(
   BuildContext context, {
   required String title,
   required WidgetBuilder builder,
   String? subtitle,
+  bool enableDrag = true,
+  bool isDismissible = true,
 }) {
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
+    enableDrag: enableDrag,
+    isDismissible: isDismissible,
     sheetAnimationStyle: zSheetMotion(context),
     builder: (context) => Padding(
       padding: EdgeInsets.only(

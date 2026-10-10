@@ -111,6 +111,7 @@ class User {
     this.phoneVerified = false,
     this.kycStatus = KycStatus.notSubmitted,
     this.identityLocked = false,
+    this.hasPassword,
     this.referralCode,
     this.notificationPrefs = const NotificationPrefs(),
     this.walletBalance = 0,
@@ -150,6 +151,13 @@ class User {
   /// so its public name (name, company name) cannot be changed in the app.
   /// Absent from older servers and from `/auth/me`, which read as unlocked.
   final bool identityLocked;
+
+  /// `has_password` from `GET /auth/me` and `GET /me`: whether the account
+  /// has a password at all, which decides "Set a password" or "Change
+  /// password". Null from an older server that does not send it. The
+  /// password screens read `verification.has_password` from `GET /me/privacy`
+  /// instead, which is always fresh.
+  final bool? hasPassword;
   final String? referralCode;
   final NotificationPrefs notificationPrefs;
   final double walletBalance;
@@ -184,6 +192,9 @@ class User {
         phoneVerified: Json.boolean(json['phone_verified']),
         kycStatus: KycStatus.fromString(Json.strOrNull(json['kyc_status'])),
         identityLocked: Json.boolean(json['identity_locked']),
+        hasPassword: json.containsKey('has_password')
+            ? Json.boolean(json['has_password'])
+            : null,
         referralCode: Json.strOrNull(json['referral_code']),
         notificationPrefs:
             NotificationPrefs.fromJson(Json.map(json['notification_prefs'])),
@@ -245,6 +256,7 @@ class User {
         phoneVerified: phoneVerified,
         kycStatus: kycStatus ?? this.kycStatus,
         identityLocked: identityLocked,
+        hasPassword: hasPassword,
         referralCode: referralCode,
         notificationPrefs: notificationPrefs ?? this.notificationPrefs,
         walletBalance: walletBalance ?? this.walletBalance,

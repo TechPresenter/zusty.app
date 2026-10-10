@@ -14,83 +14,90 @@ import '../../shared/widgets/z_scaffold.dart';
 /// The router opens here when [accountDeletedProvider] is set as the session
 /// ends, so the last thing the person sees is confirmation that it worked,
 /// rather than a sign-in form that leaves them wondering.
+///
+/// It is a root screen, so Back leaves the app as it would anywhere else.
+/// The flag lives in memory only: coming back to a running app shows the
+/// goodbye again, and a fresh start opens on sign-in.
 class AccountDeletedScreen extends ConsumerWidget {
   const AccountDeletedScreen({super.key});
 
   void _leave(BuildContext context, WidgetRef ref, String route) {
     ref.read(accountDeletedProvider.notifier).state = false;
+    ref.read(accountDeletedNoticeProvider.notifier).state = null;
     context.go(route);
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return PopScope(
-      canPop: false,
-      child: ZScaffold(
-        bottomBar: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            ZButton(
-              label: 'Back to sign in',
-              onPressed: () => _leave(context, ref, Routes.login),
-            ),
-            TextButton(
-              onPressed: () => _leave(context, ref, Routes.signUp),
-              child: const Text('Create a new account'),
-            ),
-          ],
-        ),
-        body: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SuccessCheck(
-                  size: 96,
-                  color: AppColors.success,
-                  checkColor: Colors.white,
-                  delay: const Duration(milliseconds: 120),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                Reveal(
-                  index: 3,
-                  child: Semantics(
-                    header: true,
-                    child: Text(
-                      'Your account has been deleted',
-                      textAlign: TextAlign.center,
-                      style: AppTypography.headlineMedium,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Reveal(
-                  index: 4,
+    final notice = ref.watch(accountDeletedNoticeProvider);
+
+    return ZScaffold(
+      bottomBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ZButton(
+            label: 'Back to sign in',
+            onPressed: () => _leave(context, ref, Routes.login),
+          ),
+          TextButton(
+            onPressed: () => _leave(context, ref, Routes.signUp),
+            child: const Text('Create a new account'),
+          ),
+        ],
+      ),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SuccessCheck(
+                size: 96,
+                color: AppColors.success,
+                checkColor: Colors.white,
+                delay: const Duration(milliseconds: 120),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Reveal(
+                index: 3,
+                child: Semantics(
+                  header: true,
                   child: Text(
-                    'We\'ve erased your profile and personal data and signed you '
-                    'out on every device. Records the law requires us to keep, '
-                    'like invoices and payments, stay without your name.',
+                    'Your account has been deleted',
                     textAlign: TextAlign.center,
-                    style: AppTypography.bodyMedium.copyWith(
-                      color: AppColors.onSurfaceVariant,
-                      height: 1.5,
-                    ),
+                    style: AppTypography.headlineMedium,
                   ),
                 ),
-                const SizedBox(height: AppSpacing.sm),
-                Reveal(
-                  index: 5,
-                  child: Text(
-                    'A confirmation is on its way to your email. Thank you for '
-                    'being part of Zusty.',
-                    textAlign: TextAlign.center,
-                    style: AppTypography.bodySmall,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Reveal(
+                index: 4,
+                child: Text(
+                  'We\'ve erased your profile and personal data and signed you '
+                  'out on every device. Records the law requires us to keep, '
+                  'like invoices and payments, stay on file. Invoices keep the '
+                  'billing details printed on them.',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.bodyMedium.copyWith(
+                    color: AppColors.onSurfaceVariant,
+                    height: 1.5,
                   ),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Reveal(
+                index: 5,
+                child: Text(
+                  notice == null
+                      ? 'Thank you for being part of Zusty.'
+                      : 'A confirmation is on its way to ${notice.destination}. '
+                          'Thank you for being part of Zusty.',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.bodySmall,
+                ),
+              ),
+            ],
           ),
         ),
       ),

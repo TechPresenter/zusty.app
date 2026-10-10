@@ -14,6 +14,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/core_providers.dart';
 import '../../providers/discovery_provider.dart';
 import '../../providers/kyc_provider.dart';
+import '../../providers/share_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../router/routes.dart';
 import '../../shared/widgets/menu_tile.dart';
@@ -51,6 +52,9 @@ class MenuScreen extends ConsumerWidget {
     final kyc = ref.watch(kycSummaryProvider);
     final unread = ref.watch(unreadNotificationsProvider);
     final version = ref.watch(appVersionProvider).valueOrNull;
+    // Watched rather than read on tap, so whether the Play listing is live is
+    // already known by the time somebody taps "Share Zusty".
+    final shareText = ref.watch(shareAppTextProvider);
     final margin = AppBreakpoints.pageMargin(context);
 
     final isBrand = user?.role.isBrand ?? true;
@@ -266,11 +270,7 @@ class MenuScreen extends ConsumerWidget {
                 title: 'Share Zusty',
                 showChevron: false,
                 onTap: () => SharePlus.instance.share(
-                  ShareParams(
-                    text:
-                        'Find and book verified creators on Zusty — '
-                        'https://zuste.com',
-                  ),
+                  ShareParams(text: shareText),
                 ),
               ),
             ],

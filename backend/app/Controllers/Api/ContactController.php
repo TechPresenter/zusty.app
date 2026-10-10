@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace Zuste\Controllers\Api;
 
+use Zuste\Core\HttpException;
 use Zuste\Core\Request;
 use Zuste\Core\Response;
 use Zuste\Services\ContactVerificationService;
+use Zuste\Services\MailService;
+use Zuste\Services\PrivacyService;
 
 /**
  * The signed-in account's email addresses and mobile numbers.
@@ -111,22 +114,71 @@ final class ContactController extends BaseApiController
      *
      * Propose a new primary email address or mobile number. The live value is
      * NOT touched here — that is the whole point of the endpoint.
+     *
+     * The owner proves it is them first, the same way as for an export or a
+     * deletion: the password, a code from POST /me/privacy/verification-code
+     * (purpose confirm_contact_change) sent to the CURRENT email or phone, or
+     * a fresh Google or Apple sign-in. Otherwise a stolen session could move
+     * the email to a mailbox it reads, and every later code and notice would
+     * go there. `code_channel` carries the code's channel, because `channel`
+     * already names the contact being changed.
+     *
+     * An account that has no way to prove anything right now (no proven
+     * password, no code channel — a phone-only account while SMS is off, or a
+     * single channel inside its hold after a change — and no usable Google or
+     * Apple sign-in) is refused with 409 contact_change_unverifiable and told
+     * to write to support. A change is never applied unproven: that would be
+     * exactly the takeover this proof exists to stop.
      */
     public function requestChange(Request $request): never
     {
         $data = $this->validate($request, [
-            'channel'     => 'required|in:email,phone',
-            'value'       => 'required|string|max:191',
-            'reason_code' => 'nullable|string|max:60',
-            'reason_note' => 'nullable|string|max:500',
+            'channel'      => 'required|in:email,phone',
+            'value'        => 'required|string|max:191',
+            'reason_code'  => 'nullable|string|max:60',
+            'reason_note'  => 'nullable|string|max:500',
+            'password'     => 'nullable|string|max:128',
+            'code'         => 'nullable|string|min:4|max:10',
+            'code_channel' => 'nullable|in:email,sms',
+            'id_token'     => 'nullable|string|max:4096',
         ]);
 
-        $userId = $this->userId($request);
+        $user    = $this->user($request);
+        $userId  = (int) $user['id'];
+        $channel = (string) $data['channel'];
+        $value   = (string) $data['value'];
+
+        // A change that is going to be refused is refused before the proof is
+        // checked, so it does not spend the code the owner just typed.
+        ContactVerificationService::preflightPrimaryChange(
+            $userId,
+            $channel,
+            $value,
+            isset($data['reason_code']) ? (string) $data['reason_code'] : null
+        );
+
+        $options = PrivacyService::verificationOptions($user);
+
+        if (!$options['password'] && $options['channels'] === [] && $options['providers'] === []) {
+            throw self::unverifiable($options);
+        }
+
+        PrivacyService::verify(
+            $user,
+            PrivacyService::PURPOSE_CONTACT,
+            [
+                'password' => $data['password'] ?? null,
+                'code'     => $data['code'] ?? null,
+                'channel'  => $data['code_channel'] ?? 'email',
+                'id_token' => $data['id_token'] ?? null,
+            ],
+            $this->deviceContext($request)
+        );
 
         $result = ContactVerificationService::requestPrimaryChange(
             $userId,
-            (string) $data['channel'],
-            (string) $data['value'],
+            $channel,
+            $value,
             $this->context($request) + [
                 'reason_code' => $data['reason_code'] ?? null,
                 'reason_note' => $data['reason_note'] ?? null,
@@ -192,6 +244,36 @@ final class ContactController extends BaseApiController
             ContactVerificationService::overview($userId),
             'Request cancelled.'
         );
+    }
+
+    /**
+     * The refusal for a primary change nobody can prove right now.
+     *
+     * 409, because nothing in the request is wrong: the account's state is.
+     * When a channel is only held after a recent change, the message says
+     * when it comes back; either way it names the support address to write to.
+     *
+     * @param array{unavailable:list<array{channel:string,reason:string,available_at:?string}>} $options
+     */
+    private static function unverifiable(array $options): HttpException
+    {
+        $support = MailService::supportAddress();
+        $held    = array_values(array_filter(array_map(
+            static fn (array $entry): string => ($entry['reason'] ?? '') === 'contact_recently_changed'
+                ? (string) ($entry['available_at'] ?? '')
+                : '',
+            $options['unavailable']
+        )));
+        $until   = $held === [] ? false : strtotime((string) min($held));
+
+        $message = ($until !== false
+                ? 'Your email address or mobile number changed recently, so we can\'t confirm it\'s you until '
+                    . date('j M Y, g:i A', $until) . '. '
+                : 'We can\'t confirm it\'s you here: your account has no password and no way to receive a code right now. ')
+            . 'To change your email address or mobile number, write to ' . $support
+            . ' from an address on your account.';
+
+        return HttpException::conflict($message, 'contact_change_unverifiable');
     }
 
     /**

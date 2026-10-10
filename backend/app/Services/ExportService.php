@@ -142,8 +142,9 @@ final class ExportService
     {
         $e = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
-        $company = Config::settingString('general', 'company_name', 'Zuste Technologies Pvt. Ltd.');
         $appName = Config::settingString('general', 'app_name', 'Zusty');
+        // The legal entity comes from Settings → General only; never hard-coded.
+        $company = trim(Config::settingString('general', 'company_name', '')) ?: $appName;
 
         $headHtml = '';
         foreach ($headers as $header) {

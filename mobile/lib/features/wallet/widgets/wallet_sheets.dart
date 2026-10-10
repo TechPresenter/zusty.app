@@ -17,6 +17,7 @@ import '../../../shared/widgets/z_card.dart';
 import '../../../shared/widgets/z_dialogs.dart';
 import '../../../shared/widgets/z_text_field.dart';
 import '../../booking/widgets/booking_ui.dart';
+import '../../booking/widgets/gateway_checkout.dart';
 
 /// The wallet's sheets all open through [showZSheet], so each has the same
 /// title row, close button, keyboard lift and slide-up motion. The widgets
@@ -40,6 +41,12 @@ class _GroupLabel extends StatelessWidget {
   }
 }
 
+/// What the top-up sheet says about paying: the method is chosen on the
+/// gateway's own page, not here.
+const topUpPaymentNote =
+    "You'll choose UPI, card or net banking on the secure Cashfree page. "
+    'The money is added once the payment is confirmed.';
+
 /// Wallet top-up (`POST /wallet/topup`).
 class TopUpSheet extends ConsumerStatefulWidget {
   const TopUpSheet({super.key});
@@ -57,7 +64,6 @@ class TopUpSheet extends ConsumerStatefulWidget {
 
 class _TopUpSheetState extends ConsumerState<TopUpSheet> {
   final _amount = TextEditingController();
-  String _method = 'upi';
   bool _busy = false;
   String? _error;
 
@@ -67,6 +73,10 @@ class _TopUpSheetState extends ConsumerState<TopUpSheet> {
     super.dispose();
   }
 
+  /// Creates the deposit, sends the payer to the gateway's checkout, and only
+  /// reports success once our backend has confirmed the payment with the
+  /// gateway. Creating the order used to be reported as "topped up", when no
+  /// money had moved at all.
   Future<void> _submit() async {
     final error = Validators.amount(_amount.text, min: 100, field: 'Amount');
     if (error != null) {
@@ -76,12 +86,16 @@ class _TopUpSheetState extends ConsumerState<TopUpSheet> {
 
     setState(() => _busy = true);
     try {
-      await ref
+      final order = await ref
           .read(walletActionsProvider)
-          .topup(amount: double.parse(_amount.text), method: _method);
-      if (mounted) {
+          .topup(amount: double.parse(_amount.text));
+
+      if (!mounted) return;
+      final paid = await completeGatewayPayment(context, ref, order);
+
+      if (paid && mounted) {
         Navigator.of(context).pop();
-        showZSnack(context, 'Wallet topped up successfully.');
+        showZSnack(context, 'Payment confirmed. The money is in your wallet.');
       }
     } on ApiFailure catch (e) {
       if (mounted) showZSnack(context, e.message, isError: true);
@@ -132,28 +146,12 @@ class _TopUpSheetState extends ConsumerState<TopUpSheet> {
           ),
         ],
         const SizedBox(height: AppSpacing.lg),
-        const _GroupLabel('Pay using'),
-        Wrap(
-          spacing: AppSpacing.xs,
-          runSpacing: AppSpacing.xs,
-          children: const ['upi', 'card', 'netbanking']
-              .map(
-                (method) => ZChip(
-                  label: switch (method) {
-                    'upi' => 'UPI',
-                    'card' => 'Card',
-                    _ => 'Net banking',
-                  },
-                  icon: switch (method) {
-                    'upi' => Icons.qr_code_rounded,
-                    'card' => Icons.credit_card_rounded,
-                    _ => Icons.account_balance_rounded,
-                  },
-                  selected: _method == method,
-                  onTap: () => setState(() => _method = method),
-                ),
-              )
-              .toList(),
+        // No method chips: every top-up goes to Cashfree's hosted checkout,
+        // where the payer picks UPI, card or net banking. Chips here chose
+        // nothing, so they only promised a choice the app could not honour.
+        Text(
+          topUpPaymentNote,
+          style: AppTypography.bodySmall,
         ),
         const SizedBox(height: AppSpacing.lg),
         ZButton(

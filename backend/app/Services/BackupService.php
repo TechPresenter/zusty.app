@@ -83,7 +83,7 @@ final class BackupService
                 'completed_at' => date('Y-m-d H:i:s'),
             ], ['id' => $backupId]);
 
-            self::pruneOldBackups($directory);
+            self::pruneExpired();
 
             return ['id' => $backupId, 'file' => $fileName, 'size' => $size, 'path' => $path];
         } catch (\Throwable $e) {
@@ -205,7 +205,10 @@ final class BackupService
      * Restore from a backup file.
      *
      * Deliberately requires an explicit confirmation token from the caller —
-     * this destroys the current database.
+     * this destroys the current database. Accounts erased after the backup
+     * was taken are erased again before this returns.
+     *
+     * @return array{statements_executed:int,safety_backup:string,erasures_reapplied:?int}
      */
     public static function restore(int $backupId, string $confirmation, int $adminId): array
     {
@@ -255,14 +258,35 @@ final class BackupService
 
         $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
 
+        // The dump may predate erasures made since it was taken, and the
+        // privacy policy promises that a restored account is deleted again
+        // straight away. Every erasure is also recorded outside the database
+        // (storage/privacy/erasure-ledger.jsonl), so re-apply them now. A
+        // failure here must not undo the restore, but it must be seen.
+        $reapplied = null;
+
+        try {
+            $reapplied = AccountDeletionService::reapplyAfterRestore();
+        } catch (\Throwable $e) {
+            Logger::critical('Erasures could not be re-applied after a database restore', [
+                'backup_id' => $backupId,
+                'error'     => $e->getMessage(),
+            ]);
+        }
+
         Logger::warning('Database restored from backup', [
-            'backup_id'       => $backupId,
-            'admin_id'        => $adminId,
-            'statements'      => $executed,
-            'safety_snapshot' => $safety['file'],
+            'backup_id'          => $backupId,
+            'admin_id'           => $adminId,
+            'statements'         => $executed,
+            'safety_snapshot'    => $safety['file'],
+            'erasures_reapplied' => $reapplied,
         ]);
 
-        return ['statements_executed' => $executed, 'safety_backup' => $safety['file']];
+        return [
+            'statements_executed' => $executed,
+            'safety_backup'       => $safety['file'],
+            'erasures_reapplied'  => $reapplied,
+        ];
     }
 
     /**
@@ -368,22 +392,48 @@ final class BackupService
         return $statements;
     }
 
-    /** Delete backups older than the retention window. */
-    private static function pruneOldBackups(string $directory): void
+    /**
+     * Delete backups older than the retention window, files and rows.
+     *
+     * A backup is a full copy of the database, erased accounts included, so
+     * the privacy policy tells users how long one is kept
+     * (`backup.retention_days`). This runs after every backup and daily from
+     * `tokens:prune`, so that window holds even when backups stop being
+     * taken. It covers the panel's dumps and the deploy script's
+     * (scripts/backup.sh writes `*.sql.gz` and `*.tar.gz` into the same
+     * folder), because a copy is a copy whoever made it.
+     *
+     * @return array{files:int,rows:int}
+     */
+    public static function pruneExpired(): array
     {
         $retentionDays = max(1, (int) Config::get('backup.retention_days', 14));
         $cutoff        = time() - ($retentionDays * 86400);
+        $directory     = rtrim((string) Config::get('storage.backup_path', ''), '/\\');
+        $files         = 0;
 
-        foreach (glob($directory . '/zuste-db-*.sql*') ?: [] as $file) {
-            if (filemtime($file) < $cutoff) {
-                @unlink($file);
+        if ($directory !== '' && is_dir($directory)) {
+            $candidates = array_unique(array_merge(
+                glob($directory . '/zuste-db-*.sql*') ?: [],
+                glob($directory . '/*.sql.gz') ?: [],
+                glob($directory . '/*.tar.gz') ?: []
+            ));
+
+            foreach ($candidates as $file) {
+                $modified = @filemtime($file);
+
+                if (is_file($file) && $modified !== false && $modified < $cutoff && @unlink($file)) {
+                    $files++;
+                }
             }
         }
 
-        Database::execute(
+        $rows = Database::execute(
             'DELETE FROM `backups` WHERE `created_at` < DATE_SUB(NOW(), INTERVAL :days DAY)',
             ['days' => $retentionDays]
         );
+
+        return ['files' => $files, 'rows' => $rows];
     }
 
     /** Backups contain the whole database — never expose them over HTTP. */

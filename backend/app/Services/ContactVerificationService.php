@@ -609,8 +609,35 @@ final class ContactVerificationService
      */
     public static function requestPrimaryChange(int $userId, string $channel, string $newValue, array $context = []): array
     {
+        [$normalised, $current] = self::preflightPrimaryChange($userId, $channel, $newValue);
+
+        return (array) self::startProof(
+            $userId,
+            $channel,
+            'primary',
+            $normalised,
+            null,
+            $context + ['current_value' => $current['value']]
+        );
+    }
+
+    /**
+     * Every check a primary change must pass before it is opened.
+     *
+     * Public so ContactController can run them BEFORE asking the owner to
+     * prove it is them (PrivacyService::verify): a change that is going to be
+     * refused must not spend the code they just typed. requestPrimaryChange()
+     * runs them again, so nothing relies on the caller having done so.
+     *
+     * @param  string|null $reasonCode checked too when given, since an unknown one is refused later
+     * @return array{0:array{value:string,country_code:?string,destination:string},1:array{value:?string,destination:string}}
+     *         the normalised new value, and the current primary
+     */
+    public static function preflightPrimaryChange(int $userId, string $channel, string $newValue, ?string $reasonCode = null): array
+    {
         self::assertChannel($channel);
         self::assertContactUnlocked($userId);
+        self::resolveReason($reasonCode);
 
         $allowed = $channel === 'email'
             ? Config::settingBool('creator', 'allow_email_change', true)
@@ -638,14 +665,7 @@ final class ContactVerificationService
 
         self::assertAvailable($userId, $channel, $normalised);
 
-        return (array) self::startProof(
-            $userId,
-            $channel,
-            'primary',
-            $normalised,
-            null,
-            $context + ['current_value' => $current['value']]
-        );
+        return [$normalised, $current];
     }
 
     /**
@@ -728,7 +748,9 @@ final class ContactVerificationService
         }
 
         try {
-            $record = AuthService::verifyOtp($destination, $code, $purpose);
+            // Bound to this account as well as to the request below, so a code
+            // another account was sent for the same new address never matches.
+            $record = AuthService::verifyOtp($destination, $code, $purpose, $userId);
         } catch (HttpException $e) {
             RateLimiter::hit($bucket, $ceiling, self::changeTtlMinutes() * 60);
 
@@ -1211,15 +1233,13 @@ final class ContactVerificationService
                 $userId
             );
         } catch (HttpException $e) {
-            // sendOtp() inserts the code BEFORE it tries to deliver it, and
-            // MailService::sendNow() falls back to the queue on an SMTP
-            // failure — so the code may well still arrive. Bind it anyway and
-            // record the failure, then rethrow: the caller asked for immediate
-            // delivery and did not get it, and answering "code sent" when
-            // nothing left the building is the bug AuthService already fixed
-            // once in its own layer.
-            self::bindLatestCode($requestId, $destination, $purpose);
-
+            // Nothing to bind. A failed send leaves no code behind: sendOtp()
+            // refuses before writing one when a limit is hit, deletes the one
+            // it could not deliver, and never queues a code to arrive later.
+            // So the request keeps the code it already had, which still works
+            // because nothing expired it. Record the failure and rethrow:
+            // answering "code sent" when nothing left the building is the bug
+            // AuthService already fixed once in its own layer.
             self::record($userId, 'otp_failed', [
                 'request_id'  => $requestId,
                 'channel'     => $channel,
@@ -1234,7 +1254,7 @@ final class ContactVerificationService
             throw $e;
         }
 
-        self::bindLatestCode($requestId, $destination, $purpose);
+        self::bindCode($requestId, (int) $result['otp_id']);
 
         self::record($userId, 'otp_sent', [
             'request_id'  => $requestId,
@@ -1257,28 +1277,21 @@ final class ContactVerificationService
     }
 
     /**
-     * Attach the code AuthService just wrote to the request that asked for it.
-     *
-     * sendOtp() does not return the row id, so it is read back by
-     * (destination, purpose). That lookup is exact and sendOtp() expires every
-     * previous live code for the same pair immediately before inserting, so
-     * the newest id is unambiguously the one just issued.
+     * Attach the code AuthService just delivered to the request that asked
+     * for it, by the id sendOtp() returned. Reading "the newest code for this
+     * address" back instead could pick up a code issued to somebody else for
+     * the same address in between.
      */
-    private static function bindLatestCode(int $requestId, string $destination, string $purpose): void
+    private static function bindCode(int $requestId, int $otpId): void
     {
-        $otpId = Database::scalar(
-            'SELECT `id` FROM `otp_verifications`
-              WHERE `destination` = :d AND `purpose` = :p
-              ORDER BY `id` DESC LIMIT 1',
-            ['d' => $destination, 'p' => $purpose]
-        );
-
-        if ($otpId !== null) {
-            Database::update('contact_change_requests', [
-                'otp_id'     => (int) $otpId,
-                'updated_at' => date('Y-m-d H:i:s'),
-            ], ['id' => $requestId]);
+        if ($otpId <= 0) {
+            return;
         }
+
+        Database::update('contact_change_requests', [
+            'otp_id'     => $otpId,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ], ['id' => $requestId]);
     }
 
     /**
@@ -1315,13 +1328,27 @@ final class ContactVerificationService
             'destination'  => (string) $countryCode . $value,
         ]);
 
+        // Read before the write: the notice below goes to the address being
+        // replaced, which is the one the real owner still reads.
+        $before = $target === 'primary'
+            ? (Database::selectOne(
+                'SELECT `name`, `email`, `phone`, `phone_country_code` FROM `users` WHERE `id` = :id',
+                ['id' => $userId]
+            ) ?? [])
+            : [];
+
         if ($target === 'primary') {
+            // *_changed_at starts the hold in PrivacyService: for a while the
+            // new address cannot receive step-up codes or link a Google or
+            // Apple sign-in. Stamped whether or not a code proved the change,
+            // and for a first address too: what matters is that it is new.
             $updates = $channel === 'email'
-                ? ['email' => $value, 'email_verified_at' => $proved ? $now : null]
+                ? ['email' => $value, 'email_verified_at' => $proved ? $now : null, 'email_changed_at' => $now]
                 : [
                     'phone'              => $value,
                     'phone_country_code' => $countryCode,
                     'phone_verified_at'  => $proved ? $now : null,
+                    'phone_changed_at'   => $now,
                 ];
 
             Database::update('users', $updates, ['id' => $userId]);
@@ -1389,9 +1416,86 @@ final class ContactVerificationService
 
         if ($target === 'primary') {
             self::syncBadges($userId);
+            self::queueChangeNotice($before, $channel, $value);
         }
 
         return self::loadRequest($requestId);
+    }
+
+    /**
+     * Tell the owner a primary identifier changed, at the address that was
+     * just replaced, so somebody whose account was changed by someone else
+     * finds out while the old address still reaches them.
+     *
+     * Queued, not sent: apply() runs inside the transaction that makes the
+     * change, so the notice and the change commit or roll back together.
+     *
+     * @param array<string,mixed> $before the users row before the change
+     */
+    private static function queueChangeNotice(array $before, string $channel, string $newValue): void
+    {
+        $support = MailService::supportAddress();
+        $name    = (string) ($before['name'] ?? '');
+        $email   = strtolower(trim((string) ($before['email'] ?? '')));
+
+        if ($channel === 'email') {
+            if ($email === '' || $email === strtolower($newValue)) {
+                return;
+            }
+
+            $subject = 'Your Zusty email address was changed';
+
+            MailService::queue(
+                $email,
+                $name,
+                $subject,
+                MailService::renderDefault(
+                    $subject,
+                    'The email address on your Zusty account was changed to ' . Str::maskEmail($newValue)
+                        . ". If this wasn't you, contact " . $support . ' straight away.',
+                    $name
+                ),
+                null,
+                $support !== '' ? $support : null
+            );
+
+            return;
+        }
+
+        $oldPhone = trim((string) ($before['phone'] ?? ''));
+
+        // SmsService::queue() does nothing while SMS is switched off.
+        if ($oldPhone !== '') {
+            SmsService::queue(
+                (string) ($before['phone_country_code'] ?? '') . $oldPhone,
+                "Zusty: the mobile number on your account was changed. If this wasn't you, contact " . $support . '.'
+            );
+        }
+
+        // The email did not change, so it reaches the owner too, whether or
+        // not a text can be sent.
+        if ($email !== '') {
+            $ending  = substr((string) preg_replace('/\D/', '', $newValue), -4);
+            $subject = $oldPhone !== ''
+                ? 'The mobile number on your Zusty account was changed'
+                : 'A mobile number was added to your Zusty account';
+
+            MailService::queue(
+                $email,
+                $name,
+                $subject,
+                MailService::renderDefault(
+                    $subject,
+                    ($oldPhone !== ''
+                        ? 'The mobile number on your Zusty account was changed to one ending in ' . $ending . '.'
+                        : 'A mobile number ending in ' . $ending . ' was added to your Zusty account.')
+                        . " If this wasn't you, contact " . $support . ' straight away.',
+                    $name
+                ),
+                null,
+                $support !== '' ? $support : null
+            );
+        }
     }
 
     /**

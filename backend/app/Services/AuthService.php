@@ -307,28 +307,7 @@ final class AuthService
         // is audited as 'password', the column's own default.
         $auditMethod = $method !== null ? (self::METHOD_AUDIT[$method] ?? 'password') : 'password';
 
-        $user = Database::selectOne(
-            'SELECT * FROM `users` WHERE `firebase_uid` = :uid AND `deleted_at` IS NULL',
-            ['uid' => $claims['uid']]
-        );
-
-        // Fall back to matching on a verified email/phone so a user who first
-        // registered with a password can then use Google without duplicating.
-        if ($user === null && $claims['email'] !== null) {
-            $user = Database::selectOne(
-                'SELECT * FROM `users` WHERE `email` = :email AND `deleted_at` IS NULL',
-                ['email' => strtolower($claims['email'])]
-            );
-        }
-
-        if ($user === null && $claims['phone'] !== null) {
-            [$countryCode, $national] = Str::splitPhone($claims['phone']);
-
-            $user = Database::selectOne(
-                'SELECT * FROM `users` WHERE `phone_country_code` = :cc AND `phone` = :phone AND `deleted_at` IS NULL',
-                ['cc' => $countryCode, 'phone' => $national]
-            );
-        }
+        $user = self::firebaseLinkTarget($claims);
 
         if ($user === null) {
             $result = self::register([
@@ -370,12 +349,21 @@ final class AuthService
             $updates['firebase_uid'] = $claims['uid'];
         }
 
-        if ($claims['email_verified'] && empty($user['email_verified_at'])) {
+        // Only when the claim is about the address the account actually holds:
+        // a uid-matched account may have moved its email or phone since, and a
+        // provider vouching for one address says nothing about another.
+        if ($claims['email_verified'] && empty($user['email_verified_at'])
+            && $claims['email'] !== null
+            && strtolower(trim((string) $claims['email'])) === strtolower(trim((string) ($user['email'] ?? '')))) {
             $updates['email_verified_at'] = date('Y-m-d H:i:s');
         }
 
-        if ($claims['phone'] !== null && empty($user['phone_verified_at'])) {
-            $updates['phone_verified_at'] = date('Y-m-d H:i:s');
+        if ($claims['phone'] !== null && empty($user['phone_verified_at']) && !empty($user['phone'])) {
+            [$claimCountryCode, $claimNational] = Str::splitPhone((string) $claims['phone']);
+
+            if ($claimNational === (string) $user['phone'] && $claimCountryCode === (string) $user['phone_country_code']) {
+                $updates['phone_verified_at'] = date('Y-m-d H:i:s');
+            }
         }
 
         $providers = json_decode((string) ($user['auth_providers'] ?? '[]'), true);
@@ -407,7 +395,208 @@ final class AuthService
         return ['user' => $result['user'], 'tokens' => $result['tokens'], 'is_new' => false];
     }
 
-    /** @return array{user:array<string,mixed>,tokens:array<string,mixed>} */
+    /**
+     * The existing account a Firebase identity signs in to, or null for a new
+     * one.
+     *
+     * The uid decides first, because it is the identity itself. Falling back
+     * to an email or phone is what lets somebody who registered with a
+     * password later use Google without getting a second account, but it is
+     * also a way into that account, so it is only taken on an identifier
+     * Firebase vouches for and the provider owns:
+     *
+     *  - an email only when email_verified is true AND the provider is Google
+     *    or Apple, never for a password, Facebook, custom or anonymous
+     *    sign-in, whose email nobody has proved;
+     *  - a phone only for a Firebase phone sign-in, whose number is the proof.
+     *
+     * The match is refused when the account is already linked to a different
+     * Firebase identity, and while that email or phone is inside the hold
+     * after a change: a session that moved the email to a mailbox it controls
+     * must not be able to turn that into a Google sign-in for the account.
+     *
+     * @param  array<string,mixed> $claims as returned by FirebaseService::verifyIdToken()
+     * @return array<string,mixed>|null the full users row
+     */
+    public static function firebaseLinkTarget(array $claims): ?array
+    {
+        $uid      = (string) ($claims['uid'] ?? '');
+        $provider = (string) ($claims['provider'] ?? '');
+
+        if ($uid !== '') {
+            $user = Database::selectOne(
+                'SELECT * FROM `users` WHERE `firebase_uid` = :uid AND `deleted_at` IS NULL',
+                ['uid' => $uid]
+            );
+
+            if ($user !== null) {
+                return $user;
+            }
+        }
+
+        $user    = null;
+        $channel = '';
+        $email   = strtolower(trim((string) ($claims['email'] ?? '')));
+        $phone   = trim((string) ($claims['phone'] ?? ''));
+
+        if ($email !== ''
+            && ($claims['email_verified'] ?? false) === true
+            && in_array($provider, ['google.com', 'apple.com'], true)) {
+            $user = Database::selectOne(
+                'SELECT * FROM `users` WHERE `email` = :email AND `deleted_at` IS NULL',
+                ['email' => $email]
+            );
+            $channel = 'email';
+        }
+
+        if ($user === null && $phone !== '' && $provider === 'phone') {
+            [$countryCode, $national] = Str::splitPhone($phone);
+
+            $user = $national === '' ? null : Database::selectOne(
+                'SELECT * FROM `users` WHERE `phone_country_code` = :cc AND `phone` = :phone AND `deleted_at` IS NULL',
+                ['cc' => $countryCode, 'phone' => $national]
+            );
+            $channel = 'phone';
+        }
+
+        if ($user === null) {
+            return null;
+        }
+
+        $linkedUid = (string) ($user['firebase_uid'] ?? '');
+
+        if ($linkedUid !== '' && !hash_equals($linkedUid, $uid)) {
+            throw HttpException::conflict(
+                $channel === 'email'
+                    ? 'This email is already linked to another sign-in. Sign in that way.'
+                    : 'This mobile number is already linked to another sign-in. Sign in that way.',
+                'account_link_conflict'
+            );
+        }
+
+        if (PrivacyService::heldUntil($user, $channel) !== null) {
+            throw HttpException::conflict(
+                'This email address or mobile number changed recently. Sign in with your password, or try again later.',
+                'account_link_held'
+            );
+        }
+
+        return $user;
+    }
+
+    /**
+     * Sign in with a one-time code sent by POST /auth/otp/send (purpose login).
+     *
+     * Only for an account that already exists: auto-creating one here would
+     * make phone-only accounts with no other way back in. Locked out per
+     * destination and IP exactly as the password sign-in is.
+     *
+     * @return array{user:array<string,mixed>,tokens:array<string,mixed>}
+     */
+    public static function loginWithOtp(string $destination, string $code, string $ip, array $device = []): array
+    {
+        $destination = trim($destination);
+        $context     = $device + ['ip' => $ip, 'identifier' => $destination];
+        $auditMethod = str_contains($destination, '@') ? 'email_otp' : 'phone_otp';
+
+        self::assertMethodEnabled('mobile_otp', true, $context);
+
+        if (!Config::settingBool('auth', 'otp_login_enabled', false)) {
+            throw new HttpException('OTP sign-in is currently unavailable.', 403, 'auth_method_disabled');
+        }
+
+        $throttleKey = 'login-otp:' . strtolower($destination) . ':' . $ip;
+
+        $maxAttempts = Config::settingInt('security', 'max_login_attempts', 5);
+        $lockMinutes = Config::settingInt('security', 'lockout_minutes', 15);
+
+        if (RateLimiter::tooManyAttempts($throttleKey, $maxAttempts)) {
+            $waitSeconds = max(1, RateLimiter::availableIn($throttleKey));
+
+            self::auditLogin(
+                SecurityService::OUTCOME_THROTTLED,
+                $auditMethod,
+                $destination,
+                null,
+                $device,
+                $ip,
+                'Rate limit reached; retry in ' . max(1, (int) ceil($waitSeconds / 60)) . ' minute(s).'
+            );
+
+            throw HttpException::tooManyRequests(
+                'Too many failed attempts. Try again in '
+                    . max(1, (int) ceil($waitSeconds / 60)) . ' minutes.',
+                $waitSeconds
+            );
+        }
+
+        // Burnt whatever happens next, as in login().
+        RateLimiter::hit($throttleKey, $maxAttempts, $lockMinutes * 60);
+
+        try {
+            self::verifyOtp($destination, $code, 'login');
+        } catch (HttpException $e) {
+            self::auditLogin(
+                SecurityService::OUTCOME_BAD_CREDS,
+                $auditMethod,
+                $destination,
+                null,
+                $device,
+                $ip,
+                'Sign-in code refused (' . $e->errorCode() . ').'
+            );
+
+            throw $e;
+        }
+
+        $user = self::findByIdentifier($destination);
+
+        if ($user === null) {
+            self::auditLogin(
+                SecurityService::OUTCOME_BAD_CREDS,
+                $auditMethod,
+                $destination,
+                null,
+                $device,
+                $ip,
+                'No account with that email or phone.'
+            );
+
+            throw new HttpException('No account uses this number. Sign up first.', 404, 'account_not_found');
+        }
+
+        try {
+            self::assertLoginAllowed($user);
+        } catch (HttpException $e) {
+            self::auditLogin(
+                SecurityService::OUTCOME_SUSPENDED,
+                $auditMethod,
+                $destination,
+                (int) $user['id'],
+                $device,
+                $ip,
+                'Account status is ' . (string) $user['status'] . '.'
+            );
+
+            throw $e;
+        }
+
+        RateLimiter::clear($throttleKey);
+
+        $result = self::completeLogin($user, $ip, $device);
+
+        self::auditLogin(
+            SecurityService::OUTCOME_SUCCESS,
+            $auditMethod,
+            $destination,
+            (int) $user['id'],
+            $device,
+            $ip
+        );
+
+        return $result;
+    }
+
     // -----------------------------------------------------------------
     // Guest access
     // -----------------------------------------------------------------
@@ -881,15 +1070,28 @@ final class AuthService
         }
     }
 
-    /** Sign out everywhere (password change, suspected compromise). */
+    /**
+     * Sign out everywhere (password change, suspected compromise).
+     *
+     * Live data-export links die with the sessions: a link is as good as a
+     * session for reading the account's data, and every reason to sign out
+     * everywhere is a reason to stop trusting what was handed out before.
+     * The archive stays, so the owner can get a new link with step-up.
+     *
+     * @return int the refresh tokens revoked
+     */
     public static function revokeAllTokens(int $userId, string $reason = 'logout_all'): int
     {
-        return Database::execute(
+        $revoked = Database::execute(
             'UPDATE `refresh_tokens`
              SET `revoked_at` = NOW(), `revoked_reason` = :reason
              WHERE `user_id` = :user_id AND `revoked_at` IS NULL',
             ['reason' => $reason, 'user_id' => $userId]
         );
+
+        DataExportService::revokeLinks($userId);
+
+        return $revoked;
     }
 
     // -----------------------------------------------------------------
@@ -950,18 +1152,13 @@ final class AuthService
             $resetUrl
         );
 
-        // sendNow() swallows every delivery failure and returns false. That
-        // boolean was discarded, so a reset the caller was told was "on its
-        // way" existed only inside an email that never left the building — and
-        // the token lives nowhere else, which made the account unrecoverable by
-        // self-service. Falling back to the queue hands the same message to
-        // drainQueue(), which already retries with backoff.
+        // sendNow() swallows every delivery failure and returns false, and on
+        // an SMTP failure it has already put the message in the queue, where
+        // drainQueue() retries it with backoff. So this only records that it
+        // went the slow way: queueing it again here sent the link twice.
         if (!MailService::sendNow((string) $user['email'], (string) $user['name'], $subject, $bodyHtml)) {
-            $queued = MailService::queue((string) $user['email'], (string) $user['name'], $subject, $bodyHtml);
-
-            Logger::warning('Password reset email could not be sent immediately; queued for retry.', [
-                'user_id'  => (int) $user['id'],
-                'queue_id' => $queued,
+            Logger::warning('Password reset email could not be sent immediately; it waits in the mail queue.', [
+                'user_id' => (int) $user['id'],
             ]);
         }
     }
@@ -983,42 +1180,181 @@ final class AuthService
             throw HttpException::unprocessable('This reset link is invalid or has expired.', 'invalid_reset_token');
         }
 
-        Database::transaction(static function () use ($record, $newPassword): void {
+        $userId = (int) $record['user_id'];
+
+        Database::transaction(static function () use ($record, $newPassword, $userId): void {
             Database::update('users', [
-                'password_hash' => Crypto::hashPassword($newPassword),
-            ], ['id' => (int) $record['user_id']]);
+                'password_hash'  => Crypto::hashPassword($newPassword),
+                // The emailed link proved the mailbox, so this password may
+                // confirm privacy actions from now on.
+                'auth_providers' => self::providersWith($userId, 'password'),
+            ], ['id' => $userId]);
 
             Database::update('password_resets', ['used_at' => date('Y-m-d H:i:s')], ['id' => (int) $record['id']]);
 
-            self::revokeAllTokens((int) $record['user_id'], 'password_reset');
+            self::revokeAllTokens($userId, 'password_reset');
         });
+
+        $user = Database::selectOne(
+            'SELECT `email`, `name` FROM `users` WHERE `id` = :id AND `deleted_at` IS NULL',
+            ['id' => $userId]
+        );
+
+        if ($user !== null) {
+            self::queuePasswordNotice($user, false);
+        }
     }
 
-    /** Change a password while signed in. */
-    public static function changePassword(int $userId, string $currentPassword, string $newPassword): void
-    {
-        $user = self::loadUser($userId);
+    /**
+     * Change a password while signed in, or set a first one.
+     *
+     * Changing needs the current password. Setting a first one needs proof
+     * made on the spot: a code to the account's own email or phone, or a
+     * fresh Google or Apple sign-in. A password is a way back in, so a session
+     * that could set one with no proof could give a stolen account a password
+     * the thief knows, and then use it to confirm a deletion or an export.
+     *
+     * @param array<string,mixed> $proof   `code` with `channel`, or `id_token`; a password is never proof here
+     * @param array<string,mixed> $context BaseApiController::deviceContext(): `ip`, `user_agent`
+     */
+    public static function changePassword(
+        int $userId,
+        string $currentPassword,
+        string $newPassword,
+        array $proof = [],
+        array $context = []
+    ): void {
+        $user        = self::loadUser($userId);
+        $hadPassword = !empty($user['password_hash']);
 
-        // An account created purely through Google/Apple has no password yet;
-        // in that case we are setting one rather than changing it.
-        if (!empty($user['password_hash']) && !Crypto::verifyPassword($currentPassword, (string) $user['password_hash'])) {
-            throw HttpException::unprocessable('Your current password is incorrect.', 'invalid_current_password');
+        if ($hadPassword) {
+            if (!Crypto::verifyPassword($currentPassword, (string) $user['password_hash'])) {
+                throw HttpException::unprocessable('Your current password is incorrect.', 'invalid_current_password');
+            }
+        } else {
+            // An account created purely through Google, Apple or a phone code
+            // has no password yet, so one is being set rather than changed.
+            $options = PrivacyService::verificationOptions($user);
+
+            if ($options['channels'] === [] && $options['providers'] === []) {
+                $held = array_values(array_filter(
+                    array_column(
+                        array_filter(
+                            $options['unavailable'],
+                            static fn (array $entry): bool => $entry['reason'] === 'contact_recently_changed'
+                        ),
+                        'available_at'
+                    )
+                ));
+
+                throw HttpException::unprocessable(
+                    $held !== []
+                        ? 'Your email address or mobile number changed recently, so we can\'t confirm it\'s you until '
+                            . date('j M Y, g:i A', (int) strtotime((string) min($held))) . '. Try again then.'
+                        : "We can't confirm it's you here. Contact support to add a password.",
+                    'reauth_unavailable'
+                );
+            }
+
+            PrivacyService::verify($user, PrivacyService::PURPOSE_SET_PASSWORD, $proof, $context);
         }
 
-        Database::transaction(static function () use ($userId, $newPassword): void {
-            Database::update('users', ['password_hash' => Crypto::hashPassword($newPassword)], ['id' => $userId]);
+        Database::transaction(static function () use ($userId, $newPassword, $hadPassword): void {
+            $updates = ['password_hash' => Crypto::hashPassword($newPassword)];
+
+            // Set with proof, so it may confirm privacy actions from now on. A
+            // change keeps whatever standing the old password had: knowing a
+            // password that was set without proof proves nothing more.
+            if (!$hadPassword) {
+                $updates['auth_providers'] = self::providersWith($userId, 'password');
+            }
+
+            Database::update('users', $updates, ['id' => $userId]);
 
             self::revokeAllTokens($userId, 'password_changed');
         });
+
+        self::queuePasswordNotice($user, !$hadPassword);
+    }
+
+    /**
+     * The account's auth_providers JSON with one more provider in it. Locks the
+     * row, so call it inside the transaction that writes the result.
+     */
+    private static function providersWith(int $userId, string $provider): string
+    {
+        $current = json_decode((string) (Database::scalar(
+            'SELECT `auth_providers` FROM `users` WHERE `id` = :id FOR UPDATE',
+            ['id' => $userId]
+        ) ?? ''), true);
+
+        $providers = is_array($current)
+            ? array_values(array_filter(array_map('strval', $current), static fn (string $p): bool => $p !== ''))
+            : [];
+
+        if (!in_array($provider, $providers, true)) {
+            $providers[] = $provider;
+        }
+
+        return (string) json_encode(array_values($providers), JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * Tell the account's own address that its password was added or changed,
+     * so an owner who did not do it finds out.
+     *
+     * @param array<string,mixed> $user `email`, `name`
+     */
+    private static function queuePasswordNotice(array $user, bool $added): void
+    {
+        $email = trim((string) ($user['email'] ?? ''));
+
+        if ($email === '') {
+            return;
+        }
+
+        $name    = (string) ($user['name'] ?? '');
+        $support = MailService::supportAddress();
+        $subject = $added ? 'A password was added to your Zusty account' : 'Your Zusty password was changed';
+        $body    = ($added
+                ? 'A password was just added to your Zusty account, and every device was signed out.'
+                : 'The password for your Zusty account was just changed, and every device was signed out.')
+            . " If this wasn't you, contact " . $support . ' straight away.';
+
+        MailService::queue(
+            $email,
+            $name,
+            $subject,
+            MailService::renderDefault($subject, $body, $name),
+            null,
+            $support !== '' ? $support : null
+        );
     }
 
     // -----------------------------------------------------------------
     // OTP
     // -----------------------------------------------------------------
 
-    /** Issue an OTP to a phone or email. */
+    /**
+     * Issue an OTP to a phone or email.
+     *
+     * The new code is written first and delivered second. Only once it has
+     * actually gone out are the earlier live codes for the same destination
+     * and purpose expired; a failed delivery deletes the new row instead, so
+     * the previous code stays the newest live one and keeps working, and a
+     * failing send can never be used to expire somebody else's code.
+     *
+     * @return array{expires_in:int,length:int,channel:string,resend_in:int,otp_id:int}
+     *         otp_id is for callers that bind a code to a request; never send it to a client.
+     */
     public static function sendOtp(string $destination, string $channel, string $purpose, ?int $userId = null): array
     {
+        // A step-up code must belong to the account that asked for it. Only the
+        // signed-in privacy endpoint issues these, and it always says whose.
+        if ($userId === null && in_array($purpose, PrivacyService::PURPOSES, true)) {
+            throw HttpException::unprocessable('Unknown verification purpose.', 'invalid_purpose');
+        }
+
         // Only the `login` purpose is gated on the OTP method. Codes sent to
         // verify an email or phone, or to confirm account deletion, are a
         // verification channel rather than a way in — gating those would break
@@ -1032,20 +1368,47 @@ final class AuthService
         // if an operator has switched it off, no code should go out by SMS.
         if ($channel === 'sms') {
             self::assertMethodEnabled('mobile_otp', true, ['identifier' => $destination], $userId);
+            self::assertOtpPhoneAllowed($destination);
+        }
+
+        // Two limits per destination and purpose, whoever is asking: a cooldown
+        // between codes, and a ceiling on codes per window. Without them the
+        // public send endpoint could pump codes at one number or mailbox from
+        // as many IPs as an attacker has.
+        $address  = strtolower(trim($destination));
+        $cooldown = max(0, Config::settingInt('auth', 'otp_resend_seconds', 45));
+
+        if ($cooldown > 0) {
+            $gate = RateLimiter::hit('otp:cooldown:' . $purpose . ':' . $address, 1, $cooldown);
+
+            if (!$gate['allowed']) {
+                throw HttpException::tooManyRequests(
+                    'Wait ' . $gate['retry_after'] . ' seconds before asking for another code.',
+                    $gate['retry_after'],
+                    'otp_cooldown'
+                );
+            }
+        }
+
+        $ceiling = RateLimiter::hit(
+            'otp:send:' . $purpose . ':' . $address,
+            1 + max(0, Config::settingInt('auth', 'otp_max_resends', 3)),
+            60 * max(1, Config::settingInt('security', 'otp_send_window_minutes', 60))
+        );
+
+        if (!$ceiling['allowed']) {
+            throw HttpException::tooManyRequests(
+                'Too many codes have been sent to this address. Try again later.',
+                $ceiling['retry_after'],
+                'otp_send_limit'
+            );
         }
 
         $length  = Config::settingInt('security', 'otp_length', 6);
         $ttl     = Config::settingInt('security', 'otp_ttl', 300);
         $code    = Crypto::randomOtp($length);
 
-        // Invalidate any live code for the same destination and purpose.
-        Database::execute(
-            'UPDATE `otp_verifications` SET `expires_at` = NOW()
-             WHERE `destination` = :destination AND `purpose` = :purpose AND `verified_at` IS NULL',
-            ['destination' => $destination, 'purpose' => $purpose]
-        );
-
-        Database::insert('otp_verifications', [
+        $otpId = Database::insert('otp_verifications', [
             'user_id'     => $userId,
             'channel'     => $channel,
             'destination' => $destination,
@@ -1058,48 +1421,116 @@ final class AuthService
         $minutes = max(1, (int) round($ttl / 60));
 
         if ($channel === 'sms') {
+            // sendNow() returns false when SMS is switched off or the provider
+            // rejected the message. That boolean used to be discarded, so the
+            // API answered "Verification code sent." while nothing had been
+            // sent and the user sat waiting for a code that did not exist.
             $sent = SmsService::sendNow(
                 $destination,
                 sprintf('%s is your Zusty verification code. It expires in %d minutes. Do not share it with anyone.', $code, $minutes)
             );
-
-            // sendNow() returns false when SMS is switched off or the provider
-            // rejected the message. That boolean was being discarded, so the API
-            // answered "Verification code sent." while nothing had been sent and
-            // the user sat waiting for a code that did not exist.
-            if (!$sent) {
-                throw new HttpException(
-                    'We could not send the verification code right now. Please try again shortly.',
-                    503,
-                    'otp_delivery_failed'
-                );
-            }
         } else {
+            // No fallback copy in the queue: a code that turns up after the
+            // app has said it could not be sent is worse than none, and by
+            // then a newer code may have replaced it.
             $sent = MailService::sendNow(
                 $destination,
                 '',
                 'Your Zusty verification code',
-                MailService::renderOtp($code, str_replace('_', ' ', $purpose), $minutes)
+                MailService::renderOtp($code, $purpose, $minutes),
+                null,
+                null,
+                false
             );
-
-            // Same treatment as the SMS branch above, for the same reason: the
-            // boolean was discarded, so with no SMTP host configured the API
-            // answered "Verification code sent." and the user waited for a code
-            // that had never left the building.
-            if (!$sent) {
-                throw new HttpException(
-                    'We could not send the verification code right now. Please try again shortly.',
-                    503,
-                    'otp_delivery_failed'
-                );
-            }
         }
 
-        return ['expires_in' => $ttl, 'length' => $length, 'channel' => $channel];
+        if (!$sent) {
+            Database::execute('DELETE FROM `otp_verifications` WHERE `id` = :id', ['id' => $otpId]);
+
+            throw new HttpException(
+                'We could not send the verification code right now. Please try again shortly.',
+                503,
+                'otp_delivery_failed'
+            );
+        }
+
+        // Delivered, so the earlier live codes for this destination and purpose
+        // are retired: only the newest one may ever be redeemed.
+        Database::execute(
+            'UPDATE `otp_verifications` SET `expires_at` = NOW()
+             WHERE `destination` = :destination AND `purpose` = :purpose AND `verified_at` IS NULL AND `id` <> :id',
+            ['destination' => $destination, 'purpose' => $purpose, 'id' => $otpId]
+        );
+
+        return [
+            'expires_in' => $ttl,
+            'length'     => $length,
+            'channel'    => $channel,
+            'resend_in'  => $cooldown,
+            'otp_id'     => $otpId,
+        ];
     }
 
-    /** Verify an OTP. Returns the matched row so the caller can act on it. */
-    public static function verifyOtp(string $destination, string $code, string $purpose): array
+    /**
+     * Why the operator's OTP phone rules (auth.otp_allowed_country_codes,
+     * auth.otp_phone_digits) refuse to text a code to this number, or null
+     * when they do not. PrivacyService asks too, so it never offers an SMS
+     * channel that sendOtp() would refuse.
+     *
+     * @return 'phone_country_not_supported'|'invalid_phone'|null
+     */
+    public static function otpPhoneRefusal(string $destination): ?string
+    {
+        $defaultCode = Config::settingString('auth', 'otp_default_country_code', '+91');
+
+        [$countryCode, $national] = Str::splitPhone($destination, $defaultCode);
+
+        $allowed = array_values(array_filter(
+            array_map('strval', Config::settingArray('auth', 'otp_allowed_country_codes', [])),
+            static fn (string $code): bool => $code !== ''
+        ));
+
+        if ($allowed !== [] && !in_array($countryCode, $allowed, true)) {
+            return 'phone_country_not_supported';
+        }
+
+        $digits = Config::settingInt('auth', 'otp_phone_digits', 10);
+
+        if ($countryCode === $defaultCode && $digits > 0 && strlen($national) !== $digits) {
+            return 'invalid_phone';
+        }
+
+        return null;
+    }
+
+    /** Refuse an SMS code the operator's OTP phone rules do not allow. */
+    private static function assertOtpPhoneAllowed(string $destination): void
+    {
+        $refusal = self::otpPhoneRefusal($destination);
+
+        if ($refusal === null) {
+            return;
+        }
+
+        $message = $refusal === 'phone_country_not_supported'
+            ? "Codes can't be sent to numbers in that country."
+            : 'Enter a valid mobile number.';
+
+        throw new HttpException($message, 422, $refusal, ['destination' => [$message]]);
+    }
+
+    /**
+     * Verify an OTP. Returns the matched row so the caller can act on it.
+     *
+     * Both writes are conditional UPDATEs whose row count decides the outcome,
+     * so two requests racing with the same code cannot both get past the
+     * attempt cap or both redeem it: the database serialises them on the row.
+     *
+     * $userId binds the lookup to the account the code was issued for. Step-up
+     * and contact-change codes always carry it; the public sign-up codes do
+     * not, because the account may not exist yet.
+     */
+    public static function verifyOtp(string $destination, string $code, string $purpose, ?int $userId = null): array
     {
         // As in sendOtp: only sign-in is gated. Verification and deletion codes
         // must keep working for accounts that never use OTP to sign in.
@@ -1107,37 +1538,81 @@ final class AuthService
             self::assertMethodEnabled('mobile_otp', true, ['identifier' => $destination]);
         }
 
+        $bindings = ['destination' => $destination, 'purpose' => $purpose];
+
+        if ($userId !== null) {
+            $bindings['uid'] = $userId;
+        }
+
+        // The newest code, used or not. sendOtp() expires every other live code
+        // once a new one is delivered, so when the newest has been redeemed
+        // there is no live code at all, and "already used" is the honest answer.
         $record = Database::selectOne(
             'SELECT * FROM `otp_verifications`
-             WHERE `destination` = :destination AND `purpose` = :purpose AND `verified_at` IS NULL
+             WHERE `destination` = :destination AND `purpose` = :purpose'
+                . ($userId !== null ? ' AND `user_id` = :uid' : '') . '
              ORDER BY `id` DESC LIMIT 1',
-            ['destination' => $destination, 'purpose' => $purpose]
+            $bindings
         );
 
         if ($record === null) {
             throw HttpException::unprocessable('No verification code was requested for this destination.', 'otp_not_found');
         }
 
+        if ($record['verified_at'] !== null) {
+            throw self::otpUsed();
+        }
+
         if (strtotime((string) $record['expires_at']) <= time()) {
             throw HttpException::unprocessable('This code has expired. Request a new one.', 'otp_expired');
         }
 
-        if ((int) $record['attempts'] >= (int) $record['max_attempts']) {
-            throw HttpException::tooManyRequests('Too many incorrect attempts. Request a new code.');
-        }
-
-        Database::execute(
-            'UPDATE `otp_verifications` SET `attempts` = `attempts` + 1 WHERE `id` = :id',
+        $claimed = Database::execute(
+            'UPDATE `otp_verifications` SET `attempts` = `attempts` + 1
+              WHERE `id` = :id AND `verified_at` IS NULL AND `attempts` < `max_attempts` AND `expires_at` > NOW()',
             ['id' => (int) $record['id']]
         );
+
+        if ($claimed === 0) {
+            $current = Database::selectOne(
+                'SELECT `verified_at`, (`expires_at` <= NOW()) AS `expired` FROM `otp_verifications` WHERE `id` = :id',
+                ['id' => (int) $record['id']]
+            );
+
+            if ($current === null) {
+                throw HttpException::unprocessable('No verification code was requested for this destination.', 'otp_not_found');
+            }
+
+            if ((int) $current['expired'] === 1) {
+                throw HttpException::unprocessable('This code has expired. Request a new one.', 'otp_expired');
+            }
+
+            if ($current['verified_at'] !== null) {
+                throw self::otpUsed();
+            }
+
+            throw HttpException::tooManyRequests('Too many incorrect attempts. Request a new code.', 60, 'otp_attempts_exceeded');
+        }
 
         if (!Crypto::secureEquals((string) $record['code_hash'], Crypto::hashToken($code))) {
             throw HttpException::unprocessable('The verification code is incorrect.', 'otp_invalid');
         }
 
-        Database::update('otp_verifications', ['verified_at' => date('Y-m-d H:i:s')], ['id' => (int) $record['id']]);
+        $consumed = Database::execute(
+            'UPDATE `otp_verifications` SET `verified_at` = NOW() WHERE `id` = :id AND `verified_at` IS NULL',
+            ['id' => (int) $record['id']]
+        );
+
+        if ($consumed === 0) {
+            throw self::otpUsed();
+        }
 
         return $record;
+    }
+
+    private static function otpUsed(): HttpException
+    {
+        return HttpException::unprocessable('This code has already been used. Request a new one.', 'otp_used');
     }
 
     // -----------------------------------------------------------------
@@ -1233,6 +1708,10 @@ final class AuthService
      */
     public static function publicUser(array $user): array
     {
+        // Read before the hash is stripped: the app offers "Set a password" or
+        // "Change password" from this.
+        $user['has_password'] = !empty($user['password_hash']);
+
         unset(
             $user['password_hash'],
             $user['last_login_ip'],
@@ -1495,7 +1974,14 @@ final class AuthService
         );
     }
 
-    /** Register or refresh a device's FCM token. */
+    /**
+     * Register or refresh a device's FCM token.
+     *
+     * Written as INSERT ... SELECT from the live account row, so a device can
+     * never be attached to an account that is being, or has been, deleted: the
+     * SELECT waits for a deletion holding the row and then finds nothing, and
+     * nothing is inserted.
+     */
     public static function registerDevice(int $userId, array $device): void
     {
         $deviceId = trim((string) ($device['device_id'] ?? ''));
@@ -1507,7 +1993,9 @@ final class AuthService
         Database::execute(
             'INSERT INTO `user_devices`
                 (`user_id`, `device_id`, `fcm_token`, `platform`, `device_model`, `os_version`, `app_version`, `locale`, `last_active_at`, `created_at`)
-             VALUES (:user_id, :device_id, :fcm_token, :platform, :model, :os, :app_version, :locale, NOW(), NOW())
+             SELECT :user_id, :device_id, :fcm_token, :platform, :model, :os, :app_version, :locale, NOW(), NOW()
+               FROM `users` u
+              WHERE u.`id` = :user_id AND u.`deleted_at` IS NULL
              ON DUPLICATE KEY UPDATE
                 `fcm_token`      = VALUES(`fcm_token`),
                 -- Logout zeroes this (AuthController::logout). Without

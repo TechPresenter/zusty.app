@@ -4,6 +4,7 @@ import '../../core/network/api_client.dart';
 import '../../core/network/api_endpoints.dart';
 import '../../core/network/api_failure.dart';
 import '../../core/storage/key_value_cache.dart';
+import '../../core/utils/json.dart';
 import '../../models/auth_config.dart';
 import '../../models/menu.dart';
 
@@ -168,6 +169,27 @@ class AppConfigRepository {
       ),
     ],
   );
+
+  /// Whether the Google Play listing is public: `GET /settings` →
+  /// `settings.app.android_store_live` (Admin → Settings → App → "Play
+  /// listing is live").
+  ///
+  /// The store URL is also the update link, so it is filled in long before
+  /// the listing is public, and Google Play answers it with 404 until then.
+  /// Anything short of the server saying "live" — the switch off, a backend
+  /// without the setting, no connection — is therefore `false`: the website
+  /// always works, a dead store link never helps anyone.
+  Future<bool> isStoreListingLive() async {
+    try {
+      final response = await _client.get(ApiEndpoints.settings, skipAuth: true);
+      final app = response.mapAt('settings')['app'];
+
+      return app is Map && Json.boolean(app['android_store_live']);
+    } catch (e) {
+      debugPrint('[Zusty] public settings unavailable: $e');
+      return false;
+    }
+  }
 
   Future<void> clear() => _cache.remove(_cacheKey);
 

@@ -4,21 +4,28 @@ declare(strict_types=1);
 
 /**
  * Privacy & account management: /me/privacy, the data export and its
- * download link, account deletion, and the legacy DELETE /auth/account.
+ * download link, account deletion, and the retired DELETE /auth/account.
  *
  * Everything runs against the real server. One-time codes are planted
  * straight into `otp_verifications` (a known code, hashed as the server
  * hashes it), because email delivery is not something this suite can read.
  * The code path that consumes them is the real one.
  *
- * Deletion uses throwaway accounts registered for this run. They end as
- * anonymous tombstones, which are hard-deleted at the end along with every
- * export, code and queued email the run produced.
+ * Deletion uses throwaway accounts registered for this run. The ones that
+ * are erased stay as anonymous tombstones, exactly as in production (their
+ * deletion record is ON DELETE RESTRICT); their lines are stripped from the
+ * erasure ledger. Throwaways that were never erased are hard-deleted, along
+ * with every export, code, sign-in row and queued email the run produced.
+ *
+ * The strict versions of the one-time-code and public-profile checks live in
+ * 21_privacy_ops.php; the money rules in depth in 20_privacy_deletion.php.
  */
 
 use Zuste\Core\Config;
 use Zuste\Core\Crypto;
 use Zuste\Core\Database;
+use Zuste\Core\RateLimiter;
+use Zuste\Helpers\Money;
 use Zuste\Services\CronRunner;
 use Zuste\Tests\Actors;
 use Zuste\Tests\Http;
@@ -56,6 +63,17 @@ $tokenOf = static function (?string $url): string {
     return (string) ($query['token'] ?? '');
 };
 
+/**
+ * The archive itself: the landing page's form, posted as a browser posts it.
+ * A GET of the link only shows that page and never counts a download.
+ */
+$downloadZip = static fn (string $token): Res => Http::rawBody(
+    'POST',
+    '/privacy/exports/download',
+    'token=' . rawurlencode($token),
+    ['Content-Type' => 'application/x-www-form-urlencoded']
+);
+
 /** Unzip a response body to read one file from it. */
 $readZip = static function (Res $res, string $name): ?string {
     $path = tempnam(sys_get_temp_dir(), 'zexp');
@@ -77,13 +95,21 @@ $readZip = static function (Res $res, string $name): ?string {
 };
 
 /**
- * A fresh account for one deletion scenario.
- *
- * Registration is throttled per IP (5 per 15 minutes), and this suite
- * registers more than that on its own, so the buckets are cleared first.
+ * The registration and sign-in buckets of this client. This suite registers
+ * more accounts than /auth/register allows per IP (5 per 15 minutes), so
+ * those two buckets are emptied before each one; nothing else is touched.
  */
-$throwaway = static function (string $label, string $type) use (&$privacyCleanup): ?array {
-    Suite::clearRateLimits();
+$privacyApiPath     = rtrim((string) parse_url(Http::baseUrl(), PHP_URL_PATH), '/');
+$clearSignupBuckets = static function () use ($privacyApiPath): void {
+    foreach (['127.0.0.1', '::1'] as $ip) {
+        RateLimiter::clear('throttle:register:ip:' . $ip . ':' . $privacyApiPath . '/auth/register');
+        RateLimiter::clear('throttle:login:ip:' . $ip . ':' . $privacyApiPath . '/auth/login');
+    }
+};
+
+/** A fresh account for one deletion scenario. */
+$throwaway = static function (string $label, string $type) use (&$privacyCleanup, $clearSignupBuckets): ?array {
+    $clearSignupBuckets();
 
     $name  = 'privacy-' . $label . '-' . substr(bin2hex(random_bytes(4)), 0, 6);
     $actor = Actors::create($name, $type);
@@ -94,6 +120,12 @@ $throwaway = static function (string $label, string $type) use (&$privacyCleanup
 
     return $actor === null ? null : $actor + ['name' => $name];
 };
+
+/** An erased account: what the erasure leaves behind. */
+$isTombstone = static fn (int $userId): bool => (int) Database::scalar(
+    "SELECT COUNT(*) FROM `users` WHERE `id` = :id AND `status` = 'deleted' AND `name` = 'Deleted user' AND `email` IS NULL",
+    ['id' => $userId]
+) === 1;
 
 // =================================================================
 Suite::group('Privacy: overview');
@@ -108,6 +140,12 @@ if ($brand === null) {
 
     return;
 }
+
+$brandId = Actors::id('privacy-brand');
+
+// Only this account's confirmation gate: every password or code it checks
+// counts towards it, right or wrong.
+RateLimiter::clear('privacy:reauth:' . $brandId);
 
 $overview = Http::get('/me/privacy', [], 'privacy-brand');
 Suite::ok('GET /me/privacy answers', $overview, 200);
@@ -141,20 +179,22 @@ Suite::status(
     422
 );
 
-// SMS is off on most installs. Either it is refused with its reason, or a
-// code goes out. It must never be a 500.
+// SMS is off on most installs. Either a code goes out, or it is refused with
+// its reason; a provider failure is otp_delivery_failed. Never a 500.
 $sms = Http::post('/me/privacy/verification-code', ['purpose' => 'data_export', 'channel' => 'sms'], 'privacy-brand');
 Suite::check(
-    'an SMS code is sent, or refused with a reason',
-    in_array($sms->status, [200, 422, 503], true),
+    'an SMS code is sent, or refused with its reason',
+    $sms->status === 200
+        || ($sms->status === 422 && in_array($sms->code(), ['sms_unavailable', 'no_phone'], true))
+        || ($sms->status === 503 && $sms->code() === 'otp_delivery_failed'),
     $sms->describe()
 );
 
 // Email delivery depends on the SMTP settings of the machine running this.
 $email = Http::post('/me/privacy/verification-code', ['purpose' => 'data_export', 'channel' => 'email'], 'privacy-brand');
 Suite::check(
-    'an email code is sent, or the outage is reported as 503',
-    in_array($email->status, [200, 503], true),
+    'an email code is sent, or the outage is reported as otp_delivery_failed',
+    $email->status === 200 || ($email->status === 503 && $email->code() === 'otp_delivery_failed'),
     $email->describe()
 );
 
@@ -169,8 +209,6 @@ if ($email->status === 200) {
 // =================================================================
 Suite::group('Privacy: data export');
 // =================================================================
-
-$brandId = Actors::id('privacy-brand');
 
 // A clean slate: earlier runs left exports that would trip the cooldown.
 foreach (Database::select('SELECT `id` FROM `data_export_requests` WHERE `user_id` = :id', ['id' => $brandId]) as $old) {
@@ -196,9 +234,18 @@ Suite::equals('it can be downloaded', $export->at('data.export.can_download'), t
 $token = $tokenOf($export->at('data.export.download_url'));
 Suite::check('it comes with a download link', strlen($token) >= 32, (string) $export->at('data.export.download_url'));
 
-$download = Http::get('/privacy/exports/download', ['token' => $token]);
+// Opening the link shows a page with a form; it costs no download.
+$landing = Http::get('/privacy/exports/download', ['token' => $token]);
+Suite::status('opening the link shows a page', $landing, 200);
+Suite::check(
+    '…an HTML page with a form that posts, not the archive',
+    str_contains((string) $landing->header('content-type'), 'text/html') && str_contains($landing->body, '<form method="post"'),
+    (string) $landing->header('content-type')
+);
+
+$download = $downloadZip($token);
 // status(), not ok(): ok() reads the JSON envelope, and this body is a ZIP.
-Suite::status('the link downloads the archive', $download, 200);
+Suite::status('the form downloads the archive', $download, 200);
 Suite::check(
     'as a ZIP attachment',
     str_contains((string) $download->header('content-type'), 'application/zip')
@@ -218,11 +265,12 @@ Suite::check('security.json lists sessions', is_array(json_decode((string) $read
 Suite::check('a brand export has no creator profile', $readZip($download, 'creator_profile.json') === null);
 
 $after = Http::get('/me/privacy', [], 'privacy-brand');
-Suite::equals('the download was counted', $after->at('data.export.latest.download_count'), 1);
+Suite::equals('the download was counted once', $after->at('data.export.latest.download_count'), 1);
 Suite::equals('…and another export must wait', $after->at('data.export.can_request'), false);
 
 $again = Http::post('/me/privacy/exports', ['password' => Actors::password('privacy-brand')], 'privacy-brand');
 Suite::status('a second export inside the cooldown is refused', $again, 429);
+Suite::equals('…as export_cooldown', $again->code(), 'export_cooldown');
 Suite::check('…with Retry-After', (int) $again->header('retry-after') > 0, $again->describe());
 
 $bad = Http::get('/privacy/exports/download', ['token' => 'not-a-real-token']);
@@ -246,6 +294,8 @@ Suite::check(
 
 $exportId = (int) $export->at('data.export.id');
 
+// The 410s are read with GET, which only looks: a POST that hits them deletes
+// the archive on the spot, and the checks below need it on disk.
 Database::execute('UPDATE `data_export_requests` SET `max_downloads` = `download_count` WHERE `id` = :id', ['id' => $exportId]);
 $used = Http::get('/privacy/exports/download', ['token' => $token]);
 Suite::status('a used-up link is gone (410)', $used, 410);
@@ -272,9 +322,11 @@ Suite::check(
 );
 
 // A one-time code instead of the password. The route allows 5 export
-// attempts an hour, and the checks above used them up.
+// attempts an hour, and the checks above used them up: only that bucket
+// and this account's confirmation gate are emptied.
 Database::execute('DELETE FROM `data_export_requests` WHERE `user_id` = :id', ['id' => $brandId]);
-Suite::clearRateLimits();
+RateLimiter::clear('throttle:privacy-export:user:' . $brandId);
+RateLimiter::clear('privacy:reauth:' . $brandId);
 
 $wrongPurpose = $plantCode($brandId, Actors::email('privacy-brand'), 'delete_account');
 $crossed = Http::post('/me/privacy/exports', ['code' => $wrongPurpose, 'channel' => 'email'], 'privacy-brand');
@@ -289,53 +341,22 @@ Suite::equals(
     'email_code'
 );
 
+// Out of the cooldown first (failed exports do not count), so the reused
+// code itself is what gets refused.
+Database::execute("UPDATE `data_export_requests` SET `status` = 'failed' WHERE `user_id` = :id", ['id' => $brandId]);
 $reused = Http::post('/me/privacy/exports', ['code' => $code, 'channel' => 'email'], 'privacy-brand');
-Suite::check('a code works once', in_array($reused->status, [422, 429], true), $reused->describe());
-
-// =================================================================
-Suite::group('Privacy: deletion is refused while money is in play');
-// =================================================================
-
-$blocked = $throwaway('blocked', 'brand');
-
-if ($blocked === null) {
-    Suite::skipGroup('Privacy: deletion is refused while money is in play', 'registration failed: ' . Actors::lastError());
-} else {
-    Database::execute(
-        "INSERT INTO `wallets` (`user_id`, `currency`, `balance`, `locked_balance`) VALUES (:id, 'INR', 250, 0)
-         ON DUPLICATE KEY UPDATE `balance` = 250",
-        ['id' => $blocked['id']]
-    );
-
-    $view = Http::get('/me/privacy', [], $blocked['name']);
-    Suite::equals('the overview says it cannot be deleted yet', $view->at('data.deletion.can_delete'), false);
-    Suite::check(
-        '…because of the wallet balance',
-        in_array('wallet_balance', array_column((array) $view->at('data.deletion.blockers'), 'code'), true),
-        json_encode($view->at('data.deletion.blockers'))
-    );
-
-    $refused = Http::post('/me/privacy/delete-account', [
-        'password'     => $blocked['password'],
-        'confirmation' => 'DELETE',
-    ], $blocked['name']);
-    Suite::status('the deletion is refused (409)', $refused, 409);
-    Suite::equals('…as deletion_blocked', $refused->code(), 'deletion_blocked');
-    Suite::check('…naming the wallet', $refused->at('errors.wallet_balance') !== null, $refused->describe());
-    Suite::equals(
-        'and nothing was erased',
-        Database::scalar('SELECT `email` FROM `users` WHERE `id` = :id', ['id' => $blocked['id']]),
-        $blocked['email']
-    );
-
-    Database::execute('UPDATE `wallets` SET `balance` = 0 WHERE `user_id` = :id', ['id' => $blocked['id']]);
-}
+Suite::status('a code works once', $reused, 422);
+Suite::check('…refused as a spent code', str_starts_with($reused->code(), 'otp_'), $reused->describe());
 
 // =================================================================
 Suite::group('Privacy: deletion asks for proof');
 // =================================================================
 
-if ($blocked !== null) {
+$blocked = $throwaway('blocked', 'brand');
+
+if ($blocked === null) {
+    Suite::skipGroup('Privacy: deletion asks for proof', 'registration failed: ' . Actors::lastError());
+} else {
     Suite::status(
         'no typed confirmation is refused',
         Http::post('/me/privacy/delete-account', ['password' => $blocked['password']], $blocked['name']),
@@ -365,6 +386,134 @@ if ($blocked !== null) {
 }
 
 // =================================================================
+Suite::group('Privacy: money in the wallet');
+// =================================================================
+
+if ($blocked === null) {
+    Suite::skipGroup('Privacy: money in the wallet', 'registration failed: ' . Actors::lastError());
+} else {
+    $blockedId = (int) $blocked['id'];
+    RateLimiter::clear('privacy:reauth:' . $blockedId);
+
+    // ₹250 is below the minimum withdrawal: it cannot be paid out, so it can
+    // be given up instead of blocking the deletion.
+    Database::execute(
+        "INSERT INTO `wallets` (`user_id`, `currency`, `balance`, `locked_balance`) VALUES (:id, 'INR', 250, 0)
+         ON DUPLICATE KEY UPDATE `balance` = 250, `locked_balance` = 0",
+        ['id' => $blockedId]
+    );
+
+    $view = Http::get('/me/privacy', [], $blocked['name']);
+    Suite::equals('a balance below the minimum withdrawal does not block the deletion', $view->at('data.deletion.can_delete'), true);
+    Suite::check(
+        '…it is offered to be given up',
+        Money::equals((float) $view->at('data.deletion.forfeit.amount'), 250.0),
+        (string) json_encode($view->at('data.deletion.forfeit'))
+    );
+    Suite::check(
+        '…and is not a wallet_balance blocker',
+        !in_array('wallet_balance', array_column((array) $view->at('data.deletion.blockers'), 'code'), true),
+        (string) json_encode($view->at('data.deletion.blockers'))
+    );
+
+    $refused = Http::post('/me/privacy/delete-account', [
+        'password'     => $blocked['password'],
+        'confirmation' => 'DELETE',
+    ], $blocked['name']);
+    Suite::status('deleting without agreeing to give it up is refused (409)', $refused, 409);
+    Suite::equals('…as forfeit_required', $refused->code(), 'forfeit_required');
+    Suite::check('…naming the wallet', $refused->at('errors.wallet_balance') !== null, $refused->describe());
+    Suite::equals(
+        '…and nothing was erased',
+        Database::scalar('SELECT `email` FROM `users` WHERE `id` = :id', ['id' => $blockedId]),
+        $blocked['email']
+    );
+
+    $wrongAmount = Http::post('/me/privacy/delete-account', [
+        'password'        => $blocked['password'],
+        'confirmation'    => 'DELETE',
+        'forfeit_balance' => 100,
+    ], $blocked['name']);
+    Suite::check(
+        'agreeing to a different amount is refused too',
+        $wrongAmount->status === 409 && $wrongAmount->code() === 'forfeit_required',
+        $wrongAmount->describe()
+    );
+
+    $agreed = Http::post('/me/privacy/delete-account', [
+        'password'        => $blocked['password'],
+        'confirmation'    => 'DELETE',
+        'forfeit_balance' => 250,
+    ], $blocked['name']);
+    Suite::ok('agreeing to give up exactly that amount deletes the account', $agreed, 200);
+
+    $record = Database::selectOne('SELECT `id`, `forfeited_amount` FROM `account_deletion_requests` WHERE `user_id` = :id', ['id' => $blockedId]) ?? [];
+    $debit  = Database::selectOne(
+        'SELECT `direction`, `amount` FROM `wallet_transactions` WHERE `user_id` = :id AND `idempotency_key` = :key',
+        ['id' => $blockedId, 'key' => 'deletion-forfeit:' . (int) ($record['id'] ?? 0)]
+    ) ?? [];
+    Suite::check(
+        'the balance leaves through one ledger debit',
+        ($debit['direction'] ?? '') === 'debit' && Money::equals((float) ($debit['amount'] ?? 0), 250.0),
+        (string) json_encode($debit)
+    );
+    Suite::check(
+        'the deletion record says what was given up',
+        Money::equals((float) ($record['forfeited_amount'] ?? 0), 250.0),
+        (string) json_encode($record)
+    );
+}
+
+// A balance too large to give up still blocks, with a way out.
+$rich = $throwaway('rich', 'brand');
+
+if ($rich === null) {
+    Suite::skipGroup('Privacy: money in the wallet (a large balance)', 'registration failed: ' . Actors::lastError());
+} else {
+    $richId = (int) $rich['id'];
+
+    Database::execute(
+        "INSERT INTO `wallets` (`user_id`, `currency`, `balance`, `locked_balance`) VALUES (:id, 'INR', 5000, 0)
+         ON DUPLICATE KEY UPDATE `balance` = 5000, `locked_balance` = 0",
+        ['id' => $richId]
+    );
+    Database::update('users', ['kyc_status' => 'none'], ['id' => $richId]);
+
+    try {
+        $richView = Http::get('/me/privacy', [], $rich['name']);
+        $blocker  = null;
+
+        foreach ((array) $richView->at('data.deletion.blockers') as $candidate) {
+            if (($candidate['code'] ?? '') === 'wallet_balance') {
+                $blocker = $candidate;
+            }
+        }
+
+        Suite::equals('a large balance blocks the deletion', $richView->at('data.deletion.can_delete'), false);
+        Suite::check(
+            '…as wallet_balance, pointing to KYC or support',
+            $blocker !== null && in_array($blocker['action'] ?? '', ['kyc', 'support'], true),
+            (string) json_encode($richView->at('data.deletion.blockers'))
+        );
+
+        $richDelete = Http::post('/me/privacy/delete-account', [
+            'password'     => $rich['password'],
+            'confirmation' => 'DELETE',
+        ], $rich['name']);
+        Suite::status('the deletion is refused (409)', $richDelete, 409);
+        Suite::equals('…as deletion_blocked', $richDelete->code(), 'deletion_blocked');
+        Suite::check('…naming the wallet', $richDelete->at('errors.wallet_balance') !== null, $richDelete->describe());
+        Suite::equals(
+            'and nothing was erased',
+            Database::scalar('SELECT `email` FROM `users` WHERE `id` = :id', ['id' => $richId]),
+            $rich['email']
+        );
+    } finally {
+        Database::execute('UPDATE `wallets` SET `balance` = 0, `locked_balance` = 0 WHERE `user_id` = :id', ['id' => $richId]);
+    }
+}
+
+// =================================================================
 Suite::group('Privacy: a creator deletes their account');
 // =================================================================
 
@@ -378,6 +527,10 @@ if ($creator === null) {
     $oldHandle = (string) Database::scalar('SELECT `handle` FROM `creators` WHERE `id` = :id', ['id' => $creatorId]);
 
     Suite::check('registration made a creator profile', $creatorId > 0, 'creator id ' . $creatorId);
+
+    // Live and public, so the 404s after the deletion prove something.
+    Database::update('creators', ['status' => 'approved', 'is_public' => 1], ['id' => $creatorId]);
+    Suite::status('before deletion the public profile is visible', Http::get('/creators/' . rawurlencode($oldHandle)), 200);
 
     // Personal data spread across the tables the erasure must reach.
     Database::update('users', ['bio' => 'My private bio', 'city' => 'Pune'], ['id' => $uid]);
@@ -394,7 +547,7 @@ if ($creator === null) {
     Database::insert('search_histories', ['user_id' => $uid, 'term' => 'private search', 'created_at' => date('Y-m-d H:i:s')]);
 
     // A conversation with someone else, which must survive for them.
-    $other = Actors::id('privacy-brand');
+    $other = $brandId;
     $conversationId = Database::insert('conversations', ['uuid' => Crypto::uuid4(), 'type' => 'direct']);
     Database::insert('conversation_participants', ['conversation_id' => $conversationId, 'user_id' => $uid, 'role' => 'creator']);
     Database::insert('conversation_participants', ['conversation_id' => $conversationId, 'user_id' => $other, 'role' => 'brand']);
@@ -412,10 +565,7 @@ if ($creator === null) {
         ['id' => (int) $before->at('data.export.id')]
     );
 
-    $profile = json_decode(
-        (string) $readZip(Http::get('/privacy/exports/download', ['token' => $beforeToken]), 'creator_profile.json'),
-        true
-    );
+    $profile = json_decode((string) $readZip($downloadZip($beforeToken), 'creator_profile.json'), true);
     Suite::check(
         "the creator's export holds their profile and FAQs",
         ($profile['profile']['about'] ?? '') === 'All about me' && count($profile['faqs'] ?? []) === 1,
@@ -452,7 +602,8 @@ if ($creator === null) {
             && $creatorRow['about'] === null && (int) $creatorRow['is_public'] === 0 && $creatorRow['deleted_at'] !== null,
         json_encode($creatorRow)
     );
-    Suite::status('the old public profile is gone', Http::get('/creators/' . rawurlencode($oldHandle)), 404);
+    Suite::status('the old public profile is gone by handle', Http::get('/creators/' . rawurlencode($oldHandle)), 404);
+    Suite::status('…and by id', Http::get('/creators/' . $creatorId), 404);
 
     foreach ([
         'creator_faqs'      => ['creator_id', $creatorId],
@@ -503,13 +654,15 @@ if ($creator === null) {
     );
 
     // Signed out, everywhere, for good.
-    Suite::status('the old access token is dead', Http::get('/auth/me', [], $creator['name']), 401);
+    $dead = Http::get('/auth/me', [], $creator['name']);
+    Suite::status('the old access token is dead', $dead, 401);
+    Suite::equals('…and says the account was deleted', $dead->code(), 'account_deleted');
 
     $login = Http::post('/auth/login', ['identifier' => $creator['email'], 'password' => $creator['password']]);
     Suite::check('the old credentials no longer sign in', in_array($login->status, [401, 422], true), $login->describe());
 
     // The email address is free for a new account.
-    Suite::clearRateLimits();
+    $clearSignupBuckets();
     $again = Http::post('/auth/register', [
         'name'         => 'IT Returning',
         'email'        => $creator['email'],
@@ -531,17 +684,20 @@ if ($creator === null) {
 Suite::group('Privacy: a brand deletes by email code, closing its campaigns');
 // =================================================================
 
-$leaving = $throwaway('brand', 'brand');
+$leaving   = $throwaway('brand', 'brand');
+$applicant = $throwaway('applicant', 'creator');
+$invitee   = $throwaway('invitee', 'creator');
 
-if ($leaving === null) {
+if ($leaving === null || $applicant === null || $invitee === null) {
     Suite::skipGroup('Privacy: a brand deletes by email code, closing its campaigns', 'registration failed: ' . Actors::lastError());
 } else {
-    $bid = (int) $leaving['id'];
+    $bid           = (int) $leaving['id'];
+    $campaignTitle = 'IT privacy campaign ' . bin2hex(random_bytes(3));
 
     $campaignId = Database::insert('campaigns', [
         'code'          => 'ITP' . strtoupper(bin2hex(random_bytes(3))),
         'brand_user_id' => $bid,
-        'title'         => 'IT privacy campaign',
+        'title'         => $campaignTitle,
         'description'   => 'A campaign that should close.',
         'platform'      => 'instagram',
         'deliverable_type' => 'reel',
@@ -549,18 +705,22 @@ if ($leaving === null) {
         'is_public'     => 1,
     ]);
 
-    $applicant = Database::selectOne(
-        "SELECT `id`, `user_id` FROM `creators` WHERE `deleted_at` IS NULL AND `user_id` <> :id ORDER BY `id` LIMIT 1",
-        ['id' => $bid]
-    );
+    // Throwaway creators only: the erasure tells them (in the app and by
+    // email) that the campaign closed.
+    $applications = [];
 
-    $applicationId = $applicant === null ? 0 : Database::insert('campaign_applications', [
-        'campaign_id'     => $campaignId,
-        'creator_id'      => (int) $applicant['id'],
-        'creator_user_id' => (int) $applicant['user_id'],
-        'status'          => 'applied',
-        'pitch'           => 'Pick me',
-    ]);
+    foreach (['applied' => $applicant, 'invited' => $invitee] as $status => $person) {
+        $applications[$status] = [
+            'user' => (int) $person['id'],
+            'id'   => Database::insert('campaign_applications', [
+                'campaign_id'     => $campaignId,
+                'creator_id'      => (int) Database::scalar('SELECT `id` FROM `creators` WHERE `user_id` = :id', ['id' => (int) $person['id']]),
+                'creator_user_id' => (int) $person['id'],
+                'status'          => $status,
+                'pitch'           => $status === 'applied' ? 'Pick me' : null,
+            ]),
+        ];
+    }
 
     $code = $plantCode($bid, $leaving['email'], 'delete_account');
 
@@ -585,38 +745,45 @@ if ($leaving === null) {
         json_encode($campaign)
     );
 
-    if ($applicationId > 0) {
-        $application = Database::selectOne('SELECT `status`, `decline_reason` FROM `campaign_applications` WHERE `id` = :id', ['id' => $applicationId]) ?? [];
+    foreach ($applications as $status => $application) {
+        $row = Database::selectOne('SELECT `status`, `decline_reason` FROM `campaign_applications` WHERE `id` = :id', ['id' => $application['id']]) ?? [];
         Suite::check(
-            'its applicant is told the campaign closed',
-            $application['status'] === 'declined' && str_contains((string) $application['decline_reason'], 'closed'),
-            json_encode($application)
+            "its {$status} creator's application is closed",
+            $row['status'] === 'declined' && str_contains((string) $row['decline_reason'], 'closed'),
+            json_encode($row)
+        );
+        Suite::equals(
+            "…and the {$status} creator is told the campaign closed",
+            (int) Database::scalar(
+                "SELECT COUNT(*) FROM `notifications` WHERE `user_id` = :u AND `type` = 'campaign.cancelled' AND `body` LIKE :t",
+                ['u' => $application['user'], 't' => '%' . $campaignTitle . '%']
+            ),
+            1
         );
 
-        Database::execute('DELETE FROM `campaign_applications` WHERE `id` = :id', ['id' => $applicationId]);
+        Database::execute('DELETE FROM `campaign_applications` WHERE `id` = :id', ['id' => $application['id']]);
+        Database::execute("DELETE FROM `notifications` WHERE `user_id` = :u AND `type` = 'campaign.cancelled'", ['u' => $application['user']]);
     }
 
     Database::execute('DELETE FROM `campaigns` WHERE `id` = :id', ['id' => $campaignId]);
 }
 
 // =================================================================
-Suite::group('Privacy: the legacy DELETE /auth/account');
+Suite::group('Privacy: the retired DELETE /auth/account');
 // =================================================================
 
 $legacy = $throwaway('legacy', 'brand');
 
 if ($legacy === null) {
-    Suite::skipGroup('Privacy: the legacy DELETE /auth/account', 'registration failed: ' . Actors::lastError());
+    Suite::skipGroup('Privacy: the retired DELETE /auth/account', 'registration failed: ' . Actors::lastError());
 } else {
-    $noProof = Http::delete('/auth/account', [], $legacy['name']);
-    Suite::status('without a password it is refused', $noProof, 422);
-    Suite::equals('…as reauth_required', $noProof->code(), 'reauth_required');
-
-    $done = Http::delete('/auth/account', ['password' => $legacy['password'], 'reason' => 'legacy'], $legacy['name']);
-    Suite::ok('with the password it deletes', $done, 200);
-    Suite::check(
-        '…through the same erasure',
-        Database::selectOne('SELECT `email`, `name` FROM `users` WHERE `id` = :id', ['id' => (int) $legacy['id']]) === ['email' => null, 'name' => 'Deleted user']
+    $retired = Http::delete('/auth/account', ['password' => $legacy['password'], 'reason' => 'legacy'], $legacy['name']);
+    Suite::status('a brand or creator account is told to use the app (410)', $retired, 410);
+    Suite::equals('…as endpoint_retired', $retired->code(), 'endpoint_retired');
+    Suite::equals(
+        '…and nothing was erased',
+        Database::scalar('SELECT `email` FROM `users` WHERE `id` = :id', ['id' => (int) $legacy['id']]),
+        $legacy['email']
     );
 }
 
@@ -624,10 +791,26 @@ if ($legacy === null) {
 // Cleanup
 // =================================================================
 
+$privacyErased = [];
+
 foreach (array_unique($privacyCleanup) as $userId) {
+    $userId = (int) $userId;
+
+    Database::execute('DELETE FROM `otp_verifications` WHERE `user_id` = :id', ['id' => $userId]);
+    Database::execute("DELETE FROM `login_history` WHERE `actor_type` = 'user' AND `actor_id` = :id", ['id' => $userId]);
+    RateLimiter::clear('privacy:reauth:' . $userId);
+
+    // An erased account stays as its anonymous tombstone, as in production:
+    // its deletion record (and any given-up balance's ledger debit) must not
+    // be cascaded away.
+    if ($isTombstone($userId)) {
+        $privacyErased[] = $userId;
+
+        continue;
+    }
+
     Database::execute("DELETE FROM `activity_logs` WHERE `actor_type` = 'user' AND `actor_id` = :id", ['id' => $userId]);
     Database::execute("DELETE FROM `activity_logs` WHERE `subject_type` = 'user' AND `subject_id` = :id", ['id' => $userId]);
-    Database::execute('DELETE FROM `otp_verifications` WHERE `user_id` = :id', ['id' => $userId]);
     Database::execute('DELETE FROM `wallets` WHERE `user_id` = :id', ['id' => $userId]);
 
     try {
@@ -643,4 +826,26 @@ foreach (Database::select('SELECT `id` FROM `data_export_requests` WHERE `user_i
 CronRunner::run('privacy:purge-exports');
 Database::execute('DELETE FROM `data_export_requests` WHERE `user_id` = :id', ['id' => $brandId]);
 Database::execute('DELETE FROM `otp_verifications` WHERE `user_id` = :id', ['id' => $brandId]);
+Database::execute(
+    "DELETE FROM `activity_logs` WHERE `subject_type` = 'user' AND `subject_id` = :id AND `action` LIKE 'privacy.%'",
+    ['id' => $brandId]
+);
+Database::execute("DELETE FROM `login_history` WHERE `identifier` LIKE 'it-privacy-%@zuste.test'");
 Database::execute("DELETE FROM `email_queue` WHERE `to_email` LIKE 'it-privacy-%@zuste.test'");
+RateLimiter::clear('privacy:reauth:' . $brandId);
+RateLimiter::clear('throttle:privacy-export:user:' . $brandId);
+
+// The erasure ledger must not carry this run's accounts into a restore.
+$privacyLedger = rtrim((string) Config::get('storage.base_path'), '/\\') . '/privacy/erasure-ledger.jsonl';
+
+if ($privacyErased !== [] && is_file($privacyLedger)) {
+    $lines = file($privacyLedger, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    $kept  = array_values(array_filter(
+        $lines,
+        static fn (string $line): bool => !in_array((int) (json_decode($line, true)['user_id'] ?? 0), $privacyErased, true)
+    ));
+
+    if (count($kept) !== count($lines)) {
+        file_put_contents($privacyLedger, $kept === [] ? '' : implode("\n", $kept) . "\n", LOCK_EX);
+    }
+}

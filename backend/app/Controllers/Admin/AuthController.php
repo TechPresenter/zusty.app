@@ -492,16 +492,13 @@ final class AuthController extends BaseAdminController
                 $resetUrl
             );
 
-            // sendNow() reports failure by returning false, and that boolean was
-            // being discarded: the operator was told "a reset link is on its
-            // way" while the only copy of the token had been logged and thrown
-            // away. Queue it instead so drainQueue() retries with backoff.
+            // sendNow() reports failure by returning false, and on an SMTP
+            // failure it has already put the message in the queue for
+            // drainQueue() to retry with backoff. So this only records that it
+            // went the slow way: queueing it again here sent the link twice.
             if (!MailService::sendNow((string) $admin['email'], (string) $admin['name'], $subject, $bodyHtml)) {
-                $queued = MailService::queue((string) $admin['email'], (string) $admin['name'], $subject, $bodyHtml);
-
-                Logger::warning('Admin password reset email could not be sent immediately; queued for retry.', [
+                Logger::warning('Admin password reset email could not be sent immediately; it waits in the mail queue.', [
                     'admin_id' => (int) $admin['id'],
-                    'queue_id' => $queued,
                 ]);
             }
 

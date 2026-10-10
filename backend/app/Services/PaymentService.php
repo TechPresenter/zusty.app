@@ -819,19 +819,46 @@ final class PaymentService
                     ) ?? ''),
                 ], ['action_type' => 'booking', 'action_value' => (string) $payment['booking_id']]);
             } else {
-                WalletService::credit((int) $payment['user_id'], (float) $payment['amount'], [
-                    'category'        => 'deposit',
-                    'description'     => 'Money added to wallet',
-                    'reference_type'  => 'payment',
-                    'reference_id'    => $paymentId,
-                    'idempotency_key' => 'topup:payment:' . $paymentId,
-                ]);
+                // Payments, then wallets: the order every money path takes.
+                // The erasure closes the wallet under its own lock, so this
+                // waits for it and then sees the committed state.
+                $wallet = Database::selectOne(
+                    'SELECT * FROM `wallets` WHERE `user_id` = :id FOR UPDATE',
+                    ['id' => (int) $payment['user_id']]
+                );
 
-                NotificationService::send((int) $payment['user_id'], 'wallet.credited', [
-                    'amount'      => Money::groupIndian((float) $payment['amount'], 0),
-                    'currency'    => Money::symbol(),
-                    'description' => 'Money added to your wallet.',
-                ], ['action_type' => 'wallet']);
+                $accountGone = Database::scalar(
+                    'SELECT 1 FROM `users` WHERE `id` = :id AND `deleted_at` IS NOT NULL',
+                    ['id' => (int) $payment['user_id']]
+                ) !== null;
+
+                if (!empty($wallet['closed_at']) || $accountGone) {
+                    // The money cannot go into a deleted account: it goes back
+                    // where it came from. A gateway failure leaves a `failed`
+                    // refund for finance to settle.
+                    $refundId = self::openRefundRecord($payment, null, (float) $payment['amount'], 'other', 'system', null, 'source');
+                    Database::update('refunds', ['notes' => 'Account deleted before this top-up was confirmed'], ['id' => $refundId]);
+                    self::settleRefund($refundId);
+
+                    Logger::warning('A wallet top-up was captured after its account was deleted; it is being refunded to its source', [
+                        'payment_id' => $paymentId,
+                        'refund_id'  => $refundId,
+                    ]);
+                } else {
+                    WalletService::credit((int) $payment['user_id'], (float) $payment['amount'], [
+                        'category'        => 'deposit',
+                        'description'     => 'Money added to wallet',
+                        'reference_type'  => 'payment',
+                        'reference_id'    => $paymentId,
+                        'idempotency_key' => 'topup:payment:' . $paymentId,
+                    ]);
+
+                    NotificationService::send((int) $payment['user_id'], 'wallet.credited', [
+                        'amount'      => Money::groupIndian((float) $payment['amount'], 0),
+                        'currency'    => Money::symbol(),
+                        'description' => 'Money added to your wallet.',
+                    ], ['action_type' => 'wallet']);
+                }
             }
 
             $updated = Database::selectOne('SELECT * FROM `payments` WHERE `id` = :id', ['id' => $paymentId]);
@@ -1359,6 +1386,9 @@ final class PaymentService
         $eventId   = self::webhookEventId($gateway, $payload);
         $eventType = (string) ($payload['event'] ?? ($payload['type'] ?? 'unknown'));
 
+        // What is stored never carries the payer's email, phone or UPI ID.
+        $stored = self::storableWebhookPayload($rawBody, $payload);
+
         // Reject BEFORE touching `payment_webhooks`.
         //
         // The de-dup key is (gateway, event_id). If an unverified event were
@@ -1374,7 +1404,7 @@ final class PaymentService
                 'event_id'      => 'rejected:' . Crypto::uuid4(),
                 'event_type'    => $eventType,
                 'signature'     => mb_substr($signature, 0, 500),
-                'payload'       => $rawBody,
+                'payload'       => $stored,
                 'is_verified'   => 0,
                 'status'        => 'failed',
                 'error_message' => 'Signature verification failed.',
@@ -1394,7 +1424,7 @@ final class PaymentService
             'event_id'    => $eventId,
             'event_type'  => $eventType,
             'signature'   => mb_substr($signature, 0, 500),
-            'payload'     => $rawBody,
+            'payload'     => $stored,
             'is_verified' => 1,
             'created_at'  => date('Y-m-d H:i:s'),
         ]);
@@ -1759,18 +1789,59 @@ final class PaymentService
         return $paymentId;
     }
 
-    /** Never persist raw card data or gateway tokens in our own database. */
-    private static function scrubGatewayResponse(array $response): array
+    /**
+     * Keys dropped from a gateway payload at any depth: raw card data and
+     * gateway tokens, and the payer's contact details (email, phone, UPI ID,
+     * name). Ids, statuses, amounts, the method and error codes stay.
+     */
+    private const GATEWAY_SCRUBBED_KEYS = [
+        'card', 'payment_method_details', 'client_secret', 'source', 'charges',
+        'email', 'contact', 'vpa', 'upi_id', 'receipt_email', 'billing_details', 'shipping',
+        'customer_details', 'customer_email', 'customer_phone', 'customer_name',
+    ];
+
+    /**
+     * Never persist raw card data, gateway tokens or the payer's contact
+     * details in our own database. Recursive, so webhook envelopes are
+     * covered too (payload.payment.entity, data.customer_details, ...).
+     *
+     * @param  array<mixed> $response
+     * @return array<mixed>
+     */
+    public static function scrubGatewayResponse(array $response): array
     {
-        unset(
-            $response['card'],
-            $response['payment_method_details'],
-            $response['client_secret'],
-            $response['source'],
-            $response['charges']
-        );
+        foreach ($response as $key => $value) {
+            if (is_string($key) && in_array(strtolower($key), self::GATEWAY_SCRUBBED_KEYS, true)) {
+                unset($response[$key]);
+
+                continue;
+            }
+
+            if (is_array($value)) {
+                $response[$key] = self::scrubGatewayResponse($value);
+            }
+        }
 
         return $response;
+    }
+
+    /**
+     * The webhook body as it is kept in `payment_webhooks`: scrubbed and
+     * re-encoded when it is JSON. Processing always uses the decoded,
+     * unscrubbed payload.
+     *
+     * @param array<mixed> $payload
+     */
+    private static function storableWebhookPayload(string $rawBody, array $payload): string
+    {
+        // Not JSON (or empty): there is nothing to scrub.
+        if ($payload === []) {
+            return $rawBody;
+        }
+
+        $encoded = json_encode(self::scrubGatewayResponse($payload), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        return $encoded === false ? '{}' : $encoded;
     }
 
     /** @return array{0:string,1:string} */

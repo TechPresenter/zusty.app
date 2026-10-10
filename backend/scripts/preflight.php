@@ -9,7 +9,7 @@ declare(strict_types=1);
  * to expose. Run it on the server, as the web user, before switching DNS:
  *
  *     php scripts/preflight.php
- *     php scripts/preflight.php --url=https://zustee.com   # also probe over HTTP
+ *     php scripts/preflight.php --url=https://zusty.app   # also probe over HTTP
  *
  * Exit codes:  0 = ready   1 = warnings only   2 = blocking failures
  *
@@ -113,6 +113,13 @@ foreach (['pdo_mysql', 'mbstring', 'json', 'openssl', 'curl', 'fileinfo'] as $ex
         ? good("ext-{$extension}")
         : fail("ext-{$extension}", 'required extension is not loaded');
 }
+
+// "Download my data" (and support's copy of it) is a ZIP built with
+// ZipArchive, which the privacy policy promises. Without ext-zip every data
+// export fails, so this is required, not a nicety.
+extension_loaded('zip') && class_exists('ZipArchive')
+    ? good('ext-zip', 'ZipArchive available')
+    : fail('ext-zip', 'not loaded — data exports ("Download my data") cannot be built without ZipArchive; enable the zip extension');
 
 extension_loaded('gd') || extension_loaded('imagick')
     ? good('image extension', extension_loaded('gd') ? 'gd' : 'imagick')
@@ -477,6 +484,27 @@ try {
     $failing === []
         ? good('no failing jobs')
         : warn('failing jobs', implode(', ', $failing) . ' — check storage/logs');
+
+    // Two jobs keep promises the privacy policy makes: a data export's archive
+    // is deleted once its link dies (hourly), and an erasure's clean-up is
+    // retried until it is done (every 10 minutes). Each is allowed one missed
+    // run before it is reported.
+    foreach (['privacy:purge-exports' => 2 * 3600, 'privacy:finish-deletions' => 30 * 60] as $privacyJob => $maxAge) {
+        $job = Database::selectOne(
+            'SELECT `is_enabled`, `last_run_at` FROM `scheduled_jobs` WHERE `job_key` = :k',
+            ['k' => $privacyJob]
+        );
+
+        if ($job === null || (int) $job['is_enabled'] !== 1) {
+            warn($privacyJob, 'not registered or disabled under System → Jobs');
+        } elseif ($job['last_run_at'] === null) {
+            warn($privacyJob, 'has never run — install the crontab (php scripts/cron.php --crontab prints it)');
+        } elseif (strtotime((string) $job['last_run_at']) < time() - $maxAge) {
+            warn($privacyJob, 'last ran ' . $job['last_run_at'] . ' — check the crontab and storage/logs/cron.log');
+        } else {
+            good($privacyJob, 'last ran ' . $job['last_run_at']);
+        }
+    }
 } catch (\Throwable $e) {
     warn('scheduled jobs', $e->getMessage());
 }

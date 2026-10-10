@@ -143,17 +143,21 @@ preflight() {
     "$PHP_BIN" -r 'exit(PHP_VERSION_ID >= 80100 ? 0 : 1);' \
         || die "PHP 8.1 or newer is required (found $version)."
 
-    for extension in pdo_mysql mbstring openssl json curl; do
+    # zip is required: "Download my data" is a ZIP built with ZipArchive, and
+    # every data export fails without it.
+    for extension in pdo_mysql mbstring openssl json curl fileinfo zip; do
         "$PHP_BIN" -m | grep -qi "^${extension}$" \
             || die "Required PHP extension missing: $extension"
     done
+    "$PHP_BIN" -r 'exit(class_exists("ZipArchive") ? 0 : 1);' \
+        || die "Required PHP class missing: ZipArchive (enable the zip extension)"
     ok "required extensions present"
 
-    for optional in zip gd apcu; do
+    for optional in gd apcu; do
         if "$PHP_BIN" -m | grep -qi "^${optional}$"; then
             ok "optional extension $optional present"
         else
-            warn "optional extension $optional missing (xlsx export / image work / fast cache degrade gracefully)"
+            warn "optional extension $optional missing (image work / fast cache degrade gracefully)"
         fi
     done
 
@@ -299,6 +303,14 @@ rollback() {
         || die "Restore failed."
 
     ok "database restored"
+
+    # The dump can predate accounts erased since it was taken, and the privacy
+    # policy promises they are deleted again straight away.
+    if "$PHP_BIN" "$SCRIPT_DIR/privacy_support_request.php" reapply-erasures; then
+        ok "erasures re-applied"
+    else
+        warn "erasures were not re-applied; run: $PHP_BIN $SCRIPT_DIR/privacy_support_request.php reapply-erasures"
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -356,9 +368,11 @@ warm_caches() {
 prune_backups() {
     step "Pruning old backups"
 
+    # The same default as config/app.php (backup.retention_days), which is
+    # the window the privacy policy states for database backups.
     local retention
     retention="$(grep -E '^BACKUP_RETENTION_DAYS=' "$BASE_PATH/.env" | head -1 | cut -d= -f2- | tr -d '"' || true)"
-    retention="${retention:-30}"
+    retention="${retention:-14}"
 
     local removed=0
     if [ -d "$BASE_PATH/storage/backups" ] && [ "$DRY_RUN" -eq 0 ]; then
@@ -406,20 +420,19 @@ summary() {
     log "  Admin panel : $(grep -E '^ADMIN_URL=' "$BASE_PATH/.env" | head -1 | cut -d= -f2- | tr -d '\"' || echo '(set ADMIN_URL)')"
     log "  API base    : $(grep -E '^API_URL=' "$BASE_PATH/.env" | head -1 | cut -d= -f2- | tr -d '\"' || echo '(set API_URL)')"
     log ""
-    log "  Cron jobs — register these in hPanel > Advanced > Cron Jobs:"
-    log "    * * * * *      $PHP_BIN $SCRIPT_DIR/cron.php queue:dispatch"
-    log "    */5 * * * *    $PHP_BIN $SCRIPT_DIR/cron.php marketing:dispatch"
-    log "    */15 * * * *   $PHP_BIN $SCRIPT_DIR/cron.php bookings:expire"
-    log "    */30 * * * *   $PHP_BIN $SCRIPT_DIR/cron.php escrow:release"
-    log "    0 * * * *      $PHP_BIN $SCRIPT_DIR/cron.php bookings:autocomplete"
-    log "    30 1 * * *     $PHP_BIN $SCRIPT_DIR/cron.php analytics:rollup"
-    log "    0 2 * * *      $PHP_BIN $SCRIPT_DIR/cron.php backup:database"
-    log "    15 2 * * *     $PHP_BIN $SCRIPT_DIR/cron.php tokens:prune"
-    log "    30 2 * * *     $PHP_BIN $SCRIPT_DIR/cron.php creators:refresh"
-    log "    20 1 * * *     $PHP_BIN $SCRIPT_DIR/cron.php kyc:expiry"
-    log "    40 1 * * *     $PHP_BIN $SCRIPT_DIR/cron.php kyc:retention"
-    log "    0 3 * * 0      $PHP_BIN $SCRIPT_DIR/cron.php logs:rotate"
-    log "  (deploy/cron/zustee-crontab is the complete, ordered list.)"
+    log "  Cron jobs — register in hPanel > Advanced > Cron Jobs. Either one entry that"
+    log "  starts each job when its schedule (System > Jobs) comes round:"
+    log "    * * * * *      $PHP_BIN $SCRIPT_DIR/cron.php --due"
+    log "  or one entry per job:"
+
+    # Printed from the job registry and the scheduled_jobs table, so a job
+    # added by an upgrade is never missing from this list.
+    local crontab_lines
+    if crontab_lines="$("$PHP_BIN" "$SCRIPT_DIR/cron.php" --crontab 2>/dev/null)" && [ -n "$crontab_lines" ]; then
+        printf '%s\n' "$crontab_lines" | sed 's/^/    /' | tee -a "$DEPLOY_LOG"
+    else
+        warn "could not print the job list; the schedules are in docs/DEPLOYMENT.md (Cron jobs)"
+    fi
     log ""
     log "  Rollback if needed:  $SCRIPT_DIR/deploy.sh --rollback"
     log ""

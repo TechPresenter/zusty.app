@@ -7,10 +7,10 @@ namespace Zuste\Controllers\Admin;
 use Zuste\Core\Crypto;
 use Zuste\Core\Database;
 use Zuste\Core\HttpException;
-use Zuste\Core\Logger;
 use Zuste\Core\Request;
 use Zuste\Helpers\Money;
 use Zuste\Helpers\Str;
+use Zuste\Services\AccountDeletionService;
 use Zuste\Services\AuthService;
 use Zuste\Services\CreatorBadgeService;
 use Zuste\Services\KycService;
@@ -18,6 +18,7 @@ use Zuste\Services\CreatorProfileLockService;
 use Zuste\Services\CreatorService;
 use Zuste\Services\ExportService;
 use Zuste\Services\NotificationService;
+use Zuste\Services\PrivacyService;
 use Zuste\Services\WalletService;
 
 /**
@@ -161,6 +162,13 @@ final class UserController extends BaseAdminController
             'pageTitle'    => (string) $user['name'],
             'pageSubtitle' => ucfirst((string) $user['account_type']) . ' account · joined ' . date('d M Y', strtotime((string) $user['created_at'])),
             'user'         => $user,
+            // Set once the account has been erased (by its owner or by staff):
+            // it then cannot be restored, and only staff postings reach its wallet.
+            'erasure'      => Database::selectOne(
+                'SELECT `id`, `verified_via`, `created_at` FROM `account_deletion_requests`
+                  WHERE `user_id` = :id ORDER BY `id` DESC LIMIT 1',
+                ['id' => $userId]
+            ),
             'wallet'       => WalletService::balance($userId),
             'bookings'     => Database::select(
                 'SELECT b.`id`, b.`code`, b.`title`, b.`status`, b.`total_amount`, b.`currency`, b.`created_at`
@@ -258,7 +266,16 @@ final class UserController extends BaseAdminController
             throw HttpException::notFound('User not found.');
         }
 
-        if ($user['deleted_at'] !== null) {
+        // An erased account cannot be restored, and its wallet is closed to
+        // everything except a posting made here. That posting is how money
+        // still owed to or by it is settled, for example a refund that came
+        // back after the erasure. Nobody is left to notify.
+        $erased = $user['deleted_at'] !== null && Database::scalar(
+            'SELECT 1 FROM `account_deletion_requests` WHERE `user_id` = :id LIMIT 1',
+            ['id' => $userId]
+        ) !== null;
+
+        if ($user['deleted_at'] !== null && !$erased) {
             $this->back('error', 'This account is in the recycle bin. Restore it before adjusting its wallet.');
         }
 
@@ -280,8 +297,15 @@ final class UserController extends BaseAdminController
             'user',
             $userId,
             sprintf('%s %s', (string) $data['direction'], Money::format((float) $data['amount'])),
-            ['reference' => $transaction['reference'], 'description' => $data['description']]
+            ['reference' => $transaction['reference'], 'description' => $data['description']] + ($erased ? ['erased_account' => true] : [])
         );
+
+        if ($erased) {
+            $this->respond(
+                $request,
+                'Wallet adjusted. Reference ' . (string) $transaction['reference'] . '. The account was erased, so nobody was notified.'
+            );
+        }
 
         NotificationService::send(
             $userId,
@@ -297,64 +321,117 @@ final class UserController extends BaseAdminController
         $this->respond($request, 'Wallet adjusted. Reference ' . (string) $transaction['reference'] . '.');
     }
 
-    /** POST /admin/users/{id}/delete */
+    /**
+     * POST /admin/users/{id}/delete
+     *
+     * Deleting a brand or creator erases it, exactly as when its owner
+     * deletes it in the app (AccountDeletionService, operator mode): the
+     * personal data is removed and the row stays as an anonymous tombstone
+     * for the records the law keeps. Anything still in progress refuses it,
+     * with the reasons. The identity documents are purged in the erasure's
+     * clean-up, which privacy:finish-deletions retries until it succeeds.
+     * It used to be a soft delete into the recycle bin that kept every piece
+     * of personal data. To stop someone using Zusty without erasing their
+     * data, suspend or ban them instead.
+     *
+     * Because it cannot be undone, it takes the same deliberate steps as
+     * Privacy requests → Act on a request, checked here and not only in the
+     * form: DELETE typed into `confirmation`, and a `note` saying how the
+     * request was confirmed, which is stored with the deletion record.
+     * Closing a guest account erases nothing and needs neither.
+     */
     public function destroy(Request $request): never
     {
         $this->authorize($request, 'users.delete');
 
         $userId = $request->routeParamInt('id');
+        $back   = '/admin/users/' . $userId;
 
-        $openBookings = (int) Database::scalar(
-            "SELECT COUNT(*) FROM `bookings`
-             WHERE (`brand_user_id` = :id OR `creator_user_id` = :id)
-               AND `status` IN ('pending','countered','accepted','awaiting_payment','confirmed','in_progress','delivered','disputed')
-               AND `deleted_at` IS NULL",
-            ['id' => $userId]
-        );
-
-        if ($openBookings > 0) {
-            $this->back('error', 'This user has ' . $openBookings . ' booking(s) in progress. Resolve them first.');
-        }
-
-        // Identity documents do not outlive the account. Erased FIRST, so a
-        // failure leaves the account as it was and the operator can simply try
-        // again (purgeForUser is idempotent) — the other order could close the
-        // account while its Aadhaar and PAN images stayed in storage, listed
-        // and previewable in the KYC panel. The profile row and its event
-        // trail are kept as the record that a verification happened.
-        try {
-            $kycPurge = KycService::purgeForUser($userId, 'Account deleted by an administrator.');
-        } catch (\Throwable $e) {
-            Logger::error('Could not erase KYC data while deleting a user', [
-                'user_id' => $userId,
-                'error'   => $e->getMessage(),
-            ]);
-
-            $this->back('error', 'The identity documents could not be erased, so the account was not deleted. Try again.');
-        }
-
-        Database::transaction(static function () use ($userId): void {
-            Database::update('users', [
-                'status'     => 'deleted',
-                'deleted_at' => date('Y-m-d H:i:s'),
-            ], ['id' => $userId]);
-
-            AuthService::revokeAllTokens($userId, 'deleted_by_admin');
-            Database::execute('DELETE FROM `user_devices` WHERE `user_id` = :id', ['id' => $userId]);
-        });
-
-        $this->log($request, 'user.deleted', 'user', $userId, 'Account deleted by an administrator.', [
-            'kyc_profiles_purged'  => $kycPurge['profiles'],
-            'kyc_documents_purged' => $kycPurge['documents'],
+        // Both optional here so a missing one is answered with a toast on the
+        // user page rather than a bare validation redirect; lengths are capped.
+        $data = $this->validate($request, [
+            'confirmation' => 'nullable|string|max:20',
+            'note'         => 'nullable|string|max:500',
         ]);
+
+        // Soft-deleted rows included: an account staff binned before this
+        // was an erasure still holds its personal data, and is erased now.
+        $user = Database::selectOne('SELECT * FROM `users` WHERE `id` = :id', ['id' => $userId]);
+
+        if ($user === null) {
+            throw HttpException::notFound('User not found.');
+        }
+
+        // A guest never gave a name, email or phone: closing it is all there is.
+        if ((string) $user['account_type'] === 'guest') {
+            if ($user['deleted_at'] !== null) {
+                $this->back('error', 'This guest account is already closed.', '/admin/users/' . $userId);
+            }
+
+            AuthService::closeGuest($userId);
+
+            $this->log($request, 'user.deleted', 'user', $userId, 'Guest account closed by an administrator.');
+
+            $this->back('success', 'Guest account closed.', '/admin/users');
+        }
+
+        if (strtoupper(trim((string) ($data['confirmation'] ?? ''))) !== PrivacyService::CONFIRM_PHRASE) {
+            $this->back('error', 'Type ' . PrivacyService::CONFIRM_PHRASE . ' to confirm the erasure. Nothing was changed.', $back);
+        }
+
+        $note = trim((string) ($data['note'] ?? ''));
+
+        if (mb_strlen($note) < 3) {
+            $this->back(
+                'error',
+                'Say how you confirmed that the request comes from the account\'s owner. Nothing was changed.',
+                $back
+            );
+        }
+
+        try {
+            $summary = AccountDeletionService::delete($user, 'operator', 'other', null, [
+                'admin_id' => $this->adminId($request),
+                'platform' => 'admin',
+                'note'     => $note,
+                'via'      => 'panel',
+            ]);
+        } catch (HttpException $e) {
+            $this->back('error', self::erasureRefusal($e), $back);
+        }
 
         $this->back(
             'success',
-            $kycPurge['documents'] > 0 || $kycPurge['profiles'] > 0
-                ? 'User account deleted. Their identity documents were erased.'
-                : 'User account deleted.',
+            !empty($summary['already_deleted'])
+                ? 'This account was already erased.'
+                : 'Account erased. Its personal data is gone and it cannot be restored.',
             '/admin/users'
         );
+    }
+
+    /**
+     * Why an erasure was refused, in one toast: every blocker at once, as the
+     * app lists them. A balance too small to pay out can only be given up on
+     * the owner's behalf from Privacy requests, where the note recording how
+     * the request was confirmed is taken.
+     */
+    private static function erasureRefusal(HttpException $e): string
+    {
+        $messages = [];
+
+        foreach ($e->errors() as $lines) {
+            foreach ((array) $lines as $line) {
+                $messages[] = (string) $line;
+            }
+        }
+
+        $message = 'The account was not erased. ' . ($messages === [] ? $e->getMessage() : implode(' ', array_unique($messages)));
+
+        if ($e->errorCode() === 'forfeit_required') {
+            $message .= ' To give up that balance on the owner\'s behalf, erase the account from Privacy requests → Act on a request.';
+        }
+
+        return $message;
     }
 
     // =================================================================

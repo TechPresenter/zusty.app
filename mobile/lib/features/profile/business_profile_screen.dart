@@ -328,7 +328,7 @@ class _BusinessProfileScreenState
                 const SizedBox(height: AppSpacing.md),
                 ZTextField(
                   label: 'Website',
-                  hint: 'https://glowskincare.in',
+                  hint: 'https://yourbrand.com',
                   controller: _website,
                   keyboardType: TextInputType.url,
                   prefixIcon: Icons.language_rounded,

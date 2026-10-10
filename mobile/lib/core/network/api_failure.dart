@@ -196,7 +196,10 @@ abstract final class ApiFailureMapper {
         ? 'Something went wrong. Please try again.'
         : message.trim();
 
-    if (code == 'maintenance' || statusCode == 503) {
+    // Only the platform's own maintenance answer. Another 503, such as a
+    // verification code the mail or SMS provider could not deliver, falls
+    // through to ServerFailure below, keeping its code and staying retryable.
+    if (code == 'maintenance') {
       return MaintenanceFailure(message: safeMessage);
     }
 

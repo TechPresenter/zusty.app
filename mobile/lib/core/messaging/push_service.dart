@@ -3,6 +3,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../../models/notification.dart';
 import '../storage/key_value_cache.dart';
 
 /// Firebase Cloud Messaging, reduced to what this app needs: a token, and the
@@ -48,6 +49,21 @@ class PushService {
   Stream<String> get onTokenRefresh => FirebaseMessaging.instance.onTokenRefresh;
 
   Future<void> deleteToken() => FirebaseMessaging.instance.deleteToken();
+
+  /// A push that arrived while the app was open. Android draws nothing for
+  /// these by itself, so the app has to show them.
+  Stream<PushMessage> get onForegroundMessage =>
+      FirebaseMessaging.onMessage.map(PushMessage.fromRemote);
+
+  /// A push the user tapped while the app was in the background.
+  Stream<PushMessage> get onMessageOpened =>
+      FirebaseMessaging.onMessageOpenedApp.map(PushMessage.fromRemote);
+
+  /// The push whose tap started the app from cold, if that is how it started.
+  Future<PushMessage?> initialMessage() async {
+    final message = await FirebaseMessaging.instance.getInitialMessage();
+    return message == null ? null : PushMessage.fromRemote(message);
+  }
 
   /// The exact body `POST /me/devices` reads.
   ///
@@ -123,4 +139,33 @@ class _DeviceDescription {
 
   final String model;
   final String osVersion;
+}
+
+/// One push, reduced to what the app acts on.
+///
+/// The server sends the notification's text plus a data block naming what it
+/// is about — `type`, `action_type`, `action_value` and `notification_id`
+/// (NotificationService) — the same pair the inbox row carries, so a tap can
+/// go exactly where tapping the row in the inbox would.
+@immutable
+class PushMessage {
+  const PushMessage({this.title = '', this.body = '', this.data = const {}});
+
+  factory PushMessage.fromRemote(RemoteMessage message) => PushMessage(
+        title: message.notification?.title ?? '${message.data['title'] ?? ''}',
+        body: message.notification?.body ?? '${message.data['body'] ?? ''}',
+        data: Map<String, dynamic>.from(message.data),
+      );
+
+  final String title;
+  final String body;
+  final Map<String, dynamic> data;
+
+  /// The push as the inbox row it mirrors.
+  AppNotification get notification => AppNotification.fromJson({
+        ...data,
+        'id': data['notification_id'],
+        'title': title.isEmpty ? null : title,
+        'body': body,
+      });
 }

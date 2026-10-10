@@ -72,7 +72,13 @@ final filteredNotificationsProvider = FutureProvider.autoDispose
 /// twenty). Remembering the row that was tapped lets the details screen show
 /// it without an endpoint for a single notification, which the API does not
 /// have.
-final openedNotificationProvider = StateProvider<AppNotification?>((_) => null);
+///
+/// Forgotten on a sign-out or an account switch: the row belongs to the
+/// account that opened it.
+final openedNotificationProvider = StateProvider<AppNotification?>((ref) {
+  ref.watch(currentUserProvider.select((user) => user?.id));
+  return null;
+});
 
 /// Unread badge count derived from the loaded list.
 final unreadNotificationsProvider = Provider.autoDispose<int>((ref) {

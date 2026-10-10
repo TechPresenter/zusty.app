@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:zuste/core/network/api_client.dart';
+import 'package:zuste/core/network/api_failure.dart';
 import 'package:zuste/core/network/connectivity_service.dart';
 import 'package:zuste/core/storage/key_value_cache.dart';
 import 'package:zuste/core/storage/secure_store.dart';
@@ -119,21 +120,76 @@ void main() {
               'methods': ['card', 'upi', 'netbanking'],
             },
             {
+              'id': 'cashfree',
+              'label': 'UPI / Card / Net Banking',
+              'methods': ['upi', 'card', 'netbanking'],
+            },
+            {
               'id': 'wallet',
               'label': 'Zusty Wallet',
               'methods': ['wallet'],
             },
           ],
         }),
+        '/wallet/topup': _ok({
+          'gateway': 'cashfree',
+          'order_id': 'ZT-TOPUP-1',
+          'checkout_url': 'https://payments.cashfree.com/order/#session',
+          'requires_client_action': true,
+        }),
       });
 
-      await WalletRepository(scripted(adapter)).topup(amount: 1000, method: 'upi');
+      final order = await WalletRepository(scripted(adapter))
+          .topup(amount: 1000, method: 'upi');
 
       final post = adapter.calls.last;
       expect(post.path, '/wallet/topup');
       expect(post.body.containsKey('method'), isFalse);
-      expect(post.body['gateway'], 'razorpay');
+      // Razorpay needs a native SDK this build does not ship, so the gateway
+      // whose hosted checkout the app can open is chosen.
+      expect(post.body['gateway'], 'cashfree');
       expect(post.body['amount'], 1000);
+      // The order comes back for the caller to complete, rather than being
+      // thrown away and reported as money added.
+      expect(order['checkout_url'], 'https://payments.cashfree.com/order/#session');
+      expect(order['requires_client_action'], isTrue);
+    });
+
+    test('topup with no gateway this build can complete says so, sending nothing',
+        () async {
+      final adapter = _RecordingAdapter({
+        '/payments/methods': _ok({
+          'gateways': [
+            {'id': 'razorpay', 'label': 'Card', 'methods': ['card']},
+            {'id': 'stripe', 'label': 'Card', 'methods': ['card']},
+            {'id': 'wallet', 'label': 'Zusty Wallet', 'methods': ['wallet']},
+          ],
+        }),
+      });
+
+      await expectLater(
+        WalletRepository(scripted(adapter)).topup(amount: 1000, method: 'upi'),
+        throwsA(isA<ConflictFailure>()
+            .having((f) => f.code, 'code', 'topup_unavailable')),
+      );
+      expect(adapter.calls.map((c) => c.path), isNot(contains('/wallet/topup')));
+    });
+
+    test('checkout offers only the gateways this build can complete', () async {
+      final adapter = _RecordingAdapter({
+        '/payments/methods': _ok({
+          'gateways': [
+            {'id': 'razorpay', 'label': 'Card / UPI', 'methods': ['card', 'upi']},
+            {'id': 'cashfree', 'label': 'UPI / Card', 'methods': ['upi', 'card']},
+            {'id': 'stripe', 'label': 'Card', 'methods': ['card']},
+            {'id': 'wallet', 'label': 'Zusty Wallet', 'methods': ['wallet']},
+          ],
+        }),
+      });
+
+      final methods = await WalletRepository(scripted(adapter)).paymentMethods();
+
+      expect(methods.map((m) => m.gateway), ['cashfree', 'wallet']);
     });
 
     test('C35 addBankAccount sends account_holder_name and ifsc_code',

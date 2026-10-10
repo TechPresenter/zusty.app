@@ -224,10 +224,13 @@ final class InvoiceService
         }
 
         $booking  = Database::selectOne('SELECT `code` FROM `bookings` WHERE `id` = :id', ['id' => (int) $invoice['booking_id']]);
-        $company  = Config::settingString('general', 'company_name', 'Zuste Technologies Pvt. Ltd.');
+        // The legal entity is whatever Settings → General names; the app name
+        // stands in only when that is empty, and no entity is ever hard-coded.
+        $company  = trim(Config::settingString('general', 'company_name', ''))
+            ?: (trim(Config::settingString('general', 'app_name', '')) ?: 'Zusty');
         $address  = Config::settingString('general', 'company_address', '');
         $gstin    = Config::settingString('general', 'company_gstin', '');
-        $support  = Config::settingString('general', 'support_email', 'support@zustee.com');
+        $support  = MailService::supportAddress();
         $currency = (string) $invoice['currency'];
 
         /** @var list<array<string,mixed>> $lineItems */

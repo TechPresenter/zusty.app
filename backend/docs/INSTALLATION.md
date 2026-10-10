@@ -14,15 +14,19 @@ installer.
 | Disk | 500 MB | 2 GB+ (uploads and backups grow) |
 
 **Required PHP extensions** — the installer and `deploy.sh` both refuse to continue
-without these:
+without these, and `php scripts/preflight.php` reports each missing one as a failure:
 
-`pdo_mysql` · `mbstring` · `openssl` · `json` · `curl`
+`pdo_mysql` · `mbstring` · `openssl` · `json` · `curl` · `fileinfo` · `zip`
+
+`zip` is required because **Download my data** (and the copy support sends from
+Privacy requests) is a ZIP archive built with PHP's `ZipArchive`: without the
+extension every data export fails. It also makes the Excel exports, which would
+otherwise fall back to CSV.
 
 **Optional, and what you lose without each:**
 
 | Extension | Without it |
 |---|---|
-| `zip` | Excel export falls back to CSV |
 | `gd` or `imagick` | No image resizing or WebP conversion on upload |
 | `apcu` | Cache falls back to the database table (slower, still correct) |
 

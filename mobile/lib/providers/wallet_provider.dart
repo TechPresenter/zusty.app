@@ -79,11 +79,18 @@ class WalletActionsController {
     _refresh();
   }
 
-  Future<void> topup({required double amount, required String method}) async {
-    await _ref
+  /// Creates the top-up's gateway order and hands it back for the caller to
+  /// complete. The balance only changes once that payment is confirmed
+  /// ([verifyPayment] refreshes it then).
+  Future<Map<String, dynamic>> topup({
+    required double amount,
+    String? method,
+  }) async {
+    final order = await _ref
         .read(walletRepositoryProvider)
         .topup(amount: amount, method: method);
     _refresh();
+    return order;
   }
 
   Future<void> cancelWithdrawal(int id) async {

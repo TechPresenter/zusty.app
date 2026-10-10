@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Status-bar notification icon: the Zusty mark (a rounded play triangle with a
+  Z cut through it) as a single-colour silhouette. Android tints it, and draws
+  anything non-transparent as solid, so it must not be the colour launcher art.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M6.6,2.6C5.6,2.0 4.4,2.7 4.4,3.9L4.4,20.1C4.4,21.3 5.6,22.0 6.6,21.4L20.3,13.2C21.3,12.6 21.3,11.4 20.3,10.8Z M7.2,8.6L12.6,8.6L12.6,10.0L9.4,14.0L12.6,14.0L12.6,15.4L7.2,15.4L7.2,14.0L10.4,10.0L7.2,10.0Z" />
+</vector>

@@ -222,6 +222,52 @@
     return box.innerHTML;
   }
 
+  /** Replace an element with its own children, keeping the words. */
+  function unwrap(el) {
+    if (!el.parentNode) return;
+    while (el.firstChild) el.parentNode.insertBefore(el.firstChild, el);
+    el.parentNode.removeChild(el);
+  }
+
+  /** True for a CSS font-weight that draws text bold. */
+  function isBoldWeight(weight) {
+    weight = (weight || '').toLowerCase();
+    if (weight === 'bold' || weight === 'bolder') return true;
+    return /^\d+$/.test(weight) && parseInt(weight, 10) >= 600;
+  }
+
+  /**
+   * Google Docs wraps every paste in <b style="font-weight:normal">. Its
+   * style is dropped on the way in, so taken at face value that wrapper
+   * turns the whole paste bold. A B or STRONG whose own style says it is not
+   * bold loses the tag and keeps its content, as CKEditor does.
+   */
+  function unwrapFalseBold(root) {
+    root.querySelectorAll('b, strong').forEach(function (el) {
+      var weight = (el.style.fontWeight || '').toLowerCase();
+      if (weight && weight !== 'inherit' && !isBoldWeight(weight)) unwrap(el);
+    });
+  }
+
+  /**
+   * Google Docs and Word set inline bold and italics as styles on a span,
+   * and styles are dropped on the way in. Wrap the span's content in STRONG
+   * or EM first, so the formatting survives as tags the server keeps.
+   */
+  function styledSpansToTags(root) {
+    root.querySelectorAll('span[style]').forEach(function (span) {
+      var marks = [];
+      if (isBoldWeight(span.style.fontWeight)) marks.push('strong');
+      if ((span.style.fontStyle || '').toLowerCase() === 'italic') marks.push('em');
+
+      marks.forEach(function (tag) {
+        var mark = document.createElement(tag);
+        while (span.firstChild) mark.appendChild(span.firstChild);
+        span.appendChild(mark);
+      });
+    });
+  }
+
   function ZEditor(textarea) {
     this.textarea = textarea;
     this.sourceMode = false;
@@ -355,8 +401,13 @@
       if (html) {
         var holder = document.createElement('div');
         holder.innerHTML = html;
+        // Read the styles before anything drops them: a bold tag that says it
+        // is not bold, bold and italic set on spans, and alignment.
+        unwrapFalseBold(holder);
+        styledSpansToTags(holder);
+        holder.innerHTML = normaliseHtml(holder.innerHTML);
         sanitiseFragment(holder);
-        document.execCommand('insertHTML', false, normaliseHtml(holder.innerHTML));
+        document.execCommand('insertHTML', false, holder.innerHTML);
       } else {
         document.execCommand('insertText', false, text);
       }

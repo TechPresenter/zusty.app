@@ -7,6 +7,7 @@ import '../models/creator_completion.dart';
 import '../models/creator_fields.dart';
 import '../models/home_feed.dart';
 import '../models/review.dart';
+import 'auth_provider.dart';
 import 'core_providers.dart';
 import 'location_provider.dart';
 
@@ -171,9 +172,15 @@ final searchSuggestionsProvider =
 
 /// Locally-kept recent searches, so the Search screen has history without a
 /// dedicated backend read.
+///
+/// Belongs to the signed-in account: a sign-out or a switch to another
+/// account starts it empty again.
 class RecentSearchesController extends Notifier<List<String>> {
   @override
-  List<String> build() => const [];
+  List<String> build() {
+    ref.watch(currentUserProvider.select((user) => user?.id));
+    return const [];
+  }
 
   void add(String term) {
     final trimmed = term.trim();
@@ -197,9 +204,15 @@ final recentSearchesProvider =
 /// user has tapped its heart in this session. Cards fall back to the server's
 /// `is_favorite` flag for anything not in the map, so a tap updates instantly
 /// everywhere that creator appears without re-fetching the lists.
+///
+/// The overrides are one account's taps, so a sign-out or a switch to another
+/// account drops them and the cards go back to the server's flags.
 class FavoriteToggleController extends Notifier<Map<int, bool>> {
   @override
-  Map<int, bool> build() => const {};
+  Map<int, bool> build() {
+    ref.watch(currentUserProvider.select((user) => user?.id));
+    return const {};
+  }
 
   /// The current favourite state for [creator], honouring any local override.
   bool isFavorite(Creator creator) => state[creator.id] ?? creator.isFavorite;
@@ -234,10 +247,13 @@ final isFavoriteProvider = Provider.family<bool, Creator>((ref, creator) {
 
 /// Follow state, with the same sparse-override model as favourites: a tap
 /// flips every card showing that creator at once, and is rolled back if the
-/// server refuses.
+/// server refuses. Reset on a sign-out or an account switch, like favourites.
 class FollowToggleController extends Notifier<Map<int, bool>> {
   @override
-  Map<int, bool> build() => const {};
+  Map<int, bool> build() {
+    ref.watch(currentUserProvider.select((user) => user?.id));
+    return const {};
+  }
 
   bool isFollowing(Creator creator) => state[creator.id] ?? creator.isFollowing;
 

@@ -243,7 +243,8 @@ $otpWrongCode = Http::post('/auth/otp/verify', [
     'code'        => '000000',
     'purpose'     => 'login',
 ]);
-Suite::status('an incorrect OTP is refused', $otpWrongCode, [400, 401, 422, 429]);
+// 403 auth_method_disabled while OTP sign-in (auth.otp_login_enabled) is off.
+Suite::status('an incorrect OTP is refused', $otpWrongCode, [400, 401, 403, 404, 422, 429]);
 
 // -----------------------------------------------------------------
 Suite::group('Auth — password reset');

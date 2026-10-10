@@ -6,7 +6,9 @@ import '../../core/network/api_failure.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/validators.dart';
 import '../../models/contact.dart';
+import '../../models/privacy.dart';
 import '../../providers/core_providers.dart';
+import '../../providers/privacy_provider.dart';
 import '../../shared/motion/motion.dart';
 import '../../shared/widgets/states.dart';
 import '../../shared/widgets/status_chip.dart';
@@ -16,6 +18,7 @@ import '../../shared/widgets/z_dialogs.dart';
 import '../../shared/widgets/z_feedback.dart';
 import '../../shared/widgets/z_scaffold.dart';
 import '../../shared/widgets/z_text_field.dart';
+import '../privacy/widgets/reauth_panel.dart';
 
 /// Email and mobile: verify them, change them, add alternates.
 ///
@@ -109,6 +112,9 @@ class _ChannelBlock extends ConsumerWidget {
   final String title;
 
   bool get isEmail => channel == 'email';
+
+  /// The verification options for a change are on their way.
+  static bool _loadingProofOptions = false;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -228,12 +234,54 @@ class _ChannelBlock extends ConsumerWidget {
 
     if (value == null || !context.mounted) return;
 
-    await _run(context, ref, () async {
-      final book = await ref
-          .read(contactRepositoryProvider)
-          .requestChange(channel: channel, value: value);
-      ref.read(contactBookProvider.notifier).set(book);
-    }, success: book.policy.otpVerification ? 'Code sent.' : 'Updated.');
+    final success = book.policy.otpVerification ? 'Code sent.' : 'Updated.';
+
+    // A second change started while the options load would race this one.
+    if (_loadingProofOptions) return;
+
+    // The primary address is where security codes and notices go, so the
+    // owner confirms it is them before it can change.
+    final VerificationOptions options;
+    _loadingProofOptions = true;
+    try {
+      options = (await ref.read(privacyRepositoryProvider).overview()).verification;
+    } on ApiFailure catch (failure) {
+      if (context.mounted) showZSnack(context, failure.message, isError: true);
+      return;
+    } finally {
+      _loadingProofOptions = false;
+    }
+
+    if (!context.mounted) return;
+
+    if (!options.canVerify) {
+      // Nothing to confirm with: the server still holds the new address
+      // until it is proved, and tells the old one about the change.
+      await _run(context, ref, () async {
+        final book = await ref
+            .read(contactRepositoryProvider)
+            .requestChange(channel: channel, value: value);
+        ref.read(contactBookProvider.notifier).set(book);
+      }, success: success);
+      return;
+    }
+
+    final updated = await showZSheet<ContactBook>(
+      context,
+      title: 'Confirm it\'s you',
+      subtitle:
+          'For your security, confirm your identity before we change your '
+          '${isEmail ? 'email address' : 'mobile number'}.',
+      builder: (_) => _ConfirmChangeSheet(
+        options: options,
+        channel: channel,
+        value: value,
+      ),
+    );
+
+    if (updated == null || !context.mounted) return;
+    ref.read(contactBookProvider.notifier).set(updated);
+    showZSnack(context, success);
   }
 
   Future<void> _addAlternate(BuildContext context, WidgetRef ref) async {
@@ -526,6 +574,102 @@ class _PendingChangeState extends ConsumerState<_PendingChange> {
       ref.read(contactBookProvider.notifier).set(book);
     }, success: 'Change cancelled.'),
   );
+}
+
+/// "Confirm it's you" before a primary email or number changes: the owner's
+/// password, a code to the account's current email or phone, or a fresh
+/// Google or Apple sign-in. The change is requested from here, so a wrong
+/// password or code lands beside its field and the sheet stays open.
+class _ConfirmChangeSheet extends ConsumerStatefulWidget {
+  const _ConfirmChangeSheet({
+    required this.options,
+    required this.channel,
+    required this.value,
+  });
+
+  final VerificationOptions options;
+
+  /// `email` or `phone`.
+  final String channel;
+
+  /// The new address or number.
+  final String value;
+
+  @override
+  ConsumerState<_ConfirmChangeSheet> createState() => _ConfirmChangeSheetState();
+}
+
+class _ConfirmChangeSheetState extends ConsumerState<_ConfirmChangeSheet> {
+  late final ReauthController _reauth = ReauthController(
+    options: widget.options,
+    purpose: PrivacyPurpose.contactChange,
+    repository: ref.read(privacyRepositoryProvider),
+    firebaseToken: ref.read(firebaseTokenSourceProvider),
+  );
+
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _reauth.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final proof = _reauth.proof;
+    if (proof == null || _busy) return;
+
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+
+    try {
+      final book = await ref.read(contactRepositoryProvider).requestChange(
+            channel: widget.channel,
+            value: widget.value,
+            proof: proof,
+          );
+      if (mounted) Navigator.of(context).pop(book);
+    } on ApiFailure catch (failure) {
+      if (!mounted) return;
+      if (!_reauth.applyFailure(failure)) setState(() => _error = failure.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_busy,
+      child: ListenableBuilder(
+        listenable: _reauth,
+        builder: (context, _) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IgnorePointer(
+              ignoring: _busy,
+              child: ReauthPanel(controller: _reauth, onSubmitted: _submit),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              ZInfoBanner(message: _error!, tone: StatusTone.error),
+            ],
+            const SizedBox(height: AppSpacing.lg),
+            ZButton(
+              label: 'Continue',
+              isLoading: _busy,
+              onPressed: _reauth.canVerify && _reauth.isComplete ? _submit : null,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// Ask for an address or number, in a sheet with inline validation.

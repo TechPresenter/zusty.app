@@ -178,7 +178,9 @@ preflight() {
 
     for key in DB_NAME DB_USER JWT_SECRET APP_ENCRYPTION_KEY; do
         local value
-        value="$(grep -E "^${key}=" "$BASE_PATH/.env" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
+        # \r stripped too: on a Windows-saved .env an empty value is "\r",
+        # which would otherwise pass as set.
+        value="$(grep -E "^${key}=" "$BASE_PATH/.env" | head -1 | cut -d= -f2- | tr -d "\"'\r" || true)"
         [ -n "$value" ] || die "$key is empty in .env"
     done
     ok ".env has the required keys"
@@ -228,7 +230,13 @@ preflight() {
 lint() {
     step "Linting PHP sources"
 
-    local failed=0 count=0
+    # The file list goes through a temp file, not `< <(find …)`: process
+    # substitution needs /dev/fd, which Hostinger's shell does not have, and
+    # there the loop silently read nothing and reported "0 files parsed".
+    local failed=0 count=0 list
+    list="$(mktemp "${TMPDIR:-/tmp}/zuste-lint.XXXXXX")"
+    find "$BASE_PATH/app" "$BASE_PATH/config" "$BASE_PATH/routes" \
+         "$BASE_PATH/scripts" "$BASE_PATH/public" -name '*.php' -type f 2>/dev/null > "$list" || true
     while IFS= read -r file; do
         count=$((count + 1))
         if ! "$PHP_BIN" -l "$file" >/dev/null 2>&1; then
@@ -236,9 +244,10 @@ lint() {
             "$PHP_BIN" -l "$file" || true
             failed=$((failed + 1))
         fi
-    done < <(find "$BASE_PATH/app" "$BASE_PATH/config" "$BASE_PATH/routes" \
-                  "$BASE_PATH/scripts" "$BASE_PATH/public" -name '*.php' -type f 2>/dev/null)
+    done < "$list"
+    rm -f "$list"
 
+    [ "$count" -gt 0 ] || die "No PHP files found to lint under $BASE_PATH. Nothing was deployed."
     [ "$failed" -eq 0 ] || die "$failed file(s) failed to parse. Nothing was deployed."
     ok "$count files parsed cleanly"
 }
@@ -388,15 +397,19 @@ prune_backups() {
     # The same default as config/app.php (backup.retention_days), which is
     # the window the privacy policy states for database backups.
     local retention
-    retention="$(grep -E '^BACKUP_RETENTION_DAYS=' "$BASE_PATH/.env" | head -1 | cut -d= -f2- | tr -d '"' || true)"
+    retention="$(grep -E '^BACKUP_RETENTION_DAYS=' "$BASE_PATH/.env" | head -1 | cut -d= -f2- | tr -d '"\r' || true)"
     retention="${retention:-14}"
 
-    local removed=0
+    local removed=0 list
     if [ -d "$BASE_PATH/storage/backups" ] && [ "$DRY_RUN" -eq 0 ]; then
+        # A temp file, not `< <(find …)` — see lint().
+        list="$(mktemp "${TMPDIR:-/tmp}/zuste-prune.XXXXXX")"
+        find "$BASE_PATH/storage/backups" -name '*.sql.gz' -type f -mtime "+$retention" 2>/dev/null > "$list" || true
         while IFS= read -r old; do
             rm -f "$old"
             removed=$((removed + 1))
-        done < <(find "$BASE_PATH/storage/backups" -name '*.sql.gz' -type f -mtime "+$retention" 2>/dev/null)
+        done < "$list"
+        rm -f "$list"
     fi
 
     ok "removed $removed backup(s) older than ${retention} days"
@@ -411,7 +424,9 @@ verify() {
     fi
 
     local url
-    url="$(grep -E '^APP_URL=' "$BASE_PATH/.env" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
+    # tr -d '\r': a .env saved with Windows line endings must not put a
+    # carriage return into the URL (the check then probed "https://host\r/…").
+    url="$(grep -E '^APP_URL=' "$BASE_PATH/.env" | head -1 | cut -d= -f2- | tr -d "\"'\r" || true)"
 
     if [ -z "$url" ]; then
         warn "APP_URL not set; skipping the HTTP check"

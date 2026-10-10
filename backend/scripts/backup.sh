@@ -112,23 +112,31 @@ mkdir -p "$BACKUP_DIR"
 if [ "$DO_LIST" -eq 1 ]; then
     printf '%-46s %10s  %s\n' 'FILE' 'SIZE' 'MODIFIED'
     found=0
+    # A temp file, not `< <(find …)`: process substitution needs /dev/fd,
+    # which Hostinger's shell does not have (the loop silently read nothing).
+    list="$(mktemp "${TMPDIR:-/tmp}/zuste-backups.XXXXXX")"
+    find "$BACKUP_DIR" -maxdepth 1 -name '*.sql.gz' -type f 2>/dev/null | sort -r > "$list" || true
     while IFS= read -r file; do
         found=1
         printf '%-46s %10s  %s\n' \
             "$(basename "$file")" \
             "$(du -h "$file" | cut -f1)" \
             "$(date -r "$file" '+%Y-%m-%d %H:%M' 2>/dev/null || echo '?')"
-    done < <(find "$BACKUP_DIR" -maxdepth 1 -name '*.sql.gz' -type f 2>/dev/null | sort -r)
+    done < "$list"
+    rm -f "$list"
     [ "$found" -eq 1 ] || echo '(no backups yet)'
     exit 0
 fi
 
 prune() {
-    local removed=0
+    local removed=0 list
+    list="$(mktemp "${TMPDIR:-/tmp}/zuste-prune.XXXXXX")"
+    find "$BACKUP_DIR" -maxdepth 1 \( -name '*.sql.gz' -o -name '*.tar.gz' \) \
+         -type f -mtime "+$RETENTION" 2>/dev/null > "$list" || true
     while IFS= read -r old; do
         rm -f "$old"; removed=$((removed + 1))
-    done < <(find "$BACKUP_DIR" -maxdepth 1 \( -name '*.sql.gz' -o -name '*.tar.gz' \) \
-                  -type f -mtime "+$RETENTION" 2>/dev/null)
+    done < "$list"
+    rm -f "$list"
     say "  pruned $removed backup(s) older than ${RETENTION} days"
 }
 

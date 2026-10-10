@@ -198,18 +198,25 @@ preflight() {
     # It was added and never wired in, so none of it could stop a deploy. A
     # readiness check nothing consults is documentation, not a gate.
     #
-    # Non-zero exit blocks the deploy. --skip-preflight exists for the case
-    # where an operator has read the failures and accepts them; it prints what
-    # it is skipping so that choice is on the record.
+    # preflight.php exits 0 when ready, 1 when ready with warnings (an optional
+    # integration not configured yet, for example) and 2 on failures. Only
+    # failures block the deploy; warnings are shown and the deploy continues.
+    # --skip-preflight exists for the case where an operator has read the
+    # failures and accepts them; it prints what it is skipping so that choice
+    # is on the record.
     if [ -f "$BASE_PATH/scripts/preflight.php" ]; then
         if [ "$SKIP_PREFLIGHT" = "1" ]; then
             warn "production readiness audit SKIPPED at your request (--skip-preflight)"
-        # --pre-migrate: the migrations this deploy is about to apply are
-        # expected to be pending here and must not fail the audit.
-        elif "$PHP_BIN" "$BASE_PATH/scripts/preflight.php" --pre-migrate; then
-            ok "production readiness audit passed"
         else
-            die "Production readiness audit failed. Fix the failures above, or re-run with --skip-preflight if you accept them."
+            local audit=0
+            # --pre-migrate: the migrations this deploy is about to apply are
+            # expected to be pending here and must not fail the audit.
+            "$PHP_BIN" "$BASE_PATH/scripts/preflight.php" --pre-migrate || audit=$?
+            case "$audit" in
+                0) ok "production readiness audit passed" ;;
+                1) warn "production readiness audit passed with warnings (see above)" ;;
+                *) die "Production readiness audit failed. Fix the failures above, or re-run with --skip-preflight if you accept them." ;;
+            esac
         fi
     fi
 }

@@ -13,6 +13,14 @@ declare(strict_types=1);
  * Graph, Twitter and JSON-LD tags, runs no script under the document CSP,
  * loads nothing from another host, revalidates with a 304 and answers HEAD.
  *
+ * The page's interactivity is CSS only, so the suite also checks the markup
+ * that makes it work: the feature tabs are radio inputs with a label each and
+ * a screenshot each, the FAQ is <details>, every in-page link has a target,
+ * images carry their size and load lazily below the hero, and the only links
+ * that leave the site are the Play listing and the social profiles. The copy
+ * names one mailbox (the support address) and makes no rating, ranking or
+ * user-count claim.
+ *
  * Every expected value is read from the same settings the controller reads,
  * so the checks hold whatever an admin has configured.
  *
@@ -154,19 +162,103 @@ Suite::group('Landing page — the Play Store call to action');
 // ---------------------------------------------------------------------
 
 $storeLinks = $count($xp, "//body//a[contains(@href, 'play.google.com')]");
-$headerCta  = $attr($xp, "//header//a[normalize-space(.)='Download the app']/@href");
+$headerCta  = $attr($xp, "//header//a[normalize-space(.)='Get the app']/@href");
 
 if ($storeUrl !== '') {
     Suite::check('the Play Store listing is linked', $count($xp, '//body//a[@href=' . $lit($storeUrl) . ']') >= 2, $storeUrl);
-    Suite::equals('"Download the app" goes to the listing', $headerCta, $storeUrl);
+    Suite::equals('"Get the app" goes to the listing', $headerCta, $storeUrl);
     Suite::check('it does not also say "coming soon"', !str_contains($text($xp), 'Coming soon on Google Play'));
 } else {
     Suite::check('it says the app is coming soon on Google Play', str_contains($text($xp), 'Coming soon on Google Play'));
     Suite::equals('no link points at Google Play', $storeLinks, 0);
-    Suite::equals('"Download the app" goes to the download section', $headerCta, '#download');
+    Suite::equals('"Get the app" goes to the download section', $headerCta, '#download');
 }
 Suite::check('the #download section exists', $count($xp, "//*[@id='download']") === 1);
 Suite::check('no link is empty or a bare "#"', $count($xp, "//a[not(@href) or @href='' or @href='#']") === 0);
+
+// ---------------------------------------------------------------------
+Suite::group('Landing page — sections, links and CSS-only interaction');
+// ---------------------------------------------------------------------
+
+foreach (['brands', 'creators', 'how', 'safety', 'download', 'faq'] as $section) {
+    Suite::check("the #{$section} section exists once", $count($xp, "//*[@id='{$section}']") === 1);
+}
+
+$missingTargets = [];
+foreach ($xp->query("//a[starts-with(@href, '#')]/@href") ?: [] as $node) {
+    $id = substr((string) $node->nodeValue, 1);
+    if ($count($xp, '//*[@id=' . $lit($id) . ']') !== 1) {
+        $missingTargets[] = '#' . $id;
+    }
+}
+Suite::check('every in-page link has exactly one target', $missingTargets === [], implode(', ', array_unique($missingTargets)));
+
+// Links that leave the site: only the Play listing and the social profiles
+// from settings. Everything else is a path on this site or a mailto.
+$allowedOut = $storeUrl !== '' ? [$storeUrl] : [];
+foreach (['instagram', 'youtube', 'linkedin', 'twitter', 'facebook'] as $network) {
+    $url = trim(Config::settingString('social', $network, ''));
+    if ($url !== '') {
+        $allowedOut[] = $url;
+    }
+}
+$outbound = [];
+foreach ($xp->query('//a/@href') ?: [] as $node) {
+    $href = (string) $node->nodeValue;
+    if (preg_match('#^(https?:)?//#i', $href) === 1 && !in_array($href, $allowedOut, true)) {
+        $outbound[] = $href;
+    }
+}
+Suite::check('links leave the site only for the Play listing and social profiles', $outbound === [], implode(', ', $outbound));
+
+$mailboxes = [];
+foreach ($xp->query("//a[starts-with(@href, 'mailto:')]/@href") ?: [] as $node) {
+    $mailboxes[] = strtolower((string) preg_replace('/\?.*$/', '', substr((string) $node->nodeValue, 7)));
+}
+Suite::check(
+    'the only mailbox it names is the support address',
+    array_values(array_unique($mailboxes)) === ($support !== '' ? [strtolower($support)] : [])
+        && preg_match('/\b(press|partners|privacy|legal)@/i', $body) === 0,
+    implode(', ', array_unique($mailboxes))
+);
+
+// The feature tabs: radio inputs, each with its own label and screenshot.
+$radios = $count($xp, "//input[@type='radio' and @name='feature']");
+Suite::equals('the feature tabs are five radio inputs', $radios, 5);
+Suite::equals('exactly one tab starts selected', $count($xp, "//input[@name='feature' and @checked]"), 1);
+$unlabelled = 0;
+foreach ($xp->query("//input[@name='feature']/@id") ?: [] as $node) {
+    $id = (string) $node->nodeValue;
+    if ($count($xp, '//label[@for=' . $lit($id) . ']') !== 1) {
+        $unlabelled++;
+    }
+}
+Suite::equals('every tab has one label', $unlabelled, 0);
+Suite::equals('every tab has its own screenshot', $count($xp, "//*[contains(@class, 'tab-media')]//img[contains(@class, 'shot-')]"), $radios);
+Suite::check('the FAQ is native <details>', $count($xp, "//*[@id='faq']//details/summary") >= 5);
+
+// Images: sized, and only the hero's loads before it is needed.
+Suite::check('every screenshot carries its width and height', $count($xp, "//img[contains(@src, '/screens/')][not(@width) or not(@height)]") === 0);
+Suite::equals('one image is fetched first (the hero screenshot)', $count($xp, "//img[@fetchpriority='high']"), 1);
+Suite::check(
+    'every other image in the main content loads lazily',
+    $count($xp, "//main//img[not(@fetchpriority='high')][not(@loading='lazy')]") === 0
+);
+
+// Truthful copy: no ratings, rankings or user counts, and no SMS sign-in.
+$visible = $text($xp);
+Suite::check(
+    'it makes no rating, ranking or user-count claim',
+    preg_match('/★|\bstar rating|\brated\b|#\s?1\b|\bnumber one\b|\bbest\b|\btestimonial|\b\d[\d,.]*\s*(k|m|lakh|crore|million)?\+?\s+(users|downloads|happy|customers)\b/iu', $visible) === 0
+);
+Suite::check('it does not mention SMS or phone OTP', preg_match('/\bSMS\b|\bOTP\b/', $visible) === 0);
+
+// The fee the FAQ quotes is the one the booking maths uses.
+$feeSetting = Config::settingFloat('commission', 'platform_fee_percent', 10.0);
+if ($feeSetting > 0) {
+    $feeText = rtrim(rtrim(number_format($feeSetting, 2, '.', ''), '0'), '.');
+    Suite::check('the FAQ quotes the platform fee from settings', str_contains($visible, $feeText . '% platform fee'), $feeText . '%');
+}
 
 // ---------------------------------------------------------------------
 Suite::group('Landing page — footer');

@@ -21,10 +21,15 @@ use Zuste\Helpers\Str;
  * and share image, the Play Store link, the social links and the fee
  * percentages quoted in the copy. Nothing about the visitor is read or stored,
  * and the page has no form and no script, so it renders under the document
- * CSP that Response::html() sends.
+ * CSP that Response::html() sends. That CSP allows inline styles only (no
+ * same-origin stylesheet), so the page's CSS is printed into a <style> block,
+ * and its feature tabs and FAQ work with radio inputs and <details> alone.
  *
- * The template is app/Views/web/landing.php. It receives plain values and
- * escapes each one where it prints it.
+ * The template is app/Views/web/landing.php, with its stylesheet in
+ * app/Views/web/landing/landing.css. It receives plain values and escapes
+ * each one where it prints it. The images are the page's own, under
+ * public/assets/landing: the logo, the ribbon mark and real app screenshots
+ * in screens/ (720x1600 WebP).
  */
 final class LandingController
 {
@@ -35,17 +40,21 @@ final class LandingController
     private const MAX_AGE = 300;
 
     /**
-     * Footer links to the public pages PageController serves, in the order
-     * and with the labels its own footer uses.
+     * Footer links to the public pages PageController serves, in two
+     * columns. Between them they name every page once: the suite checks that
+     * the footer links each of PageController::SLUGS and /account-deletion.
      */
+    private const COMPANY_LINKS = [
+        '/about'   => 'About',
+        '/contact' => 'Contact',
+    ];
+
     private const LEGAL_LINKS = [
-        '/about'                => 'About',
-        '/terms'                => 'Terms',
         '/privacy'              => 'Privacy',
-        '/refund-policy'        => 'Refunds',
+        '/terms'                => 'Terms',
+        '/refund-policy'        => 'Refund policy',
         '/community-guidelines' => 'Community guidelines',
-        '/contact'              => 'Contact',
-        '/account-deletion'     => 'Delete your account',
+        '/account-deletion'     => 'Account deletion',
     ];
 
     /** settings.social keys, with the label the footer shows. */
@@ -118,7 +127,7 @@ final class LandingController
         foreach (self::SOCIAL as $key => $label) {
             $url = $this->httpUrl(Config::settingString('social', $key, ''));
             if ($url !== '') {
-                $social[] = ['label' => $label, 'url' => $url];
+                $social[] = ['key' => $key, 'label' => $label, 'url' => $url];
             }
         }
 
@@ -140,6 +149,10 @@ final class LandingController
         $taxPercent = Config::settingFloat('commission', 'tax_percent', 18.0);
         $taxLabel   = trim(Config::settingString('commission', 'tax_label', 'GST')) ?: 'tax';
 
+        // Every paid booking gets a tax invoice (InvoiceService::issueForBooking);
+        // the copy names it by the configured tax, e.g. "GST invoices".
+        $invoiceTax = trim(Config::settingString('commission', 'tax_label', 'GST'));
+
         return [
             'appName'      => $appName,
             'company'      => $company,
@@ -151,6 +164,11 @@ final class LandingController
             'twitter'      => $twitter,
             'social'       => $social,
             'storeUrl'     => $storeUrl,
+            // Where every "get the app" call to action points: the listing
+            // while it is live, else the page's own download section.
+            'storeHref'    => $storeUrl !== '' ? $storeUrl : '#download',
+            'invoiceTax'   => $invoiceTax !== '' ? $invoiceTax : 'Tax',
+            'companyLinks' => self::COMPANY_LINKS,
             'legalLinks'   => self::LEGAL_LINKS,
             'year'         => date('Y'),
             'assets'       => self::ASSETS,

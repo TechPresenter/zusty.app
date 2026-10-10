@@ -1161,25 +1161,61 @@ final class IntegrationService
      */
     private static function testMobileOtpMethod(): array
     {
-        if (!Config::settingBool('sms', 'enabled', false)) {
+        // The channels a sign-in code can actually travel on: auth.otp_channels,
+        // never SMS while SMS delivery is switched off.
+        $channels = AuthConfigService::otpChannels();
+
+        if ($channels === []) {
             return ['ok' => false, 'status' => 0, 'duration_ms' => 0.0,
-                    'message' => 'SMS delivery is switched off under Settings → SMS, so one-time codes are only written to the log.'];
+                    'message' => 'No channel can carry a sign-in code: the OTP channels name none that works '
+                               . '(SMS also needs Settings → SMS switched on).'];
         }
 
-        $provider = Config::settingString('sms', 'provider');
-        $apiKey   = Config::settingString('sms', 'api_key');
+        $routes = [];
 
-        if ($provider === '' || $apiKey === '') {
-            return ['ok' => false, 'status' => 0, 'duration_ms' => 0.0,
-                    'message' => 'Set the SMS provider and its API key under Settings → SMS before enabling OTP sign-in.'];
+        if (in_array('email', $channels, true)) {
+            $driver = Config::settingString('mail', 'driver') ?: (string) Config::get('mail.driver', 'smtp');
+            $host   = Config::settingString('mail', 'host') ?: (string) Config::get('mail.host', '');
+
+            if ($driver === 'smtp' && $host === '') {
+                return ['ok' => false, 'status' => 0, 'duration_ms' => 0.0,
+                        'message' => 'Codes go by email, but no SMTP host is set under Settings → Email, so none can be delivered.'];
+            }
+
+            // A hosted mail server (Hostinger included) refuses to relay
+            // without a login; only a local relay can do without one.
+            $login = Config::settingString('mail', 'username') ?: (string) Config::get('mail.username', '');
+
+            if ($driver === 'smtp' && $login === '' && !in_array(strtolower($host), ['localhost', '127.0.0.1', '::1'], true)) {
+                return ['ok' => false, 'status' => 0, 'duration_ms' => 0.0,
+                        'message' => 'Codes go by email, but no SMTP login is set under Settings → Email, so '
+                                   . $host . ' will refuse to send them.'];
+            }
+
+            $routes[] = 'by email through ' . ($driver === 'smtp' ? $host : 'the ' . $driver . ' mail driver');
+        }
+
+        if (in_array('sms', $channels, true)) {
+            $provider = Config::settingString('sms', 'provider');
+            $apiKey   = Config::settingString('sms', 'api_key');
+
+            if ($provider === '' || $apiKey === '') {
+                return ['ok' => false, 'status' => 0, 'duration_ms' => 0.0,
+                        'message' => 'Set the SMS provider and its API key under Settings → SMS before offering codes by SMS.'];
+            }
+
+            $routes[] = 'by SMS through ' . $provider;
         }
 
         $length = Config::settingInt('security', 'otp_length', 6);
         $ttl    = Config::settingInt('security', 'otp_ttl', 300);
 
         return ['ok' => true, 'status' => 0, 'duration_ms' => 0.0,
-                'message' => 'SMS is enabled through ' . $provider . ' with a ' . $length . '-digit code valid for '
-                           . (int) round($ttl / 60) . ' minutes. Send a real code from Settings → SMS to prove delivery.'];
+                'message' => 'Codes go out ' . implode(' and ', $routes) . ', ' . $length . ' digits, valid for '
+                           . (int) round($ttl / 60) . ' minutes.'
+                           . (Config::settingBool('auth', 'otp_login_enabled', false)
+                               ? ' A code signs an existing account in.'
+                               : ' OTP sign-in is off, so codes only verify an address or number.')];
     }
 
     /**

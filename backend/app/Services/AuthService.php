@@ -303,6 +303,10 @@ final class AuthService
             );
         }
 
+        if ((string) ($claims['provider'] ?? '') === 'phone') {
+            self::assertPhoneSignInAllowed($device + ['ip' => $ip, 'identifier' => (string) ($claims['phone'] ?? '')]);
+        }
+
         // An unrecognised provider stays ungated (see FIREBASE_METHOD_MAP) and
         // is audited as 'password', the column's own default.
         $auditMethod = $method !== null ? (self::METHOD_AUDIT[$method] ?? 'password') : 'password';
@@ -485,10 +489,11 @@ final class AuthService
     }
 
     /**
-     * Sign in with a one-time code sent by POST /auth/otp/send (purpose login).
+     * Sign in with a one-time code sent by POST /auth/otp/send (purpose login),
+     * to the account's email address or, while SMS is offered, its number.
      *
      * Only for an account that already exists: auto-creating one here would
-     * make phone-only accounts with no other way back in. Locked out per
+     * make accounts with no password and no other way back in. Locked out per
      * destination and IP exactly as the password sign-in is.
      *
      * @return array{user:array<string,mixed>,tokens:array<string,mixed>}
@@ -503,6 +508,12 @@ final class AuthService
 
         if (!Config::settingBool('auth', 'otp_login_enabled', false)) {
             throw new HttpException('OTP sign-in is currently unavailable.', 403, 'auth_method_disabled');
+        }
+
+        // A number can only be used while SMS codes are offered; an email
+        // address always can.
+        if ($auditMethod === 'phone_otp') {
+            self::assertPhoneSignInAllowed($context);
         }
 
         $throttleKey = 'login-otp:' . strtolower($destination) . ':' . $ip;
@@ -562,7 +573,16 @@ final class AuthService
                 'No account with that email or phone.'
             );
 
-            throw new HttpException('No account uses this number. Sign up first.', 404, 'account_not_found');
+            // Said only now, after the code proved the caller controls the
+            // address, so the send step never tells anyone which addresses
+            // have an account. No account is created here.
+            throw new HttpException(
+                $auditMethod === 'email_otp'
+                    ? 'No Zusty account uses this email address. Create an account first.'
+                    : 'No account uses this number. Sign up first.',
+                404,
+                'account_not_found'
+            );
         }
 
         try {
@@ -836,6 +856,10 @@ final class AuthService
                 self::assertMethodEnabled($method, $method !== 'guest_login', $device);
             }
 
+            if ($provider === 'phone') {
+                self::assertPhoneSignInAllowed($device);
+            }
+
             $identity['firebase_uid']   = (string) $claims['uid'];
             $identity['email']          = !empty($claims['email']) ? strtolower((string) $claims['email']) : null;
             $identity['email_verified'] = (bool) ($claims['email_verified'] ?? false);
@@ -853,6 +877,7 @@ final class AuthService
         // 2. A phone proven by a one-time code.
         if (!empty($input['destination']) && !empty($input['code'])) {
             self::assertMethodEnabled('mobile_otp', true, $device);
+            self::assertPhoneSignInAllowed($device);
             self::verifyOtp((string) $input['destination'], (string) $input['code'], 'register');
 
             [$identity['country_code'], $identity['phone']] = Str::splitPhone((string) $input['destination']);
@@ -1369,6 +1394,18 @@ final class AuthService
         if ($channel === 'sms') {
             self::assertMethodEnabled('mobile_otp', true, ['identifier' => $destination], $userId);
             self::assertOtpPhoneAllowed($destination);
+
+            // With SMS delivery off (Settings → SMS) a text can never arrive.
+            // Said up front, before a code row is written or the send limits
+            // are spent, rather than as a delivery failure after the fact.
+            if (!SmsService::enabled()) {
+                throw new HttpException(
+                    "Codes can't be sent by text message. Use your email address.",
+                    422,
+                    'channel_not_allowed',
+                    ['channel' => ['This way of receiving a code is not available.']]
+                );
+            }
         }
 
         // Two limits per destination and purpose, whoever is asking: a cooldown
@@ -1436,7 +1473,7 @@ final class AuthService
             $sent = MailService::sendNow(
                 $destination,
                 '',
-                'Your Zusty verification code',
+                $purpose === 'login' ? 'Your Zusty sign-in code' : 'Your Zusty verification code',
                 MailService::renderOtp($code, $purpose, $minutes),
                 null,
                 null,
@@ -1969,6 +2006,39 @@ final class AuthService
         // apart from "this method is switched off" to render the right screen.
         throw new HttpException(
             (self::METHOD_LABELS[$key] ?? 'This sign-in method') . ' is currently unavailable.',
+            403,
+            'auth_method_disabled'
+        );
+    }
+
+    /**
+     * A sign-in proved by a code sent to a phone (an SMS code, or Firebase
+     * phone sign-in) only while the operator offers SMS codes in
+     * auth.otp_channels. With email-only codes there is no phone sign-in at
+     * all, whichever service would have sent the text.
+     *
+     * @param array<string,mixed> $device
+     */
+    private static function assertPhoneSignInAllowed(array $device = [], ?int $userId = null): void
+    {
+        if (AuthConfigService::phoneSignInAllowed()) {
+            return;
+        }
+
+        SecurityService::recordLogin(
+            'user',
+            $userId,
+            (string) ($device['identifier'] ?? ''),
+            SecurityService::OUTCOME_METHOD_DISABLED,
+            'phone_otp',
+            null,
+            'Phone sign-in is not offered (auth.otp_channels has no sms)',
+            (string) ($device['ip'] ?? ''),
+            (string) ($device['user_agent'] ?? '')
+        );
+
+        throw new HttpException(
+            'Signing in with a phone number is not available. Use your email address or Google.',
             403,
             'auth_method_disabled'
         );

@@ -252,7 +252,16 @@ final class InvoiceService
         $billAddress = Str::e((string) ($invoice['bill_to_address'] ?? ''));
         $billGst     = $invoice['bill_to_gst'] !== null ? 'GSTIN: ' . Str::e((string) $invoice['bill_to_gst']) : '';
         $total       = Money::format((float) $invoice['total'], $currency);
-        $gstinLine   = $gstin !== '' ? 'GSTIN: ' . Str::e($gstin) : '';
+        // The issuer block: the legal entity, then an address and GSTIN only
+        // when Settings → General has them (no address is published by
+        // default), each on its own line and never an empty one.
+        $issuer      = implode('<br>', array_map(
+            static fn (string $line): string => Str::e($line),
+            array_values(array_filter(
+                [$company, trim($address), $gstin !== '' ? 'GSTIN: ' . $gstin : ''],
+                static fn (string $line): bool => $line !== ''
+            ))
+        ));
         $logoUri     = self::logoDataUri();
         $brand       = $logoUri !== ''
             ? '<img src="' . $logoUri . '" width="166" height="36" alt="Zusty.app" style="display:block">'
@@ -280,7 +289,7 @@ final class InvoiceService
     <div>
       {$brand}
       <div class="muted" style="margin-top:8px">
-        {$company}<br>{$address}<br>{$gstinLine}
+        {$issuer}
       </div>
     </div>
     <div style="text-align:right">

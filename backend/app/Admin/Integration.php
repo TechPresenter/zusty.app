@@ -762,12 +762,12 @@ final class Integration
                 ['test'  => ['type' => 'internal', 'handler' => 'email_password'],
                  'notes' => 'Password policy lives under Settings → Security; delivery under Settings → Email.']),
 
-            'mobile_otp' => self::make('Mobile Number OTP', 'auth', 'Zusty',
-                'One-time codes sent by SMS, for sign-in and for verifying a phone number.',
+            'mobile_otp' => self::make('One-time code (OTP)', 'auth', 'Zusty',
+                'One-time codes sent by email (or SMS, when SMS is switched on), for sign-in and for verifying an address or number.',
                 '',
                 [],
                 ['test'  => ['type' => 'internal', 'handler' => 'mobile_otp'],
-                 'notes' => 'Gateway credentials live under Settings → SMS; code length and lifetime under Settings → Security.']),
+                 'notes' => 'Which channels carry a code is set under Authentication & Login → Firebase & flow; email delivery under Settings → Email, SMS under Settings → SMS; code length and lifetime under Settings → Security.']),
 
             'guest_login' => self::make('Guest Access', 'auth', 'Zusty',
                 'Let someone browse without an account, then upgrade in place without losing what they did.',

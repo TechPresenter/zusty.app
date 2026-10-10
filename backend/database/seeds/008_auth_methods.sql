@@ -44,9 +44,12 @@ INSERT INTO `settings`
   -- 250 · Facebook
   ('auth','facebook_app_id','','string','Facebook app ID','Mirrored from the Facebook Login integration.',0,0,251),
 
-  -- 300 · Mobile OTP policy. Code length and lifetime stay in `security`.
-  ('auth','otp_login_enabled','0','boolean','OTP sign-in issues a session','Off means codes only verify a number; on means a code alone can sign someone in.',0,0,301),
-  ('auth','otp_channels','["sms"]','json','OTP channels','Which channels may carry a one-time code.',0,0,302),
+  -- 300 · One-time code policy. Code length and lifetime stay in `security`.
+  -- Sign-in codes go by email only: there is no SMS sign-in (sms.enabled is
+  -- 0, and SMS is offered only when it is listed here AND switched on).
+  ('auth','otp_login_enabled','1','boolean','OTP sign-in issues a session','On: a code sent to an existing account''s email signs it in (no account is created). Off: codes only verify an address or number.',0,0,301),
+  ('auth','otp_channels','["email"]','json','OTP channels','Which channels may carry a sign-in code: email, sms. SMS also needs Settings → SMS switched on.',0,0,302),
+  ('auth','otp_label','Log in with email code','string','OTP button label','What the sign-in screen calls the one-time code option.',0,0,308),
   ('auth','otp_default_country_code','+91','string','Default country code','Pre-selected on the phone field.',0,0,303),
   ('auth','otp_allowed_country_codes','["+91"]','json','Allowed country codes','Empty allows every country.',0,0,304),
   ('auth','otp_phone_digits','10','integer','Phone digits','Expected national number length.',0,0,305),

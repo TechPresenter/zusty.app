@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Zuste\Controllers\Api;
 
-use Zuste\Core\Config;
 use Zuste\Core\Database;
 use Zuste\Core\HttpException;
 use Zuste\Core\Request;
 use Zuste\Core\Response;
 use Zuste\Helpers\Str;
 use Zuste\Services\ActivityLogger;
+use Zuste\Services\AuthConfigService;
 use Zuste\Services\AuthService;
 use Zuste\Services\DataExportService;
 
@@ -297,13 +297,14 @@ final class AuthController extends BaseApiController
         $purpose = (string) $data['purpose'];
 
         // The operator decides which channels can sign somebody up or in
-        // (auth.otp_channels); the app only hides the others.
+        // (auth.otp_channels, never SMS while SMS delivery is off); the app
+        // only hides the others.
         if (in_array($purpose, ['login', 'register'], true)
-            && !in_array($channel, array_map('strval', Config::settingArray('auth', 'otp_channels', ['sms'])), true)) {
+            && !in_array($channel, AuthConfigService::otpChannels(), true)) {
             throw new HttpException(
                 $channel === 'email'
                     ? "Codes can't be sent by email for this. Use your mobile number."
-                    : "Codes can't be sent by SMS for this. Use your email address.",
+                    : "Codes can't be sent by text message. Use your email address.",
                 422,
                 'channel_not_allowed',
                 ['channel' => ['This way of receiving a code is not available.']]
@@ -392,7 +393,8 @@ final class AuthController extends BaseApiController
 
     /**
      * The destination as a code is stored against it: a phone as digits with
-     * its +country code when one was given, an email as typed.
+     * its +country code when one was given, an email trimmed and lower-cased
+     * (as accounts store it), so the code is found whichever way it is typed.
      */
     private static function otpDestination(string $destination, string $channel): string
     {
@@ -406,10 +408,15 @@ final class AuthController extends BaseApiController
             return $phone;
         }
 
-        $email = trim($destination);
+        $email = strtolower(trim($destination));
 
         if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
-            throw HttpException::unprocessable('Enter a valid email address.');
+            throw new HttpException(
+                'Enter a valid email address.',
+                422,
+                'unprocessable',
+                ['destination' => ['Enter a valid email address.']]
+            );
         }
 
         return $email;

@@ -138,14 +138,20 @@ confirm privacy actions come from `/me/privacy/verification-code`). It answers
 "Send again". Refusals: `429` `otp_cooldown` (a code for this address and purpose was
 sent moments ago) and `429` `otp_send_limit` (too many in the window), both with
 `Retry-After`; `422` `channel_not_allowed` (that channel is off for sign-in or
-sign-up), `422` `phone_country_not_supported`, `422` `invalid_phone`; `503`
-`otp_delivery_failed` when the mail or SMS provider failed — nothing was sent and an
-earlier code still works.
+sign-up, or it is `sms` while SMS delivery is switched off), `422`
+`phone_country_not_supported`, `422` `invalid_phone`; `503` `otp_delivery_failed`
+when the mail or SMS provider failed — nothing was sent and an earlier code still
+works. Which channels sign-in codes may use is `auth.methods[mobile_otp].channels` in
+`GET /app/config`; today that is `["email"]` (the code goes to the account's email
+address, and the destination is that address). The send answers the same whether or
+not an account uses the address.
 
-**Signing in with a code.** `POST /auth/otp/verify` with `purpose: login` answers
-`200 {user, tokens}` like `/auth/login`. It is `403` `auth_method_disabled` while
-OTP sign-in is switched off, `404` `account_not_found` for a number with no account
-(it does not create one), and `429` `rate_limited` after too many wrong attempts.
+**Signing in with a code.** `POST /auth/otp/verify` with `purpose: login` and the same
+`destination` answers `200 {user, tokens}` like `/auth/login`. It is `403`
+`auth_method_disabled` while OTP sign-in is switched off (or for a phone number while
+SMS codes are not offered), `404` `account_not_found` for an email address or number
+with no account (it does not create one; sign up with email and password or Google),
+and `429` `rate_limited` after too many wrong attempts.
 The other purposes answer `{verified: true}`. For any purpose, a code that is wrong,
 old, was never sent or was already used is `422` `otp_invalid`, `otp_expired`,
 `otp_not_found` or `otp_used`, and too many wrong tries of one code is `429`

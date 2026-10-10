@@ -78,13 +78,13 @@ void main() {
     String? opened;
     await pump(
       tester,
-      '<p>Write to <a href="mailto:privacy@zustee.com">privacy@zustee.com</a> any time.</p>',
+      '<p>Write to <a href="mailto:support@zusty.app">support@zusty.app</a> any time.</p>',
       onLink: (href) => opened = href,
     );
 
-    expect(text('Write to privacy@zustee.com any time.'), findsOneWidget);
-    await tester.tapOnText(find.textRange.ofSubstring('privacy@zustee.com'));
-    expect(opened, 'mailto:privacy@zustee.com');
+    expect(text('Write to support@zusty.app any time.'), findsOneWidget);
+    await tester.tapOnText(find.textRange.ofSubstring('support@zusty.app'));
+    expect(opened, 'mailto:support@zusty.app');
   });
 
   testWidgets('script and style content never reaches the screen', (tester) async {
@@ -521,24 +521,24 @@ void main() {
         final copied = mockPlatform(tester, mode);
         await pump(
           tester,
-          '<p>Write to <a href="mailto:privacy@zustee.com?subject=Data">privacy@zustee.com</a></p>',
+          '<p>Write to <a href="mailto:support@zusty.app?subject=Data">support@zusty.app</a></p>',
         );
 
-        await tester.tapOnText(find.textRange.ofSubstring('privacy@zustee.com'));
+        await tester.tapOnText(find.textRange.ofSubstring('support@zusty.app'));
         await tester.pumpAndSettle();
 
         expect(tester.takeException(), isNull);
         expect(
           find.descendant(
             of: find.byType(SnackBar),
-            matching: find.text('No email app could open this. Copy privacy@zustee.com instead?'),
+            matching: find.text('No email app could open this. Copy support@zusty.app instead?'),
           ),
           findsOneWidget,
         );
 
         await tester.tap(find.widgetWithText(SnackBarAction, 'Copy'));
         await tester.pump();
-        expect(copied, ['privacy@zustee.com']);
+        expect(copied, ['support@zusty.app']);
       });
     }
 

@@ -154,16 +154,21 @@ class AuthRepository extends BaseRepository {
         return _parse(response.dataMap, isNew: true);
       });
 
-  /// Sends a one-time code.
+  /// Sends a one-time code to [destination]: an email address for `channel:
+  /// 'email'` (the default — sign-in codes go by email), a mobile number for
+  /// `'sms'`, offered only when the server lists it.
+  ///
+  /// Returns how many seconds the server wants before another code is asked
+  /// for (`resend_in`), or null when it did not say.
   ///
   /// Not routed through [writeThrough]: swallowing the failure would leave the
   /// user staring at a code entry screen for a code that was never sent.
-  Future<void> sendOtp(
+  Future<int?> sendOtp(
     String destination, {
-    String channel = 'sms',
+    String channel = 'email',
     String purpose = 'login',
   }) async {
-    await client.post(
+    final response = await client.post(
       ApiEndpoints.sendOtp,
       body: {
         'destination': destination,
@@ -172,6 +177,8 @@ class AuthRepository extends BaseRepository {
       },
       skipAuth: true,
     );
+    final resendIn = response.dataMap['resend_in'];
+    return resendIn is num ? resendIn.toInt() : null;
   }
 
   Future<void> forgotPassword(String email) async {

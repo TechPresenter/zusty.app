@@ -48,6 +48,17 @@ class AuthConfig {
 
   bool isEnabled(String key) => method(key)?.enabled ?? false;
 
+  /// Where a one-time sign-in code goes: `email`, unless the server offers
+  /// codes by SMS only (`mobile_otp.channels` is `["sms"]`). The phone flow
+  /// appears only then. With no config read yet the answer is `email`, the
+  /// one channel every account can receive.
+  String get otpChannel {
+    final channels = method('mobile_otp')?.strings('channels') ?? const [];
+    return channels.contains('sms') && !channels.contains('email')
+        ? 'sms'
+        : 'email';
+  }
+
   /// Social providers that are on, available on this platform, **and** able to
   /// finish a sign-in with what the server is serving.
   ///

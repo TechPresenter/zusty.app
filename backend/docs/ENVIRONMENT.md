@@ -116,8 +116,8 @@ name, and stored under generated names.
 | `FIREBASE_CREDENTIALS` | Path to the service account JSON. Keep it **outside** the web root — the default `../firebase-service-account.json` does exactly that. |
 | `FIREBASE_STORAGE_BUCKET` | |
 
-Leave blank to run without Firebase. Email/password and phone OTP sign-in continue to
-work; Google and Apple sign-in and push notifications do not.
+Leave blank to run without Firebase. Email/password and email-code (OTP) sign-in
+continue to work; Google and Apple sign-in and push notifications do not.
 
 ---
 

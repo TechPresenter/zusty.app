@@ -412,7 +412,14 @@ Diagnostics. Restricted to the `developer.*` permissions, which only **Super Adm
 ## Authentication & Login
 
 **Login Methods** (`/admin/login-methods`) — every way into the platform, on one
-screen: Email & Password, Mobile OTP, Google, Apple, Facebook and Guest access.
+screen: Email & Password, One-time code (OTP), Google, Apple, Facebook and Guest access.
+
+**One-time codes** go to the account's email address. The **Firebase & flow** tab
+sets which channels may carry a sign-in code (Email, SMS), whether a code alone signs
+an existing account in (it never creates one), and the button label the apps show
+("Log in with email code"). SMS is offered only while it is ticked there **and**
+switched on under Settings → SMS; with SMS unticked there is no phone sign-in at all,
+Firebase phone sign-in included.
 
 ### Switching a method off is real
 
@@ -452,7 +459,7 @@ Each test proves what it honestly can:
 | **Apple** | Real proof. Signs a client-secret JWT with your `.p8` and presents it to Apple, which confirms whether the Service ID, Team ID, Key ID and key belong together. No side effect. |
 | **Facebook** | Real proof. Requests an app access token, which needs both the app ID and the secret. |
 | **Google** | Partial, and says so. Checks the client ID is well-formed, that Google is reachable, and that a Firebase project is set. **Google publishes no way to confirm a client ID without a real sign-in**, so the test does not claim to. |
-| **Mobile OTP** | Checks SMS is on and a provider and key are configured. Send a real code from Settings → SMS to prove delivery. |
+| **One-time code (OTP)** | Checks every channel a code is offered on can deliver: outgoing mail configured for email codes, an SMS provider and key for SMS codes. Log in with an email code to prove delivery. |
 | **Email & Password** | Checks the password policy and that outgoing mail is configured, since recovery depends on it. |
 
 ### What reaches the apps, and what cannot
@@ -521,8 +528,8 @@ Notifications, Email, WhatsApp, SMS Gateways, Payments, Social Login, Cloud Stor
 Maps & Location, AI Services, Monitoring & Errors, CDN & Performance, Security,
 Platform Operations, and Authentication & Login.
 
-> The three entries under **Authentication & Login** — Email & Password, Mobile OTP
-> and Guest Access — carry no credentials of their own. They exist here for the
+> The three entries under **Authentication & Login** — Email & Password, One-time
+> code (OTP) and Guest Access — carry no credentials of their own. They exist here for the
 > enable flag, status, connection test and activity log, all of which the hub
 > already provides. Configure them under
 > [Authentication & Login](#authentication--login).

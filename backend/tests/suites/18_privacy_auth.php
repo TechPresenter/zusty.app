@@ -1078,6 +1078,9 @@ if ($paActors['pa-link'] === null) {
             $paNote('OTP sign-in success skipped: ' . (empty($linkUser['phone']) ? 'pa-link has no phone' : 'mobile_otp is switched off'));
         } else {
             $setSetting('auth', 'otp_login_enabled', '1');
+            // Sign-in codes go by email by default (migration 052); a number
+            // signs in only while SMS codes are offered.
+            $setSetting('auth', 'otp_channels', '["email","sms"]');
 
             $code = $plant($linkId, $phone, 'login', 'sms');
             $in   = Http::post('/auth/otp/verify', ['destination' => $phone, 'code' => $code['code'], 'purpose' => 'login']);
@@ -1114,6 +1117,11 @@ try {
     $setSetting('mail', 'driver', 'log');
     $setSetting('auth', 'otp_resend_seconds', '45');
     $setSetting('auth', 'otp_allowed_country_codes', '["+91"]');
+    // The country rule is only reached while SMS sign-in codes are offered,
+    // which needs SMS listed and switched on. No text is sent: the number is
+    // refused first.
+    $setSetting('auth', 'otp_channels', '["email","sms"]');
+    $setSetting('sms', 'enabled', '1');
 
     $first = Http::post('/auth/otp/send', ['destination' => $otpDestination, 'channel' => 'email', 'purpose' => 'verify_email']);
     Suite::ok('a first code goes out', $first, 200);

@@ -19,6 +19,15 @@ use Zuste\Helpers\Str;
  */
 final class SmsService
 {
+    /**
+     * Is SMS delivery switched on? Settings → SMS, or SMS_ENABLED in .env.
+     * Off means no text message leaves the platform for any reason.
+     */
+    public static function enabled(): bool
+    {
+        return Config::settingBool('sms', 'enabled', false) || (bool) Config::get('sms.enabled', false);
+    }
+
     public static function queue(string $phone, string $message, ?string $templateId = null): int
     {
         $phone = Str::normalizePhone($phone);
@@ -27,7 +36,7 @@ final class SmsService
             return 0;
         }
 
-        if (!Config::settingBool('sms', 'enabled', false) && !(bool) Config::get('sms.enabled', false)) {
+        if (!self::enabled()) {
             Logger::debug('SMS is disabled; message not queued.', ['to' => Str::maskPhone($phone)]);
 
             return 0;
@@ -46,7 +55,7 @@ final class SmsService
     {
         $phone = Str::normalizePhone($phone);
 
-        if ($phone === '' || (!Config::settingBool('sms', 'enabled', false) && !(bool) Config::get('sms.enabled', false))) {
+        if ($phone === '' || !self::enabled()) {
             return false;
         }
 

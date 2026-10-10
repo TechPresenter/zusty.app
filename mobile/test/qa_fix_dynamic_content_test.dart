@@ -105,7 +105,8 @@ void main() {
 
       // App identity — the values an operator edits under Settings → General.
       expect(config.identity.name, 'Zusty');
-      expect(config.identity.supportEmail, 'support@zustee.com');
+      // The one public mailbox.
+      expect(config.identity.supportEmail, 'support@zusty.app');
       expect(config.identity.supportPhone, '+91 90000 00000');
 
       // Branding.
@@ -378,14 +379,33 @@ void main() {
   group('C75 — support contacts', () {
     testWidgets('the screen shows the configured address, not a compiled one',
         (tester) async {
+      // The live address is support@zusty.app, which is also the screen's
+      // compiled fallback, so the payload names a different one here: only
+      // a value read from the config can put it on screen.
+      final live = _liveData('appconfig.json');
+      final app = (live['app'] as Map).cast<String, dynamic>();
+      await seedConfig({
+        ...live,
+        'app': {...app, 'support_email': 'help-desk@zuste.test'},
+      });
+
+      await pumpScreen(tester, const SupportScreen());
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('help-desk@zuste.test'), findsOneWidget);
+      expect(find.text('+91 90000 00000'), findsOneWidget);
+      expect(find.text('support@zusty.app'), findsNothing);
+    });
+
+    testWidgets('the live payload names the one public mailbox',
+        (tester) async {
       await seedConfig(_liveData('appconfig.json'));
 
       await pumpScreen(tester, const SupportScreen());
 
       expect(tester.takeException(), isNull);
-      expect(find.text('support@zustee.com'), findsOneWidget);
-      expect(find.text('+91 90000 00000'), findsOneWidget);
-      expect(find.text('support@zuste.com'), findsNothing);
+      expect(find.text('support@zusty.app'), findsOneWidget);
+      expect(find.textContaining('@zustee.com'), findsNothing);
     });
 
     testWidgets('with no config fetched it keeps its own fallback',

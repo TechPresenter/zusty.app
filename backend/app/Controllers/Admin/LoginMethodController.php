@@ -233,6 +233,7 @@ final class LoginMethodController extends BaseAdminController
             'privacy_url'              => 'nullable|url|max:255',
             'social_divider_label'     => 'nullable|string|max:60',
             'signup_divider_label'     => 'nullable|string|max:60',
+            'otp_label'                => 'nullable|string|max:60',
             'method_order'             => 'nullable|string|max:255',
             // firebase client options
             'firebase_app_id_android'     => 'nullable|string|max:191',
@@ -259,7 +260,7 @@ final class LoginMethodController extends BaseAdminController
                 'reset_token_ttl_minutes', 'identifier_mode',
                 'guest_session_days', 'guest_purge_days', 'guest_max_per_ip_per_day',
                 'default_signup_role', 'terms_url', 'privacy_url',
-                'social_divider_label', 'signup_divider_label',
+                'social_divider_label', 'signup_divider_label', 'otp_label',
                 'firebase_app_id_android', 'firebase_app_id_ios', 'firebase_app_id_web',
                 'firebase_messaging_sender_id', 'firebase_auth_domain',
                 'firebase_android_package_name', 'firebase_ios_bundle_id',
@@ -295,6 +296,21 @@ final class LoginMethodController extends BaseAdminController
                 if ($this->putSetting($group, $key, $value)) {
                     $changed[$group . '.' . $key] = $value;
                 }
+            }
+        }
+
+        // The OTP channels arrive as ticked boxes. The form also sends a marker,
+        // so a post without it (another form, an older page) leaves them alone
+        // rather than reading "nothing ticked".
+        if ($request->has('otp_channels_present')) {
+            $ticked   = $request->input('otp_channels', []);
+            $channels = array_values(array_intersect(
+                AuthConfigService::OTP_CHANNELS,
+                array_map('strval', is_array($ticked) ? $ticked : [$ticked])
+            ));
+
+            if ($this->putSetting('auth', 'otp_channels', (string) json_encode($channels))) {
+                $changed['auth.otp_channels'] = implode(',', $channels);
             }
         }
 
@@ -487,6 +503,11 @@ final class LoginMethodController extends BaseAdminController
     {
         return [
             'otp_login_enabled'        => Config::settingBool('auth', 'otp_login_enabled', false),
+            'otp_channels'             => array_values(array_intersect(
+                AuthConfigService::OTP_CHANNELS,
+                array_map('strval', Config::settingArray('auth', 'otp_channels', ['email']))
+            )),
+            'otp_label'                => Config::settingString('auth', 'otp_label'),
             'otp_default_country_code' => Config::settingString('auth', 'otp_default_country_code', '+91'),
             'otp_phone_digits'         => Config::settingInt('auth', 'otp_phone_digits', 10),
             'otp_resend_seconds'       => Config::settingInt('auth', 'otp_resend_seconds', 30),

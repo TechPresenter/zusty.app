@@ -18,8 +18,8 @@ import 'widgets/social_buttons.dart';
 ///
 /// One primary path (email or phone + password) and, under it, whichever
 /// other ways in the operator has switched on in Admin → Authentication:
-/// mobile OTP, social sign-in, guest browsing. Nothing below the password
-/// field is shown speculatively.
+/// a one-time code by email, social sign-in, guest browsing. Nothing below
+/// the password field is shown speculatively.
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -111,12 +111,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             .method('email_password')
             ?.flag('forgot_password_enabled', fallback: true) ??
         true;
-    // Mobile OTP can be on only to verify numbers. A code signs someone in
-    // only when the operator has also allowed OTP sign-in; otherwise the
-    // server just confirms the code and no session follows.
+    // The OTP method can be on only to verify an address or number. A code
+    // signs someone in only when the operator has also allowed OTP sign-in;
+    // otherwise the server just confirms the code and no session follows.
     final showOtp =
         authConfig.isEnabled('mobile_otp') &&
         (authConfig.method('mobile_otp')?.flag('login_enabled') ?? false);
+    // Codes go to the account's email unless the server offers SMS alone.
+    final otpByEmail = authConfig.otpChannel == 'email';
     final showGuest = authConfig.guest.enabled;
 
     return AuthScaffold(
@@ -194,9 +196,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ZButton.outlined(
                 label: authConfig.method('mobile_otp')?.label.isNotEmpty == true
                     ? authConfig.method('mobile_otp')!.label
-                    : 'Continue with OTP',
+                    : (otpByEmail ? 'Log in with email code' : 'Continue with OTP'),
                 onPressed: _submitting ? null : () => context.push(Routes.otp),
-                icon: Icons.sms_outlined,
+                icon: otpByEmail ? Icons.mail_outline_rounded : Icons.sms_outlined,
               ),
             ],
             if (authConfig.showSocialDivider &&

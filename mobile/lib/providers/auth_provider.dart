@@ -112,16 +112,18 @@ class AuthController extends Notifier<AuthState> {
     state = AuthState(stage: AuthStage.authenticated, user: result.user);
   }
 
-  /// Verifies a one-time code. `purpose` must match what `sendOtp` was called
-  /// with — the server keys the stored code on the pair.
+  /// Signs in with a one-time code. [destination] is exactly what `sendOtp`
+  /// was given — the account's email address for an email code, the number
+  /// for an SMS one — and `purpose` must match too: the server keys the
+  /// stored code on the pair.
   Future<void> verifyOtp({
-    required String phone,
+    required String destination,
     required String code,
     String purpose = 'login',
   }) async {
     final result = await ref
         .read(authRepositoryProvider)
-        .verifyOtp(destination: phone, code: code, purpose: purpose);
+        .verifyOtp(destination: destination, code: code, purpose: purpose);
     state = AuthState(stage: AuthStage.authenticated, user: result.user);
   }
 

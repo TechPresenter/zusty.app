@@ -155,7 +155,9 @@ void main() {
 
     testWidgets('OTP sign-in', (tester) async {
       await pumpScreen(tester, const OtpScreen());
-      expectsRendered(tester, 'Sign in with OTP');
+      // Codes go by email unless the server offers SMS alone.
+      expectsRendered(tester, 'Log in with a code');
+      expect(find.text('Email address'), findsOneWidget);
     });
   });
 

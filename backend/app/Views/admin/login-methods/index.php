@@ -52,7 +52,7 @@ $statusChip = static function (array $method): array {
 <div class="chip-row mb-5" data-tabs>
   <button class="chip-filter chip-filter--active" data-tab="#panel-overview">Overview</button>
   <button class="chip-filter" data-tab="#panel-email">Email &amp; Password</button>
-  <button class="chip-filter" data-tab="#panel-otp">Mobile OTP</button>
+  <button class="chip-filter" data-tab="#panel-otp">One-time code</button>
   <button class="chip-filter" data-tab="#panel-google">Google</button>
   <button class="chip-filter" data-tab="#panel-apple">Apple</button>
   <button class="chip-filter" data-tab="#panel-facebook">Facebook</button>
@@ -287,7 +287,7 @@ foreach ($methods as $key => $method):
               'google_login'   => 'Checks the client ID is well-formed, that Google is reachable from this server, and that a Firebase project is set. Google cannot confirm a client ID without a real sign-in.',
               'apple_login'    => 'Signs a real client-secret JWT with the stored key and presents it to Apple. Apple confirms whether the Service ID, Team ID, Key ID and .p8 belong together. No side effect.',
               'facebook_login' => 'Requests an app access token, which proves both the app ID and the secret.',
-              'mobile_otp'     => 'Checks SMS delivery is switched on and a provider and key are configured.',
+              'mobile_otp'     => 'Checks that every channel a code is offered on can deliver: outgoing mail for email codes, an SMS provider and key for SMS codes.',
               'email_password' => 'Checks the password policy and that outgoing mail is configured, since recovery depends on it.',
               default          => 'Checks the method is ready to use.',
           }) ?>
@@ -396,11 +396,12 @@ foreach ($methods as $key => $method):
     </div>
 
     <div class="card mb-5">
-      <h2 class="h2">Mobile OTP</h2>
-      <?php if (!$policy['sms_enabled']): ?>
+      <h2 class="h2">One-time codes</h2>
+      <?php if (in_array('sms', $policy['otp_channels'], true) && !$policy['sms_enabled']): ?>
         <div class="callout callout--warning mb-4">
-          SMS delivery is switched off under <a href="/admin/settings?group=sms">Settings → SMS</a>,
-          so codes are only written to the log. OTP sign-in will not work for real users.
+          SMS is ticked below, but SMS delivery is switched off under
+          <a href="/admin/settings?group=sms">Settings → SMS</a>, so no code goes out by SMS and the
+          apps do not offer it.
         </div>
       <?php endif; ?>
 
@@ -412,7 +413,29 @@ foreach ($methods as $key => $method):
             <span class="switch__track"></span>
             <span class="small">A code alone can sign someone in</span>
           </label>
-          <p class="field__hint">Off means codes only verify a number the person already owns.</p>
+          <p class="field__hint">
+            For existing accounts only: an address with no account is told to sign up, and none is created.
+            Off means codes only verify an address or number the person already owns.
+          </p>
+        </div>
+        <div class="field">
+          <span class="field__label">Codes are sent by</span>
+          <input type="hidden" name="otp_channels_present" value="1">
+          <?php foreach (['email' => 'Email, to the account’s email address', 'sms' => 'SMS, to the account’s mobile number'] as $channel => $label): ?>
+            <label class="row gap-2 small">
+              <input type="checkbox" name="otp_channels[]" value="<?= $this->e($channel) ?>"
+                     <?= in_array($channel, $policy['otp_channels'], true) ? 'checked' : '' ?> <?= $canManage ? '' : 'disabled' ?>>
+              <?= $this->e($label) ?>
+            </label>
+          <?php endforeach; ?>
+          <p class="field__hint">Leave SMS unticked to offer no phone sign-in at all, Firebase phone sign-in included.</p>
+        </div>
+        <div class="field">
+          <label class="field__label" for="p_otp_label">Button label</label>
+          <input class="input" id="p_otp_label" name="otp_label" maxlength="60"
+                 value="<?= $this->e((string) $policy['otp_label']) ?>"
+                 placeholder="Log in with email code" <?= $canManage ? '' : 'disabled' ?>>
+          <p class="field__hint">What the apps' sign-in screen calls this option. Blank picks one from the channels.</p>
         </div>
         <div class="field">
           <label class="field__label" for="p_otp_default_country_code">Default country code</label>

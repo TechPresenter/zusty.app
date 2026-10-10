@@ -98,7 +98,7 @@ $assetVersion = $this->e((string) \Zuste\Core\Config::get('app.version', '1.0.0'
           <div class="input-group">
             <span class="input-group__icon"><?= $this->icon('users', 'ic ic--sm') ?></span>
             <input class="input" id="email" name="email" type="email" required autocomplete="username"
-                   autofocus inputmode="email" placeholder="you@zusty.app"
+                   autofocus inputmode="email" placeholder="you@example.com"
                    value="<?= $this->old('email') ?>"
                    <?= $this->hasError('email') ? 'aria-invalid="true"' : '' ?>>
           </div>

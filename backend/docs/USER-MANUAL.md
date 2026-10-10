@@ -25,9 +25,10 @@ that one flow.
 
 ## Getting started
 
-Sign up with email and password, phone and OTP, or Google/Apple. Choose **Brand** at
-sign-up; the account type determines which side of every booking you sit on and cannot
-be switched later.
+Sign up with email and password, or with Google. Choose **Brand** at sign-up; the
+account type determines which side of every booking you sit on and cannot be switched
+later. After that you can also log in with a one-time code sent to your email address
+(**Log in with email code**); a code only signs in an account that already exists.
 
 Complete the profile — company name, category, logo, contact. Creators see it when
 deciding whether to accept, so an empty profile costs you acceptances.

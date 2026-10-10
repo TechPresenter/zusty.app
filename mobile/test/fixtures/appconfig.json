@@ -9,7 +9,7 @@
             "currency_symbol": "₹",
             "locale": "en",
             "timezone": "Asia/Kolkata",
-            "support_email": "support@zustee.com",
+            "support_email": "support@zusty.app",
             "support_phone": "+91 90000 00000"
         },
         "branding": {
@@ -66,10 +66,10 @@
                 {
                     "key": "mobile_otp",
                     "enabled": true,
-                    "label": "Continue with OTP",
-                    "login_enabled": false,
+                    "label": "Log in with email code",
+                    "login_enabled": true,
                     "channels": [
-                        "sms"
+                        "email"
                     ],
                     "default_country_code": "+91",
                     "allowed_country_codes": [

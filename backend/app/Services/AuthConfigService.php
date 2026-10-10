@@ -81,6 +81,70 @@ final class AuthConfigService
         self::$enabledRows = null;
     }
 
+    /** The ways a one-time code can travel. */
+    public const OTP_CHANNELS = ['email', 'sms'];
+
+    /**
+     * The channels a sign-in or sign-up code may be sent on: auth.otp_channels,
+     * limited to the channels that exist, and without SMS while SMS delivery is
+     * switched off (Settings → SMS). Offering a channel that can never deliver
+     * gave the app a phone field whose every code failed to arrive.
+     *
+     * POST /auth/otp/send refuses the others for `login` and `register`, and
+     * the app's config block lists exactly these, so the two never disagree.
+     *
+     * @return list<string>
+     */
+    public static function otpChannels(): array
+    {
+        $channels = [];
+
+        foreach (Config::settingArray('auth', 'otp_channels', ['email']) as $channel) {
+            $channel = strtolower(trim((string) $channel));
+
+            if (!in_array($channel, self::OTP_CHANNELS, true) || in_array($channel, $channels, true)) {
+                continue;
+            }
+
+            if ($channel === 'sms' && !SmsService::enabled()) {
+                continue;
+            }
+
+            $channels[] = $channel;
+        }
+
+        return $channels;
+    }
+
+    /**
+     * Whether a sign-in may be proved by a code sent to a phone, whoever sends
+     * it: our own SMS codes and Firebase phone sign-in alike. Only while the
+     * operator lists `sms` in auth.otp_channels.
+     */
+    public static function phoneSignInAllowed(): bool
+    {
+        return in_array(
+            'sms',
+            array_map(static fn ($c): string => strtolower(trim((string) $c)), Config::settingArray('auth', 'otp_channels', ['email'])),
+            true
+        );
+    }
+
+    /**
+     * The OTP button's label: auth.otp_label when the operator set one,
+     * otherwise a label that says where the code goes.
+     */
+    public static function otpLabel(): string
+    {
+        $label = trim(Config::settingString('auth', 'otp_label', ''));
+
+        if ($label !== '') {
+            return $label;
+        }
+
+        return self::otpChannels() === ['email'] ? 'Log in with email code' : 'Continue with OTP';
+    }
+
     /**
      * A short hash over everything the public block is built from, so a client
      * can send If-None-Match and be told 304 rather than re-downloading a
@@ -221,11 +285,14 @@ final class AuthConfigService
             [
                 'key'                   => self::PUBLIC_KEYS['mobile_otp'],
                 'enabled'               => self::enabled('mobile_otp', true),
-                'label'                 => 'Continue with OTP',
+                'label'                 => self::otpLabel(),
                 // Whether a code alone can sign someone in, as opposed to only
-                // verifying a number they already own.
+                // verifying an address or number they already own.
                 'login_enabled'         => Config::settingBool('auth', 'otp_login_enabled', false),
-                'channels'              => Config::settingArray('auth', 'otp_channels', ['sms']),
+                // `email`: the code goes to the account's email address, and
+                // the app asks for that. `sms` appears only while SMS delivery
+                // is on.
+                'channels'              => self::otpChannels(),
                 'default_country_code'  => Config::settingString('auth', 'otp_default_country_code', '+91'),
                 'allowed_country_codes' => Config::settingArray('auth', 'otp_allowed_country_codes', []),
                 'phone_digits'          => Config::settingInt('auth', 'otp_phone_digits', 10),

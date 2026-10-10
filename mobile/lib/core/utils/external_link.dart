@@ -50,7 +50,7 @@ Future<bool> openExternalUri(
   return false;
 }
 
-/// The address in `mailto:privacy@zusty.app?subject=…` or the number in
+/// The address in `mailto:support@zusty.app?subject=…` or the number in
 /// `tel:+911800123456`, without the query.
 String _addressOf(Uri uri) {
   try {

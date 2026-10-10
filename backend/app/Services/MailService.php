@@ -521,21 +521,34 @@ HTML;
     /** OTP email with a large, copyable code. */
     public static function renderOtp(string $code, string $purpose, int $validMinutes): string
     {
-        $stepUp = self::STEP_UP_OTP_PURPOSES[str_replace(' ', '_', strtolower(trim($purpose)))] ?? null;
+        $key    = str_replace(' ', '_', strtolower(trim($purpose)));
+        $stepUp = self::STEP_UP_OTP_PURPOSES[$key] ?? null;
+        $login  = $key === 'login';
 
         // Plain text: the layout escapes it (this used to be pre-escaped and
         // then string-replaced back into the rendered page).
-        $body = 'Use the verification code below to ' . ($stepUp ?? str_replace('_', ' ', $purpose)) . '. '
+        $body = ($login
+                ? 'Use the code below to log in to your Zusty account. '
+                : 'Use the verification code below to ' . ($stepUp ?? str_replace('_', ' ', $purpose)) . '. ')
               . 'It expires in ' . $validMinutes . ' minutes. '
               . ($stepUp !== null
                   ? 'If you did not ask for this, someone may be signed in to your account: sign out of all devices and change your password.'
-                  : 'If you did not request this, you can safely ignore this email.');
+                  : ($login
+                      ? 'Never share it: nobody from Zusty will ask for it. If you did not try to log in, you can safely ignore this email.'
+                      : 'If you did not request this, you can safely ignore this email.'));
 
         $codeBlock = '<div style="margin:20px 0;padding:20px;background:#FFF0F1;border-radius:16px;text-align:center">'
             . '<div style="font-size:34px;font-weight:800;letter-spacing:0.32em;color:#B80049;font-family:monospace">'
             . Str::e($code) . '</div></div>';
 
-        return self::layout(Str::e('Your verification code'), self::bodyHtml($body), '', 'none', null, $codeBlock);
+        return self::layout(
+            Str::e($login ? 'Your sign-in code' : 'Your verification code'),
+            self::bodyHtml($body),
+            '',
+            'none',
+            null,
+            $codeBlock
+        );
     }
 
     // -----------------------------------------------------------------

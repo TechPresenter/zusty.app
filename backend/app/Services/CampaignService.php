@@ -1193,18 +1193,13 @@ final class CampaignService
         return $body . $footer . self::trackingPixel((string) ($recipient['tracking_token'] ?? ''));
     }
 
-    /** The support address, else the sender address, else support@zusty.app. */
+    /**
+     * The support address, else support@zusty.app: the one mailbox anyone is
+     * told to write to. Never the sender address, which nobody reads.
+     */
     private static function replyTo(): string
     {
-        $support = trim(Config::settingString('general', 'support_email', ''));
-
-        if (filter_var($support, FILTER_VALIDATE_EMAIL) !== false) {
-            return $support;
-        }
-
-        $from = trim(Config::settingString('mail', 'from_address', ''));
-
-        return filter_var($from, FILTER_VALIDATE_EMAIL) !== false ? $from : MailService::DEFAULT_SUPPORT_ADDRESS;
+        return MailService::supportAddress();
     }
 
     /**

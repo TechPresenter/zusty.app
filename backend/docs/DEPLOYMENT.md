@@ -117,6 +117,19 @@ curl -s  https://yourdomain.com/robots.txt  # Sitemap: line names this domain
   SMTP login (`mail.username` / `MAIL_USERNAME`), `MAIL_FROM_ADDRESS`, SEO
   `canonical_base` and the CORS origins to zusty.app yourself if they still name
   zustee.com.
+- **One mailbox, email codes, no SMS.** Migration 052 applies the 2026-10-10 decisions.
+  `support@zusty.app` is the only public mailbox: any other `@zusty.app` or `@zustee.com`
+  mailbox in CMS pages, FAQs, notification templates, popups, blog posts and plain
+  settings becomes `support@zusty.app` (the `mail` group, i.e. the SMTP login and
+  sender, is never touched). No company address is published: the contact page's
+  "Registered office" line is removed and `general.company_address` is emptied, so
+  invoices print the company name (and GSTIN when set) only. Sign-in is email and
+  password, Google, or a one-time code sent to the account's **email**
+  (`auth.otp_login_enabled` = 1, `auth.otp_channels` = `["email"]`, button label
+  `auth.otp_label` = "Log in with email code"); `sms.enabled` stays 0, and with no `sms`
+  channel there is no phone sign-in at all, Firebase phone sign-in included. A code
+  only signs in an existing account. Email codes need working outgoing mail: check
+  **Authentication & Login → One-time code → Test connection** after a deploy.
 
 ---
 

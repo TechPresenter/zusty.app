@@ -65,8 +65,8 @@ import 'package:zuste/features/wallet/wallet_screen.dart';
 import 'support/fixtures.dart';
 import 'support/mock_data.dart';
 
-/// Smoke tests that every screen in `stitch_ui_screen_replication` builds,
-/// resolves its providers, and paints its key copy.
+/// Smoke tests that every screen of the app's original Stitch mockup set
+/// builds, resolves its providers, and paints its key copy.
 ///
 /// Repositories run in demo mode with the [MockData] fixtures registered, so
 /// they stand in for the Core PHP backend. The fixtures live here rather than

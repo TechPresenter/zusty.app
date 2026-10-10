@@ -15,7 +15,6 @@ and the Flutter app that brands and creators use on Android, iOS and the web.
 | --- | --- |
 | [`backend/`](backend/) | Core PHP 8 REST API, admin panel, cron jobs and public web pages. No framework, no Composer, no build step. |
 | [`mobile/`](mobile/) | Flutter app for brands and creators (Android, iOS, web). |
-| [`stitch_ui_screen_replication/`](stitch_ui_screen_replication/) | Reference screens for the UI, from the Stitch mockups. |
 | [`Zuste_PRD.md`](Zuste_PRD.md), [`Zuste_SRS.md`](Zuste_SRS.md), [`Zuste_TRD.md`](Zuste_TRD.md), [`Zuste_Workflow.md`](Zuste_Workflow.md), [`Zuste_Complete_Feature_Documentation.docx`](Zuste_Complete_Feature_Documentation.docx) | Product requirements, software requirements specification, technical requirements, business workflows and the complete feature documentation. These are the August 2026 planning documents, written under the earlier "Zuste" name. Where they differ from the code, the code and `backend/docs/` win. |
 | [`DESIGN.md`](DESIGN.md) | The original "Vibrant Influence" design system from the Stitch mockups: colour, type, spacing and shape tokens plus component guidance. The app's colours have changed since; the live tokens are in `mobile/lib/core/theme/`. |
 | [`AUDIT_REPORT.md`](AUDIT_REPORT.md) | Architecture and feature audit (August 2026). |

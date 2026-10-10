@@ -24,6 +24,8 @@ class Conversation {
     this.bookingTitle,
     this.bookingStatus,
     this.isVerified = false,
+    this.canMessage = true,
+    this.blockedByMe = false,
   });
 
   final int id;
@@ -61,6 +63,15 @@ class Conversation {
   final String? bookingStatus;
   final bool isVerified;
 
+  /// False when the other person has blocked the user: the thread stays
+  /// readable, but the server refuses new messages. A thread with someone
+  /// the user blocked does not reach the inbox at all.
+  final bool canMessage;
+
+  /// The user blocked the other person. Only the thread itself says so
+  /// (`GET /conversations/{id}/messages`): the inbox leaves such a thread out.
+  final bool blockedByMe;
+
   factory Conversation.fromJson(Map<String, dynamic> json) {
     final other = Json.map(json['other_user'] ?? json['participant']);
     return Conversation(
@@ -88,6 +99,9 @@ class Conversation {
       bookingTitle: Json.strOrNull(json['booking_title']),
       bookingStatus: Json.strOrNull(json['booking_status']),
       isVerified: Json.boolean(other['is_verified'] ?? json['is_verified']),
+      // Absent from servers that predate blocking, which never refuse.
+      canMessage: json['can_message'] != false,
+      blockedByMe: Json.boolean(other['is_blocked']),
     );
   }
 
@@ -136,6 +150,8 @@ class Conversation {
     bookingTitle: bookingTitle,
     bookingStatus: bookingStatus,
     isVerified: isVerified,
+    canMessage: canMessage,
+    blockedByMe: blockedByMe,
   );
 }
 

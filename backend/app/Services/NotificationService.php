@@ -34,6 +34,17 @@ final class NotificationService
         'payment', 'url', 'review', 'ticket', 'kyc',
     ];
 
+    /**
+     * A new account's `users`.`notification_prefs`, and what a missing key
+     * reads as.
+     *
+     * Marketing is off: product updates and offers go only to someone who
+     * opted in, by ticking the box at sign-up or the switch in Settings →
+     * Notifications (DPDP Act). Sign-up, the guest upgrade, the preferences
+     * endpoint and every promotional sender read this one list.
+     */
+    public const DEFAULT_PREFERENCES = ['push' => true, 'email' => true, 'sms' => false, 'marketing' => false];
+
     /** @var array<string,array<string,mixed>>|null */
     private static ?array $templates = null;
 
@@ -70,8 +81,13 @@ final class NotificationService
      * "Notification channels" — passes it, so that setting is not a control
      * that does nothing.
      *
+     * `actor_id` names the person whose action the notification is about.
+     * Nothing is sent when a block stands between them and the recipient.
+     * Platform notices about a booking that already exists leave it out on
+     * purpose, so both sides still hear how the escrow settles (BlockService).
+     *
      * @param array<string,mixed> $values      Placeholder substitutions.
-     * @param array<string,mixed> $overrides   action_type / action_value / image_url / data / channels.
+     * @param array<string,mixed> $overrides   action_type / action_value / image_url / data / channels / actor_id.
      */
     public static function send(int $userId, string $templateCode, array $values = [], array $overrides = []): void
     {
@@ -87,6 +103,12 @@ final class NotificationService
             return;
         }
 
+        $actorId = (int) ($overrides['actor_id'] ?? 0);
+
+        if ($actorId > 0 && BlockService::isBlocked($userId, $actorId)) {
+            return;
+        }
+
         $user = Database::selectOne(
             'SELECT `id`, `name`, `email`, `phone`, `phone_country_code`, `notification_prefs`, `status`
              FROM `users` WHERE `id` = :id AND `deleted_at` IS NULL',
@@ -99,6 +121,14 @@ final class NotificationService
 
         $preferences = self::preferences($user);
         $channels    = self::channels($template);
+
+        // A template filed as `promo` or `marketing` is promotional, the same
+        // rule sendRaw() applies to broadcasts: it reaches push, email and SMS
+        // only for an account that opted in to marketing (off by default).
+        // The in-app row below is still written — it is the account's own
+        // notification centre, not an outbound message.
+        $isPromotional = in_array((string) ($template['category'] ?? ''), ['promo', 'marketing'], true);
+        $outboundOk    = !$isPromotional || $preferences['marketing'];
 
         if (is_array($overrides['channels'] ?? null)) {
             $chosen = array_values(array_intersect(
@@ -149,7 +179,7 @@ final class NotificationService
         }
 
         // 2. Push.
-        if (in_array('push', $channels, true) && ($preferences['push'] ?? true)) {
+        if (in_array('push', $channels, true) && ($preferences['push'] ?? true) && $outboundOk) {
             Database::insert('push_queue', [
                 'target_type'  => 'user',
                 'target_value' => (string) $userId,
@@ -168,6 +198,7 @@ final class NotificationService
         // 3. Email.
         if (in_array('email', $channels, true)
             && ($preferences['email'] ?? true)
+            && $outboundOk
             && !empty($user['email'])
             && !empty($template['email_subject'])) {
             // The subject is a header, not HTML, so it keeps plain substitution.
@@ -188,6 +219,7 @@ final class NotificationService
         // 4. SMS.
         if (in_array('sms', $channels, true)
             && ($preferences['sms'] ?? false)
+            && $outboundOk
             && !empty($user['phone'])
             && !empty($template['sms_body'])) {
             $queued = SmsService::queue(
@@ -275,8 +307,8 @@ final class NotificationService
         }
 
         if (in_array('push', $channels, true)
-            && ($preferences['push'] ?? true)
-            && (!$isPromotional || ($preferences['marketing'] ?? true))) {
+            && $preferences['push']
+            && (!$isPromotional || $preferences['marketing'])) {
             Database::insert('push_queue', [
                 'target_type'  => 'user',
                 'target_value' => (string) $userId,
@@ -485,11 +517,11 @@ final class NotificationService
      */
     private static function preferences(array $user): array
     {
-        $defaults = ['push' => true, 'email' => true, 'sms' => false, 'marketing' => true];
-
         $stored = json_decode((string) ($user['notification_prefs'] ?? ''), true);
 
-        return is_array($stored) ? array_merge($defaults, array_map('boolval', $stored)) : $defaults;
+        return is_array($stored)
+            ? array_merge(self::DEFAULT_PREFERENCES, array_map('boolval', $stored))
+            : self::DEFAULT_PREFERENCES;
     }
 
     /** Clear the template cache after an admin edit. */

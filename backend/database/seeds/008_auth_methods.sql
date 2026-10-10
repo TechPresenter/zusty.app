@@ -59,7 +59,9 @@ INSERT INTO `settings`
   -- 400 · Email and password policy
   ('auth','forgot_password_enabled','1','boolean','Password recovery enabled','Off hides the link and refuses the endpoint.',0,0,401),
   ('auth','reset_token_ttl_minutes','60','integer','Reset link lifetime (min)','How long a password-reset link stays valid.',0,0,402),
-  ('auth','identifier_mode','email_or_phone','string','Sign-in identifier','email | phone | email_or_phone',0,0,403),
+  -- Sign-up always takes an email address (migration 055): with SMS off a
+  -- number alone could never be verified. This only shapes the sign-in field.
+  ('auth','identifier_mode','email','string','Sign-in identifier','email | email_or_phone: what the sign-in field asks for. Sign-up always needs an email address.',0,0,403),
 
   -- 500 · Guest
   ('auth','guest_browse_routes','["home","explore","creators","search","pages","blogs","faqs"]','json','Guest-browsable areas','What a guest may reach without an account.',0,0,501),
@@ -85,7 +87,7 @@ INSERT INTO `settings`
   ('auth','signup_divider_label','OR SIGN UP WITH','string','Sign-up divider label','Shown above the social buttons on sign-up.',0,0,703),
   ('auth','default_signup_role','brand','string','Default sign-up role','brand | creator',0,0,704),
   ('auth','role_choice_visible','1','boolean','Show the role chooser','Off signs everyone up as the default role.',0,0,705),
-  ('auth','require_terms_accept','1','boolean','Require accepting the terms','Enforced server-side on registration.',0,0,706),
+  ('auth','require_terms_accept','1','boolean','Require accepting the terms','Always on: every sign-up, Google included, accepts the terms. Kept for apps that read it.',0,0,706),
   ('auth','terms_url','','string','Terms URL','Blank falls back to the site URL plus /terms.',0,0,707),
   ('auth','privacy_url','','string','Privacy URL','Blank falls back to the site URL plus /privacy.',0,0,708)
 
@@ -115,12 +117,14 @@ DELETE FROM `settings` WHERE `group_key` = 'social' AND `setting_key` = 'google_
 -- anyone already running: everything the API accepts today stays accepted.
 -- guest_login is the exception and ships off, because it did not exist before
 -- and enabling a new anonymous entry point by default would be wrong.
+-- apple_login ships off too: sign-in is email and password, a code by email,
+-- or Google (decision of 2026-10-10, migration 055).
 -- ---------------------------------------------------------------------
 INSERT INTO `integrations` (`integration_key`, `is_enabled`, `status`) VALUES
   ('email_password', 1, 'connected'),
   ('mobile_otp',     1, 'connected'),
   ('google_login',   1, 'connected'),
-  ('apple_login',    1, 'connected'),
+  ('apple_login',    0, 'disabled'),
   ('facebook_login', 0, 'disabled'),
   ('guest_login',    0, 'disabled')
 ON DUPLICATE KEY UPDATE `integration_key` = `integrations`.`integration_key`;

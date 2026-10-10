@@ -199,6 +199,7 @@ class ContactPolicy {
     this.resendSeconds = 60,
     this.maxResends = 3,
     this.contactLocked = false,
+    this.mobileCodesAvailable = true,
   });
 
   /// When off, a change applies immediately without a code. The screen must
@@ -217,6 +218,11 @@ class ContactPolicy {
   /// the two allow flags, which are platform-wide.
   final bool contactLocked;
 
+  /// False while a new mobile number cannot be proved: proof is required and
+  /// text messages are switched off. Then no number can be changed or added,
+  /// and the screen says so instead of offering a request that cannot finish.
+  final bool mobileCodesAvailable;
+
   factory ContactPolicy.fromJson(Map<String, dynamic> json) => ContactPolicy(
         otpVerification: Json.boolean(json['otp_verification'], true),
         allowEmailChange: Json.boolean(json['allow_email_change'], true),
@@ -227,11 +233,20 @@ class ContactPolicy {
         resendSeconds: Json.integer(json['resend_seconds'], 60),
         maxResends: Json.integer(json['max_resends'], 3),
         contactLocked: Json.boolean(json['contact_locked']),
+        mobileCodesAvailable: Json.boolean(json['mobile_codes_available'], true),
       );
 
   /// Whether this channel may be changed at all right now.
   bool canChange(String channel) {
     if (contactLocked) return false;
-    return channel == 'email' ? allowEmailChange : allowMobileChange;
+    return channel == 'email'
+        ? allowEmailChange
+        : allowMobileChange && mobileCodesAvailable;
   }
+
+  /// Whether an additional contact of this kind may be added right now.
+  bool canAddAlternate(String channel) =>
+      allowAlternateContacts &&
+      !contactLocked &&
+      (channel == 'email' || mobileCodesAvailable);
 }

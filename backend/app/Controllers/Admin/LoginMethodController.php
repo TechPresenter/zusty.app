@@ -15,6 +15,7 @@ use Zuste\Services\AuthConfigService;
 use Zuste\Services\AuthService;
 use Zuste\Services\IntegrationService;
 use Zuste\Services\NotificationService;
+use Zuste\Services\SmsService;
 
 /**
  * Authentication & Login.
@@ -222,13 +223,14 @@ final class LoginMethodController extends BaseAdminController
             'otp_max_resends'          => 'nullable|integer|min_value:1|max_value:10',
             'forgot_password_enabled'  => 'nullable|boolean',
             'reset_token_ttl_minutes'  => 'nullable|integer|min_value:5|max_value:1440',
-            'identifier_mode'          => 'nullable|in:email,phone,email_or_phone',
+            // No phone-only mode: every account has an email address, and
+            // SMS is off, so a number alone could never be verified.
+            'identifier_mode'          => 'nullable|in:email,email_or_phone',
             'guest_session_days'       => 'nullable|integer|min_value:1|max_value:365',
             'guest_purge_days'         => 'nullable|integer|min_value:1|max_value:730',
             'guest_max_per_ip_per_day' => 'nullable|integer|min_value:1|max_value:1000',
             'default_signup_role'      => 'nullable|in:brand,creator',
             'role_choice_visible'      => 'nullable|boolean',
-            'require_terms_accept'     => 'nullable|boolean',
             'terms_url'                => 'nullable|url|max:255',
             'privacy_url'              => 'nullable|url|max:255',
             'social_divider_label'     => 'nullable|string|max:60',
@@ -250,6 +252,44 @@ final class LoginMethodController extends BaseAdminController
             'creator_signup_enabled' => 'nullable|boolean',
             'brand_signup_enabled'   => 'nullable|boolean',
         ]);
+
+        // Checked before anything is written, so a refused save changes
+        // nothing. The form always sends the marker; a post without it (another
+        // form, an older page) leaves the channels alone.
+        $otpChannels = null;
+
+        if ($request->has('otp_channels_present')) {
+            $ticked      = $request->input('otp_channels', []);
+            $otpChannels = array_values(array_intersect(
+                AuthConfigService::OTP_CHANNELS,
+                array_map('strval', is_array($ticked) ? $ticked : [$ticked])
+            ));
+
+            // No channel would leave the one-time code method on with nothing
+            // to send a code by, and email-code sign-in silently broken.
+            // Switching the method off is the way to stop codes.
+            // What the apps would actually be offered: SMS is dropped while
+            // SMS delivery is off (AuthConfigService::otpChannels), so "SMS"
+            // alone is no channel at all and would break code sign-in just
+            // the same.
+            $deliverable = SmsService::enabled()
+                ? $otpChannels
+                : array_values(array_diff($otpChannels, ['sms']));
+
+            if ($otpChannels === [] || $deliverable === []) {
+                $message = $otpChannels === []
+                    ? 'Tick at least one channel for one-time codes. To stop code sign-in, switch '
+                        . '"A code alone can sign someone in" off, or turn the one-time code method off.'
+                    : 'SMS delivery is off, so SMS alone cannot send a code. Tick Email as well, '
+                        . 'or turn SMS on under Settings → SMS first.';
+
+                if ($request->expectsJson()) {
+                    Response::validationError(['otp_channels' => [$message]], $message);
+                }
+
+                $this->back('error', $message, '/admin/login-methods');
+            }
+        }
 
         $changed = [];
 
@@ -284,8 +324,9 @@ final class LoginMethodController extends BaseAdminController
         }
 
         // Checkboxes: absent means off, so these are read from presence.
+        // Accepting the terms is not one of them: every sign-up requires it.
         $switches = [
-            'auth' => ['otp_login_enabled', 'forgot_password_enabled', 'role_choice_visible', 'require_terms_accept'],
+            'auth' => ['otp_login_enabled', 'forgot_password_enabled', 'role_choice_visible'],
             'app'  => ['creator_signup_enabled', 'brand_signup_enabled'],
         ];
 
@@ -299,19 +340,10 @@ final class LoginMethodController extends BaseAdminController
             }
         }
 
-        // The OTP channels arrive as ticked boxes. The form also sends a marker,
-        // so a post without it (another form, an older page) leaves them alone
-        // rather than reading "nothing ticked".
-        if ($request->has('otp_channels_present')) {
-            $ticked   = $request->input('otp_channels', []);
-            $channels = array_values(array_intersect(
-                AuthConfigService::OTP_CHANNELS,
-                array_map('strval', is_array($ticked) ? $ticked : [$ticked])
-            ));
-
-            if ($this->putSetting('auth', 'otp_channels', (string) json_encode($channels))) {
-                $changed['auth.otp_channels'] = implode(',', $channels);
-            }
+        // The OTP channels arrived as ticked boxes and were checked above.
+        if ($otpChannels !== null
+            && $this->putSetting('auth', 'otp_channels', (string) json_encode($otpChannels))) {
+            $changed['auth.otp_channels'] = implode(',', $otpChannels);
         }
 
         // The button order arrives as a comma-separated list and is stored as
@@ -514,12 +546,12 @@ final class LoginMethodController extends BaseAdminController
             'otp_max_resends'          => Config::settingInt('auth', 'otp_max_resends', 3),
             'otp_length'               => Config::settingInt('security', 'otp_length', 6),
             'otp_ttl'                  => Config::settingInt('security', 'otp_ttl', 300),
-            'sms_enabled'              => Config::settingBool('sms', 'enabled', false),
+            'sms_enabled'              => SmsService::enabled(),
             'sms_provider'             => Config::settingString('sms', 'provider'),
 
             'forgot_password_enabled'  => Config::settingBool('auth', 'forgot_password_enabled', true),
             'reset_token_ttl_minutes'  => Config::settingInt('auth', 'reset_token_ttl_minutes', 60),
-            'identifier_mode'          => Config::settingString('auth', 'identifier_mode', 'email_or_phone'),
+            'identifier_mode'          => AuthConfigService::identifierMode(),
             'password_min_length'      => Config::settingInt('security', 'password_min_length', 8),
             'mail_host'                => Config::settingString('mail', 'host'),
 
@@ -533,7 +565,6 @@ final class LoginMethodController extends BaseAdminController
             'brand_signup_enabled'     => Config::settingBool('app', 'brand_signup_enabled', true),
             'default_signup_role'      => Config::settingString('auth', 'default_signup_role', 'brand'),
             'role_choice_visible'      => Config::settingBool('auth', 'role_choice_visible', true),
-            'require_terms_accept'     => Config::settingBool('auth', 'require_terms_accept', true),
             'terms_url'                => Config::settingString('auth', 'terms_url'),
             'privacy_url'              => Config::settingString('auth', 'privacy_url'),
 

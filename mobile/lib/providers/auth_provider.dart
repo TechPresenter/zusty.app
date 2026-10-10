@@ -86,29 +86,38 @@ class AuthController extends Notifier<AuthState> {
     state = AuthState(stage: AuthStage.authenticated, user: result.user);
   }
 
+  /// Email sign-up. [marketingOptIn] is the unticked "product updates and
+  /// offers" box; the terms are always accepted by the time this is called.
   Future<void> register({
     required String name,
     required String email,
     required String password,
     required UserRole role,
-    String? phone,
     String? referralCode,
+    bool marketingOptIn = false,
   }) async {
     final result = await ref.read(authRepositoryProvider).register(
           name: name,
           email: email,
           password: password,
           role: role,
-          phone: phone,
           referralCode: referralCode,
+          marketingOptIn: marketingOptIn,
         );
     state = AuthState(stage: AuthStage.authenticated, user: result.user);
   }
 
-  Future<void> signInWithProvider(String idToken, {UserRole? role}) async {
+  /// Google (or Apple) sign-in. [acceptTerms] says the person saw the terms
+  /// notice above the button, which a first sign-in, creating the account,
+  /// needs.
+  Future<void> signInWithProvider(
+    String idToken, {
+    UserRole? role,
+    bool acceptTerms = false,
+  }) async {
     final result = await ref
         .read(authRepositoryProvider)
-        .signInWithFirebase(idToken, role: role);
+        .signInWithFirebase(idToken, role: role, acceptTerms: acceptTerms);
     state = AuthState(stage: AuthStage.authenticated, user: result.user);
   }
 

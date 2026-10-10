@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../models/creator.dart';
 import '../../../models/taxonomy.dart';
 import '../../../providers/taxonomy_provider.dart';
+import '../../../router/routes.dart';
 import '../../../shared/widgets/platform_icon.dart';
 import '../../../shared/widgets/states.dart';
 import '../../../shared/widgets/status_chip.dart';
@@ -52,13 +54,18 @@ class ProfilePackagesTab extends StatelessWidget {
           EmptyState(
             title: 'No packages yet',
             message: profile.isOwner
-                ? 'Packages let brands book you in one tap. Add one from '
-                      'your creator settings.'
+                ? 'Packages are fixed-price offers brands can pick when they '
+                      'send you a booking request. You can also manage them '
+                      'from the Profile tab, under For creators.'
                 : '$name has not listed fixed packages. You can still send '
                       'a request with your brief and budget.',
             icon: Icons.inventory_2_outlined,
-            actionLabel: onBook == null ? null : 'Request a quote',
-            onAction: onBook == null ? null : () => onBook!(null),
+            actionLabel: profile.isOwner
+                ? 'Manage packages'
+                : (onBook == null ? null : 'Request a quote'),
+            onAction: profile.isOwner
+                ? () => context.push(Routes.myPackages)
+                : (onBook == null ? null : () => onBook!(null)),
             compact: true,
           )
         else ...[
@@ -321,9 +328,7 @@ class ProfilePackageCard extends ConsumerWidget {
                 dense: true,
               ),
               StatusChip(
-                label: package.revisions == 1
-                    ? '1 revision'
-                    : '${package.revisions} revisions',
+                label: package.revisionsLabel,
                 icon: Icons.refresh_rounded,
                 tone: StatusTone.neutral,
                 dense: true,
@@ -414,8 +419,7 @@ class _PackageOption extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${package.turnaroundLabel} · ${package.revisions} '
-                  '${package.revisions == 1 ? 'revision' : 'revisions'}',
+                  '${package.turnaroundLabel} · ${package.revisionsLabel}',
                   style: AppTypography.bodySmall,
                 ),
               ],

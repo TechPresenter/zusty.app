@@ -40,11 +40,17 @@ import '../features/onboarding/onboarding_screen.dart';
 import '../features/profile/edit_profile_screen.dart';
 import '../features/profile/contacts_screen.dart';
 import '../features/profile/creator_fields_screen.dart';
+import '../features/creator/manage/my_packages_screen.dart';
+import '../features/creator/manage/my_portfolio_screen.dart';
+import '../features/creator/manage/package_form_screen.dart';
+import '../features/creator/manage/portfolio_form_screen.dart';
+import '../features/creator/manage/social_accounts_screen.dart';
 import '../features/profile/menu_screen.dart';
 import '../features/privacy/account_deleted_screen.dart';
 import '../features/privacy/data_export_screen.dart';
 import '../features/privacy/delete_account_screen.dart';
 import '../features/privacy/privacy_center_screen.dart';
+import '../features/safety/blocked_users_screen.dart';
 import '../features/referral/invite_earn_screen.dart';
 import '../features/search/search_results_screen.dart';
 import '../features/search/search_screen.dart';
@@ -564,6 +570,49 @@ final routerProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const CreatorFieldsScreen(),
       ),
+
+      // -- Creator: packages, portfolio, linked accounts ---------------------
+      // `new` before `:id`, so it is not taken for a package id. The screens
+      // turn a brand away themselves.
+      GoRoute(
+        path: Routes.myPackages,
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const MyPackagesScreen(),
+        routes: [
+          GoRoute(
+            path: 'new',
+            parentNavigatorKey: _rootKey,
+            builder: (_, _) => const PackageFormScreen(),
+          ),
+          GoRoute(
+            path: ':id',
+            parentNavigatorKey: _rootKey,
+            // An id that does not parse finds no package, rather than
+            // quietly opening an empty "new package" form.
+            builder: (_, state) => PackageFormScreen(
+              packageId: int.tryParse(state.pathParameters['id'] ?? '') ?? -1,
+            ),
+          ),
+        ],
+      ),
+      GoRoute(
+        path: Routes.myPortfolio,
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const MyPortfolioScreen(),
+        routes: [
+          GoRoute(
+            path: 'new',
+            parentNavigatorKey: _rootKey,
+            builder: (_, _) => const PortfolioFormScreen(),
+          ),
+        ],
+      ),
+      GoRoute(
+        path: Routes.socialAccounts,
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const SocialAccountsScreen(),
+      ),
+
       GoRoute(
         path: Routes.settings,
         parentNavigatorKey: _rootKey,
@@ -595,6 +644,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         // answers. The sign-out that follows replaces the whole router, so
         // the move to the goodbye screen never asks this.
         onExit: (_, _) => !ref.read(deletionInFlightProvider),
+      ),
+      GoRoute(
+        path: Routes.blockedUsers,
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const BlockedUsersScreen(),
       ),
       GoRoute(
         path: Routes.accountDeleted,

@@ -78,6 +78,9 @@ $this->start('content');
                 <span class="chip chip--<?= $refund['destination'] === 'wallet' ? 'info' : 'neutral' ?>">
                   <?= $this->e($refund['destination'] === 'wallet' ? 'Wallet' : 'Original method') ?>
                 </span>
+                <?php if (!empty($refund['notes'])): ?>
+                  <div class="tiny muted mt-1 clamp-2" style="max-width:200px"><?= $this->e($refund['notes']) ?></div>
+                <?php endif; ?>
               </td>
 
               <td class="small muted"><?= $this->e(ucfirst(str_replace('_', ' ', (string) $refund['reason']))) ?></td>

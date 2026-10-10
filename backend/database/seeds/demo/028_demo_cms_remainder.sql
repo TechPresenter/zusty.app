@@ -45,11 +45,11 @@ VALUES
   (1414,'local','categories',3,'cat-tech.jpg','Tech.jpg','uploads/categories/cat-tech.jpg','https://picsum.photos/seed/zuste-media-1414/800/800','https://picsum.photos/seed/zuste-media-1414/200/200','image/jpeg','jpg',149877,1,800,800,'Tech category tile','admin',1,DATE_SUB(NOW(), INTERVAL 299 DAY)),
   (1415,'local','categories',3,'cat-beauty.jpg','Beauty.jpg','uploads/categories/cat-beauty.jpg','https://picsum.photos/seed/zuste-media-1415/800/800','https://picsum.photos/seed/zuste-media-1415/200/200','image/jpeg','jpg',174503,1,800,800,'Beauty category tile','admin',1,DATE_SUB(NOW(), INTERVAL 298 DAY)),
 
-  (1416,'local','brand-assets',4,'bloom-skincare-logo.png','Bloom Skincare Logo.png','uploads/brand-assets/bloom-skincare-logo.png','https://picsum.photos/seed/zuste-media-1416/512/512','https://picsum.photos/seed/zuste-media-1416/128/128','image/png','png',48210,1,512,512,'Bloom Skincare logo','user',1001,DATE_SUB(NOW(), INTERVAL 260 DAY)),
-  (1417,'local','brand-assets',4,'urban-crumb-logo.png','Urban Crumb Logo.png','uploads/brand-assets/urban-crumb-logo.png','https://picsum.photos/seed/zuste-media-1417/512/512','https://picsum.photos/seed/zuste-media-1417/128/128','image/png','png',51774,1,512,512,'Urban Crumb logo','user',1002,DATE_SUB(NOW(), INTERVAL 244 DAY)),
-  (1418,'local','brand-assets',4,'paytrail-logo.png','Paytrail Logo.png','uploads/brand-assets/paytrail-logo.png','https://picsum.photos/seed/zuste-media-1418/512/512','https://picsum.photos/seed/zuste-media-1418/128/128','image/png','png',44092,1,512,512,'Paytrail logo','user',1003,DATE_SUB(NOW(), INTERVAL 231 DAY)),
-  (1419,'local','brand-assets',4,'kettle-and-co-logo.png','Kettle & Co Logo.png','uploads/brand-assets/kettle-and-co-logo.png','https://picsum.photos/seed/zuste-media-1419/512/512','https://picsum.photos/seed/zuste-media-1419/128/128','image/png','png',46381,1,512,512,'Kettle and Co logo','user',1004,DATE_SUB(NOW(), INTERVAL 205 DAY)),
-  (1420,'local','brand-assets',4,'northbound-travel-logo.png','Northbound Travel Logo.png','uploads/brand-assets/northbound-travel-logo.png','https://picsum.photos/seed/zuste-media-1420/512/512','https://picsum.photos/seed/zuste-media-1420/128/128','image/png','png',49903,1,512,512,'Northbound Travel logo','user',1005,DATE_SUB(NOW(), INTERVAL 190 DAY)),
+  (1416,'local','brand-assets',4,'velvetfern-skincare-logo.png','Velvetfern Skincare Logo.png','uploads/brand-assets/velvetfern-skincare-logo.png','https://picsum.photos/seed/zuste-media-1416/512/512','https://picsum.photos/seed/zuste-media-1416/128/128','image/png','png',48210,1,512,512,'Velvetfern Skincare logo','user',1001,DATE_SUB(NOW(), INTERVAL 260 DAY)),
+  (1417,'local','brand-assets',4,'konkanbite-kitchen-logo.png','Konkanbite Kitchen Logo.png','uploads/brand-assets/konkanbite-kitchen-logo.png','https://picsum.photos/seed/zuste-media-1417/512/512','https://picsum.photos/seed/zuste-media-1417/128/128','image/png','png',51774,1,512,512,'Konkanbite Kitchen logo','user',1002,DATE_SUB(NOW(), INTERVAL 244 DAY)),
+  (1418,'local','brand-assets',4,'kiranapay-labs-logo.png','Kiranapay Labs Logo.png','uploads/brand-assets/kiranapay-labs-logo.png','https://picsum.photos/seed/zuste-media-1418/512/512','https://picsum.photos/seed/zuste-media-1418/128/128','image/png','png',44092,1,512,512,'Kiranapay Labs logo','user',1003,DATE_SUB(NOW(), INTERVAL 231 DAY)),
+  (1419,'local','brand-assets',4,'chutneyverse-foods-logo.png','Chutneyverse Foods Logo.png','uploads/brand-assets/chutneyverse-foods-logo.png','https://picsum.photos/seed/zuste-media-1419/512/512','https://picsum.photos/seed/zuste-media-1419/128/128','image/png','png',46381,1,512,512,'Chutneyverse Foods logo','user',1004,DATE_SUB(NOW(), INTERVAL 205 DAY)),
+  (1420,'local','brand-assets',4,'ridgeline-rambles-logo.png','Ridgeline Rambles Logo.png','uploads/brand-assets/ridgeline-rambles-logo.png','https://picsum.photos/seed/zuste-media-1420/512/512','https://picsum.photos/seed/zuste-media-1420/128/128','image/png','png',49903,1,512,512,'Ridgeline Rambles logo','user',1005,DATE_SUB(NOW(), INTERVAL 190 DAY)),
 
   (1421,'local','deliverables',5,'reel-cut-01.mp4','Reel Cut 01.mp4','uploads/deliverables/reel-cut-01.mp4','https://picsum.photos/seed/zuste-media-1421/1080/1920','https://picsum.photos/seed/zuste-media-1421/270/480','video/mp4','mp4',18447260,0,1080,1920,'Delivered Instagram Reel cut','user',2001,DATE_SUB(NOW(), INTERVAL 52 DAY)),
   (1422,'local','deliverables',5,'reel-cut-02.mp4','Reel Cut 02.mp4','uploads/deliverables/reel-cut-02.mp4','https://picsum.photos/seed/zuste-media-1422/1080/1920','https://picsum.photos/seed/zuste-media-1422/270/480','video/mp4','mp4',21903118,0,1080,1920,'Delivered Instagram Reel cut','user',2004,DATE_SUB(NOW(), INTERVAL 47 DAY)),
@@ -146,10 +146,10 @@ INSERT INTO `popups`
    `trigger_value`, `frequency`, `is_dismissible`, `impressions`, `clicks`, `dismissals`,
    `starts_at`, `ends_at`, `is_active`, `priority`, `created_at`)
 VALUES
-  (1516,'Festive brief board','modal','Festive briefs are live','Over 40 brands are booking creators for the festive season. Browse open briefs and apply before the deadline.','https://picsum.photos/seed/zuste-popup-1516/800/500','#B80049','#FFFFFF','Browse briefs','screen','campaigns','home','creators','delay',3,'once_per_day',1,4820,613,1990,DATE_SUB(NOW(), INTERVAL 20 DAY),DATE_ADD(NOW(), INTERVAL 40 DAY),1,90,DATE_SUB(NOW(), INTERVAL 21 DAY)),
+  (1516,'Festive brief board','modal','Festive briefs are live','Brands are posting briefs for the festive season. Browse the open ones and apply before the deadline.','https://picsum.photos/seed/zuste-popup-1516/800/500','#B80049','#FFFFFF','Browse briefs','screen','campaigns','home','creators','delay',3,'once_per_day',1,4820,613,1990,DATE_SUB(NOW(), INTERVAL 20 DAY),DATE_ADD(NOW(), INTERVAL 40 DAY),1,90,DATE_SUB(NOW(), INTERVAL 21 DAY)),
   (1517,'First booking discount','modal','10% off your first booking','New to Zusty? Use FIRSTBOOK10 at checkout for 10% off, up to Rs 2,500.','https://picsum.photos/seed/zuste-popup-1517/800/500','#632CE5','#FFFFFF','Find creators','screen','explore','home','brands','delay',5,'once',1,7310,1204,2871,DATE_SUB(NOW(), INTERVAL 60 DAY),DATE_ADD(NOW(), INTERVAL 120 DAY),1,80,DATE_SUB(NOW(), INTERVAL 61 DAY)),
-  (1518,'Complete your verification','announcement_bar','Finish verification to unlock payouts','Verified creators rank higher in search and can withdraw earnings. It takes about five minutes.',NULL,'#FFF4E5','#7A4A00','Verify now','screen','kyc','all','creators','immediate',0,'once_per_session',1,12904,2233,4118,DATE_SUB(NOW(), INTERVAL 90 DAY),NULL,1,70,DATE_SUB(NOW(), INTERVAL 90 DAY)),
-  (1519,'Refer and earn','slide_in','Invite a brand, earn Rs 500','Both of you get Rs 500 in wallet credit when they complete their first booking.','https://picsum.photos/seed/zuste-popup-1519/800/500','#0F9D58','#FFFFFF','Share invite','screen','referral','all','all','scroll',60,'once_per_day',1,9642,881,3407,DATE_SUB(NOW(), INTERVAL 45 DAY),DATE_ADD(NOW(), INTERVAL 45 DAY),1,50,DATE_SUB(NOW(), INTERVAL 46 DAY)),
+  (1518,'Complete your verification','announcement_bar','Finish verification to unlock payouts','Verified creators can accept bookings and withdraw earnings. Submit your details in a few minutes; our team reviews them.',NULL,'#FFF4E5','#7A4A00','Verify now','screen','kyc','all','creators','immediate',0,'once_per_session',1,12904,2233,4118,DATE_SUB(NOW(), INTERVAL 90 DAY),NULL,1,70,DATE_SUB(NOW(), INTERVAL 90 DAY)),
+  (1519,'Refer and earn','slide_in','Invite a brand, earn a reward','You both get a reward when they complete their first paid booking. Invite & earn shows the current amount.','https://picsum.photos/seed/zuste-popup-1519/800/500','#0F9D58','#FFFFFF','Share invite','screen','referral','all','all','scroll',60,'once_per_day',1,9642,881,3407,DATE_SUB(NOW(), INTERVAL 45 DAY),DATE_ADD(NOW(), INTERVAL 45 DAY),1,50,DATE_SUB(NOW(), INTERVAL 46 DAY)),
   (1520,'Monsoon sale ended','modal','Monsoon offer has ended','Thanks for a great season. Watch this space for the festive line-up.','https://picsum.photos/seed/zuste-popup-1520/800/500','#333333','#FFFFFF','Dismiss','dismiss',NULL,'home','all','immediate',0,'once',1,3318,204,3114,DATE_SUB(NOW(), INTERVAL 200 DAY),DATE_SUB(NOW(), INTERVAL 140 DAY),0,10,DATE_SUB(NOW(), INTERVAL 201 DAY))
 ON DUPLICATE KEY UPDATE `id` = VALUES(`id`);
 
@@ -176,7 +176,7 @@ VALUES
   (1610,'ZT001610',2024,NULL,'Verification badge missing after approval','kyc','normal','resolved',1,DATE_SUB(NOW(), INTERVAL 28 DAY),'agent',DATE_SUB(NOW(), INTERVAL 28 DAY),NULL,4,DATE_SUB(NOW(), INTERVAL 31 DAY)),
   (1611,'ZT001611',1016,NULL,'How do I download invoices in bulk?','account','low','closed',1,DATE_SUB(NOW(), INTERVAL 55 DAY),'agent',DATE_SUB(NOW(), INTERVAL 56 DAY),DATE_SUB(NOW(), INTERVAL 53 DAY),5,DATE_SUB(NOW(), INTERVAL 58 DAY)),
   (1612,'ZT001612',2030,NULL,'Deliverable marked as revision without a note','booking','normal','pending_user',1,DATE_SUB(NOW(), INTERVAL 5 DAY),'agent',NULL,NULL,NULL,DATE_SUB(NOW(), INTERVAL 8 DAY)),
-  (1613,'ZT001613',1018,NULL,'Wallet top-up debited but not credited','wallet','urgent','resolved',1,DATE_SUB(NOW(), INTERVAL 44 DAY),'agent',DATE_SUB(NOW(), INTERVAL 44 DAY),NULL,3,DATE_SUB(NOW(), INTERVAL 47 DAY)),
+  (1613,'ZT001613',1018,NULL,'Card debited but booking still unpaid','payment','urgent','resolved',1,DATE_SUB(NOW(), INTERVAL 44 DAY),'agent',DATE_SUB(NOW(), INTERVAL 44 DAY),NULL,3,DATE_SUB(NOW(), INTERVAL 47 DAY)),
   (1614,'ZT001614',2036,NULL,'Cannot log in after changing my phone number','account','high','closed',1,DATE_SUB(NOW(), INTERVAL 70 DAY),'agent',DATE_SUB(NOW(), INTERVAL 71 DAY),DATE_SUB(NOW(), INTERVAL 68 DAY),4,DATE_SUB(NOW(), INTERVAL 74 DAY)),
   (1615,'ZT001615',1020,NULL,'Request for a dedicated account manager','other','low','open',NULL,DATE_SUB(NOW(), INTERVAL 6 DAY),'user',NULL,NULL,NULL,DATE_SUB(NOW(), INTERVAL 6 DAY)),
   (1616,'ZT001616',2041,NULL,'Escrow released late by two days','payment','normal','resolved',1,DATE_SUB(NOW(), INTERVAL 62 DAY),'agent',DATE_SUB(NOW(), INTERVAL 62 DAY),NULL,4,DATE_SUB(NOW(), INTERVAL 65 DAY))
@@ -185,34 +185,34 @@ ON DUPLICATE KEY UPDATE `id` = VALUES(`id`);
 INSERT INTO `support_ticket_messages`
   (`ticket_id`, `sender_type`, `sender_id`, `sender_name`, `message`, `is_internal`, `created_at`)
 SELECT * FROM (
-  SELECT 1601 AS t,'user' AS st,1001 AS si,'Bloom Skincare' AS sn,'The booking was marked complete on the 12th but the payout has not reached my account. Reference ZB000412.' AS m,0 AS i,DATE_SUB(NOW(), INTERVAL 4 DAY) AS c UNION ALL
+  SELECT 1601 AS t,'user' AS st,1001 AS si,'Velvetfern Skincare' AS sn,'The booking was marked complete on the 12th but the payout has not reached my account. Reference ZB000412.' AS m,0 AS i,DATE_SUB(NOW(), INTERVAL 4 DAY) AS c UNION ALL
   SELECT 1601,'agent',1,'Zusty Support','Thanks for flagging this. Escrow release runs hourly and I can see the transfer queued. Let me confirm with our payments team and come back to you today.',0,DATE_SUB(NOW(), INTERVAL 3 DAY) UNION ALL
   SELECT 1601,'agent',1,'Zusty Support','Payments confirm the bank returned it once for a name mismatch. Could you check the account holder name matches your PAN exactly?',0,DATE_SUB(NOW(), INTERVAL 2 DAY) UNION ALL
 
-  SELECT 1602,'user',2003,'Rhea Menon','My KYC was rejected this morning but the app does not show a reason. I uploaded my Aadhaar and PAN as asked.',0,DATE_SUB(NOW(), INTERVAL 1 DAY) UNION ALL
+  SELECT 1602,'user',2003,'Kabir Sethi','My KYC was rejected this morning but the app does not show a reason. I uploaded my Aadhaar and PAN as asked.',0,DATE_SUB(NOW(), INTERVAL 1 DAY) UNION ALL
 
-  SELECT 1603,'user',1004,'Kettle & Co','The creator accepted on the 3rd and the delivery date has passed with nothing submitted.',0,DATE_SUB(NOW(), INTERVAL 6 DAY) UNION ALL
+  SELECT 1603,'user',1004,'Konkanbite Kitchen','The creator accepted on the 3rd and the delivery date has passed with nothing submitted.',0,DATE_SUB(NOW(), INTERVAL 6 DAY) UNION ALL
   SELECT 1603,'agent',1,'Zusty Support','I have reached out to the creator and extended the window by 48 hours. If nothing arrives you can cancel with a full refund — the free-cancellation window still applies here.',0,DATE_SUB(NOW(), INTERVAL 3 DAY) UNION ALL
 
-  SELECT 1604,'user',2008,'Kabir Sethi','My withdrawal failed and the bank account now shows as rejected. I have used it before without a problem.',0,DATE_SUB(NOW(), INTERVAL 15 DAY) UNION ALL
+  SELECT 1604,'user',2008,'Zoya Qureshi','My withdrawal failed and the bank account now shows as rejected. I have used it before without a problem.',0,DATE_SUB(NOW(), INTERVAL 15 DAY) UNION ALL
   SELECT 1604,'agent',1,'Zusty Support','The IFSC on file belonged to a branch that merged in April. I have cleared the rejection so you can add the new IFSC.',0,DATE_SUB(NOW(), INTERVAL 14 DAY) UNION ALL
-  SELECT 1604,'user',2008,'Kabir Sethi','Added the new one and the withdrawal has gone through. Thank you.',0,DATE_SUB(NOW(), INTERVAL 12 DAY) UNION ALL
+  SELECT 1604,'user',2008,'Zoya Qureshi','Added the new one and the withdrawal has gone through. Thank you.',0,DATE_SUB(NOW(), INTERVAL 12 DAY) UNION ALL
 
-  SELECT 1605,'user',1007,'Northbound Travel','Our GSTIN is on the business profile but the last two invoices do not show it.',0,DATE_SUB(NOW(), INTERVAL 24 DAY) UNION ALL
+  SELECT 1605,'user',1007,'Sanganera Looms','Our GSTIN is on the business profile but the last two invoices do not show it.',0,DATE_SUB(NOW(), INTERVAL 24 DAY) UNION ALL
   SELECT 1605,'agent',1,'Zusty Support','Invoices snapshot the tax details at the time they are issued, so the two raised before you added the GSTIN will not carry it. I have reissued both.',0,DATE_SUB(NOW(), INTERVAL 20 DAY) UNION ALL
 
-  SELECT 1607,'user',1010,'Urban Crumb','We cancelled on the 2nd and the refund still has not arrived.',0,DATE_SUB(NOW(), INTERVAL 3 DAY) UNION ALL
+  SELECT 1607,'user',1010,'Vaakyashala Learning','We cancelled on the 2nd and the refund still has not arrived.',0,DATE_SUB(NOW(), INTERVAL 3 DAY) UNION ALL
   SELECT 1607,'agent',1,'Zusty Support','Refunds to the original method take five to seven working days at the gateway. I can see it left our side on the 3rd — I will share the ARN so you can trace it with your bank.',0,DATE_SUB(NOW(), INTERVAL 1 DAY) UNION ALL
 
-  SELECT 1609,'user',1013,'Paytrail','A creator has asked us to pay them directly over UPI to skip the platform fee.',0,DATE_SUB(NOW(), INTERVAL 2 DAY) UNION ALL
+  SELECT 1609,'user',1013,'Tiffinbox Games','A creator has asked us to pay them directly over UPI to skip the platform fee.',0,DATE_SUB(NOW(), INTERVAL 2 DAY) UNION ALL
   SELECT 1609,'agent',1,'Zusty Support','Thank you for reporting it — off-platform payment requests are a policy breach and leave you with no escrow protection. Our trust team is reviewing the account now.',0,DATE_SUB(NOW(), INTERVAL 1 DAY) UNION ALL
   SELECT 1609,'agent',1,'Zusty Support','Trust team: account flagged, creator suspended pending review.',1,DATE_SUB(NOW(), INTERVAL 1 DAY) UNION ALL
 
-  SELECT 1612,'user',2030,'Ishaan Verma','The brand pushed my Reel back for revision but left no note, so I do not know what to change.',0,DATE_SUB(NOW(), INTERVAL 8 DAY) UNION ALL
+  SELECT 1612,'user',2030,'Prakash Yadav','The brand pushed my Reel back for revision but left no note, so I do not know what to change.',0,DATE_SUB(NOW(), INTERVAL 8 DAY) UNION ALL
   SELECT 1612,'agent',1,'Zusty Support','A revision note is optional today, which is not good enough — I have asked the brand for specifics and passed the gap to our product team.',0,DATE_SUB(NOW(), INTERVAL 5 DAY) UNION ALL
 
-  SELECT 1613,'user',1018,'Sunday Loaf','Rs 25,000 left my card but the wallet still shows the old balance.',0,DATE_SUB(NOW(), INTERVAL 47 DAY) UNION ALL
-  SELECT 1613,'agent',1,'Zusty Support','The gateway webhook did not reach us. I have reconciled the payment manually and the balance is now correct. Apologies for the delay.',0,DATE_SUB(NOW(), INTERVAL 44 DAY)
+  SELECT 1613,'user',1018,'Ragi Rocket Nutrition','Rs 25,000 left my card but the booking still says payment pending.',0,DATE_SUB(NOW(), INTERVAL 47 DAY) UNION ALL
+  SELECT 1613,'agent',1,'Zusty Support','The gateway webhook did not reach us. I have reconciled the payment manually and the booking is now confirmed. Apologies for the delay.',0,DATE_SUB(NOW(), INTERVAL 44 DAY)
 ) AS seed
 WHERE NOT EXISTS (
     SELECT 1 FROM `support_ticket_messages` m WHERE m.`ticket_id` = seed.t AND m.`created_at` = seed.c
@@ -224,11 +224,11 @@ WHERE NOT EXISTS (
 INSERT INTO `contact_messages`
   (`name`, `email`, `phone`, `subject`, `message`, `source`, `status`, `created_at`)
 SELECT * FROM (
-  SELECT 'Meera Iyer' AS n,'meera@lumehomes.in' AS e,'9845012345' AS p,'Partnership enquiry' AS s,'We run a home decor brand in Bengaluru and would like to understand enterprise pricing for booking twenty creators a quarter.' AS m,'web' AS src,'replied' AS st,DATE_SUB(NOW(), INTERVAL 34 DAY) AS c UNION ALL
-  SELECT 'Arjun Rao','arjun.rao@finlypay.com','9900112233','API access','Do you offer an API so we can pull booking status into our internal dashboard?','web','read',DATE_SUB(NOW(), INTERVAL 19 DAY) UNION ALL
-  SELECT 'Sana Qureshi','sana@thecraftedit.co','9820044556','Creator onboarding','I manage six creators and would like to onboard them together rather than one by one.','app','new',DATE_SUB(NOW(), INTERVAL 6 DAY) UNION ALL
-  SELECT 'Vikram Nair','vikram@nairmedia.in',NULL,'Press enquiry','Writing a piece on India''s creator economy and would like a comment on rate transparency.','web','replied',DATE_SUB(NOW(), INTERVAL 52 DAY) UNION ALL
-  SELECT 'Priyanka Das','priyanka.das@zephyrtea.in','9711223344','Invoice query','Can we receive a consolidated monthly invoice instead of one per booking?','web','new',DATE_SUB(NOW(), INTERVAL 3 DAY) UNION ALL
+  SELECT 'Meera Iyer' AS n,'meera@lumehomes.example' AS e,'9845012345' AS p,'Partnership enquiry' AS s,'We run a home decor brand in Bengaluru and would like to understand enterprise pricing for booking twenty creators a quarter.' AS m,'web' AS src,'replied' AS st,DATE_SUB(NOW(), INTERVAL 34 DAY) AS c UNION ALL
+  SELECT 'Arjun Rao','arjun.rao@finlypay.example','9900112233','API access','Do you offer an API so we can pull booking status into our internal dashboard?','web','read',DATE_SUB(NOW(), INTERVAL 19 DAY) UNION ALL
+  SELECT 'Sana Qureshi','sana@thecraftedit.example','9820044556','Creator onboarding','I manage six creators and would like to onboard them together rather than one by one.','app','new',DATE_SUB(NOW(), INTERVAL 6 DAY) UNION ALL
+  SELECT 'Vikram Nair','vikram@nairmedia.example',NULL,'Press enquiry','Writing a piece on India''s creator economy and would like a comment on rate transparency.','web','replied',DATE_SUB(NOW(), INTERVAL 52 DAY) UNION ALL
+  SELECT 'Priyanka Das','priyanka.das@zephyrtea.example','9711223344','Invoice query','Can we receive a consolidated monthly invoice instead of one per booking?','web','new',DATE_SUB(NOW(), INTERVAL 3 DAY) UNION ALL
   SELECT 'Growth Team','offers@seo-backlinks-cheap.example','','Boost your rankings','Buy 5000 backlinks today, guaranteed page one placement.','web','spam',DATE_SUB(NOW(), INTERVAL 11 DAY)
 ) AS seed
 WHERE NOT EXISTS (
@@ -237,11 +237,11 @@ WHERE NOT EXISTS (
 
 INSERT INTO `newsletter_subscribers` (`email`, `name`, `source`, `status`, `unsubscribe_token`, `subscribed_at`)
 SELECT * FROM (
-  SELECT 'meera@lumehomes.in' AS e,'Meera Iyer' AS n,'web' AS s,'subscribed' AS st,MD5('nl-1') AS t,DATE_SUB(NOW(), INTERVAL 120 DAY) AS c UNION ALL
-  SELECT 'arjun.rao@finlypay.com','Arjun Rao','web','subscribed',MD5('nl-2'),DATE_SUB(NOW(), INTERVAL 98 DAY) UNION ALL
-  SELECT 'sana@thecraftedit.co','Sana Qureshi','app','subscribed',MD5('nl-3'),DATE_SUB(NOW(), INTERVAL 76 DAY) UNION ALL
-  SELECT 'vikram@nairmedia.in','Vikram Nair','web','unsubscribed',MD5('nl-4'),DATE_SUB(NOW(), INTERVAL 210 DAY) UNION ALL
-  SELECT 'priyanka.das@zephyrtea.in','Priyanka Das','web','subscribed',MD5('nl-5'),DATE_SUB(NOW(), INTERVAL 41 DAY) UNION ALL
+  SELECT 'meera@lumehomes.example' AS e,'Meera Iyer' AS n,'web' AS s,'subscribed' AS st,MD5('nl-1') AS t,DATE_SUB(NOW(), INTERVAL 120 DAY) AS c UNION ALL
+  SELECT 'arjun.rao@finlypay.example','Arjun Rao','web','subscribed',MD5('nl-2'),DATE_SUB(NOW(), INTERVAL 98 DAY) UNION ALL
+  SELECT 'sana@thecraftedit.example','Sana Qureshi','app','subscribed',MD5('nl-3'),DATE_SUB(NOW(), INTERVAL 76 DAY) UNION ALL
+  SELECT 'vikram@nairmedia.example','Vikram Nair','web','unsubscribed',MD5('nl-4'),DATE_SUB(NOW(), INTERVAL 210 DAY) UNION ALL
+  SELECT 'priyanka.das@zephyrtea.example','Priyanka Das','web','subscribed',MD5('nl-5'),DATE_SUB(NOW(), INTERVAL 41 DAY) UNION ALL
   SELECT 'rohit@dunebrew.in','Rohit Kulkarni','app','subscribed',MD5('nl-6'),DATE_SUB(NOW(), INTERVAL 33 DAY) UNION ALL
   SELECT 'anita@saffronstudio.in','Anita Pillai','import','bounced',MD5('nl-7'),DATE_SUB(NOW(), INTERVAL 165 DAY) UNION ALL
   SELECT 'devang@northloop.co','Devang Shah','web','subscribed',MD5('nl-8'),DATE_SUB(NOW(), INTERVAL 22 DAY)

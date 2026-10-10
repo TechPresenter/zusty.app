@@ -240,7 +240,7 @@ final class AccountController extends BaseApiController
         ) ?? '{}'), true) ?: [];
 
         $preferences = array_merge(
-            ['push' => true, 'email' => true, 'sms' => false, 'marketing' => true],
+            NotificationService::DEFAULT_PREFERENCES,
             $existing,
             array_map('boolval', array_filter($data, static fn ($v): bool => $v !== null))
         );

@@ -210,6 +210,13 @@ foreach ($methods as $key => $method):
         <div class="callout callout--info mb-4"><?= $this->e((string) $definition['notes']) ?></div>
       <?php endif; ?>
 
+      <?php if ($key === 'apple_login' && !$method['enabled']): ?>
+        <div class="callout callout--info mb-4">
+          Switched off by migration 055: the apps offer email and password, a code sent by email,
+          and Google. Stored credentials are kept, and the API refuses Apple sign-ins while this is off.
+        </div>
+      <?php endif; ?>
+
       <?php if ($definition['fields'] === []): ?>
         <p class="muted">
           This method stores no credentials of its own — its settings live in the groups
@@ -399,9 +406,16 @@ foreach ($methods as $key => $method):
       <h2 class="h2">One-time codes</h2>
       <?php if (in_array('sms', $policy['otp_channels'], true) && !$policy['sms_enabled']): ?>
         <div class="callout callout--warning mb-4">
-          SMS is ticked below, but SMS delivery is switched off under
-          <a href="/admin/settings?group=sms">Settings → SMS</a>, so no code goes out by SMS and the
-          apps do not offer it.
+          <?php if (array_diff($policy['otp_channels'], ['sms']) === []): ?>
+            SMS is the only channel ticked below, but SMS delivery is switched off under
+            <a href="/admin/settings?group=sms">Settings → SMS</a>, so no code can be sent and the
+            apps hide sign-in by code. Tick Email as well to bring it back; saving with SMS alone is
+            refused while SMS is off.
+          <?php else: ?>
+            SMS is ticked below, but SMS delivery is switched off under
+            <a href="/admin/settings?group=sms">Settings → SMS</a>, so no code goes out by SMS and the
+            apps do not offer it.
+          <?php endif; ?>
         </div>
       <?php endif; ?>
 
@@ -428,7 +442,9 @@ foreach ($methods as $key => $method):
               <?= $this->e($label) ?>
             </label>
           <?php endforeach; ?>
-          <p class="field__hint">Leave SMS unticked to offer no phone sign-in at all, Firebase phone sign-in included.</p>
+          <p class="field__hint">
+            Tick at least one. Leave SMS unticked to offer no phone sign-in at all, Firebase phone sign-in included.
+          </p>
         </div>
         <div class="field">
           <label class="field__label" for="p_otp_label">Button label</label>
@@ -489,10 +505,15 @@ foreach ($methods as $key => $method):
         <div class="field">
           <label class="field__label" for="p_identifier_mode">Sign-in identifier</label>
           <select class="select" id="p_identifier_mode" name="identifier_mode" <?= $canManage ? '' : 'disabled' ?>>
-            <?php foreach (['email_or_phone' => 'Email or phone', 'email' => 'Email only', 'phone' => 'Phone only'] as $value => $label): ?>
+            <?php foreach (['email' => 'Email', 'email_or_phone' => 'Email, or a number the account already has'] as $value => $label): ?>
               <option value="<?= $this->e($value) ?>" <?= $policy['identifier_mode'] === $value ? 'selected' : '' ?>><?= $this->e($label) ?></option>
             <?php endforeach; ?>
           </select>
+          <p class="field__hint">
+            What the apps' sign-in field asks for. Sign-up always needs an email address: with SMS off a
+            number cannot be verified, so there are no phone-only accounts. Either way an older account
+            with a number can still sign in with it.
+          </p>
         </div>
         <div class="field">
           <label class="field__label" for="p_password_min_length">Minimum password length</label>
@@ -565,12 +586,13 @@ foreach ($methods as $key => $method):
           </label>
         </div>
         <div class="field">
-          <label class="switch">
-            <input type="checkbox" name="require_terms_accept" value="1"
-                   <?= $policy['require_terms_accept'] ? 'checked' : '' ?> <?= $canManage ? '' : 'disabled' ?>>
-            <span class="switch__track"></span><span class="small">Require accepting the terms</span>
-          </label>
-          <p class="field__hint">Enforced server-side on registration, not only in the app.</p>
+          <span class="field__label">Terms and marketing at sign-up</span>
+          <p class="small mb-0">
+            Every new account accepts the Terms and Privacy Policy, Google sign-ups included, and the
+            time is recorded on the account. This is not optional (Google Play policy). Product updates
+            and offers are off until the person ticks the unticked box at sign-up or turns them on in
+            Settings → Notifications.
+          </p>
         </div>
         <div class="field">
           <label class="field__label" for="p_default_signup_role">Default sign-up role</label>

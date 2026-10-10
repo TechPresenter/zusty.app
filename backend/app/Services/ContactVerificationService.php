@@ -129,6 +129,34 @@ final class ContactVerificationService
     }
 
     /**
+     * Can a new mobile number be proved right now?
+     *
+     * A number is proved with a code sent by text message. While SMS is off
+     * (SmsService::enabled(), the standing decision) and proof is required,
+     * no code can reach it, so a change or an additional number would be
+     * opened and could never complete. policy() reports it, so the app hides
+     * the buttons instead of offering a dead end, and the writes refuse it up
+     * front with `sms_unavailable`. With proof switched off a change applies
+     * at once and needs no text message.
+     */
+    public static function mobileCodesAvailable(): bool
+    {
+        return !self::otpEnabled() || SmsService::enabled();
+    }
+
+    /** Refuse a mobile-number write whose code could never be delivered. */
+    private static function assertMobileProvable(string $channel): void
+    {
+        if ($channel === 'phone' && !self::mobileCodesAvailable()) {
+            throw HttpException::unprocessable(
+                'A new mobile number is confirmed by a text message, and text messages are '
+                . 'switched off, so a number cannot be added or changed for now.',
+                'sms_unavailable'
+            );
+        }
+    }
+
+    /**
      * Every switch and ceiling the apps and the admin screen need, resolved
      * once so the client is never left guessing why a button is disabled.
      *
@@ -141,8 +169,12 @@ final class ContactVerificationService
         return [
             'otp_verification'           => self::otpEnabled(),
             'allow_email_change'         => Config::settingBool('creator', 'allow_email_change', true),
-            'allow_mobile_change'        => Config::settingBool('creator', 'allow_mobile_change', true),
+            'allow_mobile_change'        => Config::settingBool('creator', 'allow_mobile_change', true)
+                && self::mobileCodesAvailable(),
             'allow_alternate_contacts'   => Config::settingBool('creator', 'allow_alternate_contacts', true),
+            // False while a new number cannot be proved (SMS off, proof on):
+            // no mobile change and no additional mobile number either.
+            'mobile_codes_available'     => self::mobileCodesAvailable(),
             'max_alternates_per_channel' => max(0, Config::settingInt('creator', 'max_alternate_contacts_per_channel', 1)),
             'change_ttl_minutes'         => self::changeTtlMinutes(),
             'resend_seconds'             => max(0, Config::settingInt('auth', 'otp_resend_seconds', 45)),
@@ -393,6 +425,8 @@ final class ContactVerificationService
             throw HttpException::forbidden('Additional contact details are switched off.');
         }
 
+        self::assertMobileProvable($channel);
+
         $normalised = self::normalise($channel, $value);
 
         $max = max(0, Config::settingInt('creator', 'max_alternate_contacts_per_channel', 1));
@@ -519,6 +553,8 @@ final class ContactVerificationService
                 'otp_disabled'
             );
         }
+
+        self::assertMobileProvable((string) $point['channel']);
 
         // Restarting THIS contact's own proof is fine and is the ordinary case;
         // stealing the open slot from a different contact is not. See
@@ -650,6 +686,8 @@ final class ContactVerificationService
                     : 'Mobile number changes are switched off. Contact support if you need yours changed.'
             );
         }
+
+        self::assertMobileProvable($channel);
 
         $normalised = self::normalise($channel, $newValue);
         $current    = self::currentPrimary($userId, $channel);

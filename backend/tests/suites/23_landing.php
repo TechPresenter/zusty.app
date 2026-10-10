@@ -245,6 +245,20 @@ Suite::check(
     $count($xp, "//main//img[not(@fetchpriority='high')][not(@loading='lazy')]") === 0
 );
 
+// Screenshots that no longer match the app or its demo data stay off the
+// page until they are retaken: retired demo names and handles (search,
+// profile, opportunities, creator-home), an ended brief marked Open
+// (opportunities), a review-for-reward message (chat), the old "paid on
+// time" banner (creator-home) and the wallet's Add money (wallet).
+$retiredShots = [];
+foreach ($xp->query("//img[contains(@src, '/screens/')]/@src") ?: [] as $node) {
+    $name = basename((string) $node->nodeValue, '.webp');
+    if (in_array($name, ['search', 'profile', 'opportunities', 'chat', 'creator-home', 'wallet'], true)) {
+        $retiredShots[] = $name;
+    }
+}
+Suite::equals('it shows none of the retired screenshots', array_values(array_unique($retiredShots)), []);
+
 // Truthful copy: no ratings, rankings or user counts, and no SMS sign-in.
 $visible = $text($xp);
 Suite::check(

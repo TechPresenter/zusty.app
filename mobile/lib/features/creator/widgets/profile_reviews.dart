@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../models/creator.dart';
 import '../../../models/review.dart';
+import '../../../models/safety.dart';
 import '../../../providers/core_providers.dart';
 import '../../../shared/motion/motion.dart';
 import '../../../shared/widgets/states.dart';
@@ -14,6 +15,8 @@ import '../../../shared/widgets/z_avatar.dart';
 import '../../../shared/widgets/z_button.dart';
 import '../../../shared/widgets/z_card.dart';
 import '../../../shared/widgets/z_dialogs.dart';
+import '../../safety/report_sheet.dart';
+import '../../safety/safety_menu.dart';
 import 'profile_layout.dart';
 
 /// The Reviews tab: the score and its star histogram, the latest reviews the
@@ -213,6 +216,7 @@ class ProfileReviewCard extends StatelessWidget {
                 ),
               ),
               RatingStars(rating: review.rating, size: 13),
+              if (review.id > 0) _ReviewMenu(review: review),
             ],
           ),
           if (review.title.isNotEmpty) ...[
@@ -268,6 +272,42 @@ class ProfileReviewCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// A review's ⋮ menu: report it to the moderation queue.
+class _ReviewMenu extends StatelessWidget {
+  const _ReviewMenu({required this.review});
+
+  final Review review;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Review options',
+      icon: Icon(
+        Icons.more_vert_rounded,
+        size: 20,
+        color: AppColors.onSurfaceVariant,
+      ),
+      position: PopupMenuPosition.under,
+      shape: const RoundedRectangleBorder(borderRadius: AppRadius.lgAll),
+      color: AppColors.surfaceContainerLowest,
+      onSelected: (_) => showReportSheet(
+        context,
+        target: ReportTarget.review,
+        id: review.id,
+        name: review.reviewerName,
+      ),
+      itemBuilder: (_) => [
+        safetyMenuItem(
+          'report',
+          Icons.flag_outlined,
+          'Report review',
+          destructive: true,
+        ),
+      ],
     );
   }
 }

@@ -130,6 +130,150 @@ curl -s  https://yourdomain.com/robots.txt  # Sitemap: line names this domain
   channel there is no phone sign-in at all, Firebase phone sign-in included. A code
   only signs in an existing account. Email codes need working outgoing mail: check
   **Authentication & Login → One-time code → Test connection** after a deploy.
+- **Policy copy for Play review.** Migration 053 makes the public pages say what the app
+  does. The **Privacy Policy** is rewritten to cover everything the Play Data safety form
+  declares (identifiers, approximate location worked out on the phone, voice search,
+  KYC fields with only an Aadhaar hash and last four digits kept, Cashfree checkout and
+  payout details, activity and search history, Crashlytics, the install ID and push
+  token, opt-in marketing, the named providers Cashfree, Firebase and Hostinger,
+  retention periods, export and deletion); its sign-in code goes to the email only and
+  deletion erases no "texts". The **Terms** gain per-booking Cashfree payment, escrow
+  released on approval or after `booking.auto_complete_days` (the number is printed
+  into the terms, the refund policy and the escrow FAQ when the migration runs), the
+  wallet (earnings and refunds, nobody pays money into it), reports and blocking and no
+  text messages. The **Refund policy** sends refunds to the original payment method, the
+  **Community Guidelines** gain honest reviews, harmful content and how moderation works
+  (their Reporting section is migration 054's), the **Contact** page loses its phone
+  line, and the **About** page no longer says every creator is verified. Each page is
+  replaced only while it still holds the seeded wording, so a page you rewrote in the
+  panel is left alone: compare it with `database/seeds/002_cms_content.sql` by hand.
+  It also rewrites seven seeded FAQs and adds "How do I report or block someone?",
+  takes the guarantees out of two home banners and two onboarding slides, switches off
+  the four seeded testimonials (sample quotes, never said by a customer) and empties
+  `general.support_phone`, so the app shows no call option and nothing publishes a
+  phone number. A list item that gives a phone number (a `tel:` link or nine or more
+  digits after "Phone", "Telephone", "Call us" or "WhatsApp") is removed from any page;
+  an item that only mentions phones, like the privacy policy's optional-phone bullet,
+  stays. It also corrects two creator profile-completion hints from migration 037
+  ("Verified reach ranks higher in brand search" and "Required before withdrawals" on
+  the mobile-number rule), which the code does not back.
+
+  The privacy policy says that marketing is opt-in **and** that accounts created
+  before the sign-up opt-in had product updates switched on by default, because
+  migration 055 keeps the `"marketing": true` the old sign-up stored for everyone.
+  If you later switch those accounts off (re-consent), remove that sentence from the
+  policy in the panel. Check after a deploy:
+
+  ```bash
+  curl -s https://yourdomain.com/api/v1/app/config | grep -o '"support_phone":"[^"]*"'   # "support_phone":""
+  curl -s https://yourdomain.com/privacy | grep -c 'Crashlytics'                         # 1 or more
+  curl -s https://yourdomain.com/privacy | grep -c 'switched on by default'              # 1
+  ```
+- **Reports and blocking.** Migration 054 adds what Google Play's user-generated content
+  policy asks for. It creates `user_blocks` (one row per blocker and blocked account,
+  removed with either account) and extends `reports`: campaign briefs can be reported,
+  the reasons gain hate speech, sexual content, violence, self-harm and child safety, and
+  two new columns record the account behind the reported content (`reported_user_id`,
+  backfilled for reports already filed) and a copy of what was reported as it read at
+  the time (`subject_excerpt`). The Community Guidelines' Reporting section becomes
+  "Reporting and blocking" (only while it still holds the seeded wording; seed 002
+  carries the same text). The rest is code: `POST /reports` takes every target with a
+  reason and an optional note, `GET/POST/DELETE /me/blocks` manage blocks, and a block
+  stops messages, booking requests, offers, invitations and applications between the
+  two accounts and hides them from each other's search, while a booking already paid
+  for can still be completed or disputed. **Abuse reports** links each report to the
+  reported account, and the user page lists their blocks both ways. A moderator can
+  take a reported message, brief, review or portfolio item down from the queue
+  (`POST /admin/reports/{id}/take-down`, permission `reports.handle`; no schema
+  change), and a suspended brand's briefs leave the board. A fresh install with demo
+  data gets `reported_user_id` on the demo reports from seed 026, since seeds run after
+  054's own backfill. Ship the matching app build: older builds can report a user from
+  a chat only, and show a blocked chat's refusal as a failed message. Check after a
+  deploy (with a signed-in token):
+
+  ```bash
+  curl -s -H "Authorization: Bearer $TOKEN" https://yourdomain.com/api/v1/me/blocks | grep -o '"success":true'   # "success":true
+  ```
+- **Sign-up consent.** Migration 055 applies the Play-review decisions of 2026-10-10.
+  It adds `users.terms_accepted_at` (when an account accepted the Terms and Privacy
+  Policy at sign-up; accounts made before 055 stay NULL, because that was never
+  recorded), sets `auth.identifier_mode` = `email` and `auth.require_terms_accept` = 1
+  (no longer a switch in the panel: every sign-up, Google included, needs
+  `accept_terms`), and switches **Sign in with Apple** off
+  (`integrations.apple_login` = 0; stored credentials stay). Sign-up needs an email
+  address. Product updates and offers are opt-in from now on. **No stored preference
+  is changed**: accounts that hold `"marketing": true` keep it, since whether each of
+  them chose it cannot be known (sign-up used to store true for everyone). What did
+  change is the default for an account with **no** stored choice (guests, accounts an
+  operator created): it now counts as opted out, so campaigns and promotional
+  broadcasts skip it. Campaigns re-read the choice before every batch, so a campaign
+  that was already queued when you deploy keeps sending only to accounts that hold
+  `"marketing": true`; its other pending rows end as failed ("not opted in to
+  marketing"). Templates filed as `promo`/`marketing` (today `referral.rewarded`) now
+  push and email only opted-in accounts. Settings → SMS now overrides `SMS_ENABLED` in
+  `.env` whenever it holds a value, and while SMS is off `queue:dispatch` closes waiting
+  SMS as not sent. An account with no phone (every new sign-up) types a mobile number
+  at checkout for Cashfree (`customer_phone` on `POST /payments/booking/{id}`, used for
+  that order only); an older app build cannot, and shows the `phone_required` message.
+  While SMS is off (and contact codes are on), nobody can add or change a mobile number
+  under Email & mobile, since a new number is proved by text: the contacts policy
+  reports `allow_mobile_change` and `mobile_codes_available` false and the API answers
+  `422 sms_unavailable` (code only, no schema change).
+  Ship the matching app build: an older app neither shows the terms notice above Google
+  nor sends `accept_terms`, so its first-time Google sign-ups get `422 terms_required`
+  (existing accounts sign in as before). Check after a deploy:
+
+  ```bash
+  curl -s https://yourdomain.com/api/v1/app/config | grep -o '"key":"apple","enabled":[a-z]*'   # false
+  ```
+- **Bookings paid directly, no wallet top-up.** Migration 056 applies decision U2 of
+  2026-10-10. It adds **Settings → Wallet → Wallet top-up ("Add money")**
+  (`wallet.topup_enabled`) switched **off**: brands pay each booking through Cashfree's
+  checkout, `POST /wallet/topup` answers `403 topup_disabled`, and `/app/config` →
+  `wallet.topup_enabled` = false tells the app to hide every "Add money" button, preset
+  and prompt. A re-run keeps whatever an admin has since chosen. It also lists the
+  switch under "Wallet enabled", says that the top-up limits only apply while it is on
+  and what **Payments → Allow wallet payment** now means, and rewrites the seeded
+  "What payment methods are accepted?" FAQ (only while it still holds the seeded text).
+  It runs after 053: in the Refund & Cancellation Policy (version bumped) and the
+  "Can I cancel a booking?" and "What happens if a creator does not deliver?" FAQs, it
+  adds when a refund goes to the wallet instead of the original method (a payment that
+  cannot be returned there automatically, or one support agrees with the brand) — each
+  only while it still holds 053's wording, so a re-run or an admin's rewrite is left alone.
+  No migration is needed for the rest, which is code: refunds go back to the original
+  payment method by default (the wallet only for a wallet payment, an admin's choice,
+  or a payment no gateway can reverse; a dispute's refund is no longer forced into the
+  wallet), the checkout offers the wallet only while its balance covers the whole
+  booking, and `GET /payments/methods` lists it only while it holds money. Refunds still
+  `processing` at Cashfree count against what can be refunded again; a dispute's refund
+  is sent only after the resolution is saved; and a refund confirmed after its booking
+  finished no longer sets the booking's escrow back to "held". Top-ups
+  already in flight at deploy time still credit the wallet when Cashfree confirms them.
+  Make sure **Payments → Cashfree enabled** is on with live credentials before you
+  deploy: it is now the only way a brand can pay. Check after a deploy:
+
+  ```bash
+  curl -s https://yourdomain.com/api/v1/app/config | grep -o '"topup_enabled":[a-z]*'   # false
+  ```
+- **Creator tools.** Migration 057 goes with decision U1 of 2026-10-10 (creators
+  manage their own packages, portfolio and social accounts in the app). It adds the
+  setting `creator.max_portfolio_items` = 100: the most items one creator may keep in
+  their portfolio, items still in review included (0 = no limit). A re-run keeps
+  whatever value the row already holds. Adding past it answers `422 portfolio_full`,
+  and `POST /me/creator/portfolio` now has its own throttle (30 per 10 minutes per
+  account). No migration is needed for the rest, which is code: a creator's starting
+  price (`creators.price_min` / `price_max`) falls to 0 when no live package is left,
+  instead of keeping the last one (the nightly statistics refresh corrects any creator
+  still showing an old price); a booking that names a package is checked against the
+  booking minimum and maximum at the package's price; a social account's `label` is
+  kept only for a custom link; linking a second account on a network that has one is
+  refused (edit it instead); and a link-only row stores no follower figures. Ship the
+  matching app build: older builds offer an already-linked network again and show the
+  refusal as an error. Check after a deploy (with a creator's token):
+
+  ```bash
+  curl -s -H "Authorization: Bearer $TOKEN" https://yourdomain.com/api/v1/me/creator/portfolio | grep -o '"max_items":[0-9]*'   # "max_items":100
+  ```
 
 ---
 

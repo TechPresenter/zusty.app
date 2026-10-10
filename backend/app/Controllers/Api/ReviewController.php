@@ -12,13 +12,13 @@ use Zuste\Services\CreatorService;
 use Zuste\Services\NotificationService;
 
 /**
- * Reviews and abuse reports.
+ * Reviews.
  *
  * A review can only be written by a party to a completed booking, exactly
  * once per direction — the unique index on (booking_id, direction) is the
- * hard guarantee behind that rule.
+ * hard guarantee behind that rule. Reporting one is ReportController's.
  *
- * Routes: /api/v1/reviews/*, /api/v1/reports
+ * Routes: /api/v1/bookings/{id}/review, /api/v1/reviews/*, /api/v1/me/reviews
  */
 final class ReviewController extends BaseApiController
 {
@@ -98,10 +98,13 @@ final class ReviewController extends BaseApiController
             CreatorService::refreshStatistics((int) $booking['creator_id']);
         }
 
+        // A review is part of finishing a booking, so a block does not stop
+        // one being written; it only keeps the reviewer's name off the other
+        // side's notifications (`actor_id`).
         NotificationService::send($revieweeId, 'review.received', [
             'reviewer_name' => (string) (Database::scalar('SELECT `name` FROM `users` WHERE `id` = :id', ['id' => $userId]) ?? 'A client'),
             'rating'        => (string) $data['rating'],
-        ], ['action_type' => 'booking', 'action_value' => (string) $bookingId]);
+        ], ['action_type' => 'booking', 'action_value' => (string) $bookingId, 'actor_id' => $userId]);
 
         Response::created(
             ['review' => Database::selectOne('SELECT * FROM `reviews` WHERE `id` = :id', ['id' => $reviewId])],
@@ -168,43 +171,4 @@ final class ReviewController extends BaseApiController
         Response::paginated($rows, $total, $pagination['page'], $pagination['per_page']);
     }
 
-    /** POST /reports — report a user, creator, review or message. */
-    public function report(Request $request): never
-    {
-        $data = $this->validate($request, [
-            'reportable_type' => 'required|in:user,creator,booking,review,message,portfolio',
-            'reportable_id'   => 'required|integer|min_value:1',
-            'reason'          => 'required|in:spam,fraud,abuse,impersonation,inappropriate,copyright,payment_issue,other',
-            'description'     => 'nullable|string|max:2000',
-        ]);
-
-        $userId = $this->userId($request);
-
-        $duplicate = Database::scalar(
-            "SELECT 1 FROM `reports`
-             WHERE `reporter_id` = :reporter AND `reportable_type` = :type AND `reportable_id` = :id
-               AND `status` IN ('open','investigating')
-             LIMIT 1",
-            [
-                'reporter' => $userId,
-                'type'     => (string) $data['reportable_type'],
-                'id'       => (int) $data['reportable_id'],
-            ]
-        );
-
-        if ($duplicate !== null) {
-            throw HttpException::conflict('You have already reported this. Our team is reviewing it.');
-        }
-
-        Database::insert('reports', [
-            'reporter_id'     => $userId,
-            'reportable_type' => (string) $data['reportable_type'],
-            'reportable_id'   => (int) $data['reportable_id'],
-            'reason'          => (string) $data['reason'],
-            'description'     => $data['description'] ?? null,
-            'created_at'      => date('Y-m-d H:i:s'),
-        ]);
-
-        Response::created(null, 'Thank you. Our moderation team will review this report.');
-    }
 }

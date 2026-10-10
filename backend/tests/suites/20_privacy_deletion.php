@@ -30,6 +30,7 @@ use Zuste\Services\BookingService;
 use Zuste\Services\CampaignService;
 use Zuste\Services\PaymentService;
 use Zuste\Services\ReferralService;
+use Zuste\Services\SmsService;
 use Zuste\Services\UploadService;
 use Zuste\Services\WalletService;
 use Zuste\Tests\Actors;
@@ -1206,7 +1207,9 @@ if ($pdP === null) {
     $summary = AccountDeletionService::delete($pdRow($pid), 'password');
     $pdErased[] = $pid;
 
-    $smsOn = Config::settingBool('sms', 'enabled', false) || (bool) Config::get('sms.enabled', false);
+    // The same gate the service uses: the panel setting decides once it is
+    // set, and .env SMS_ENABLED is only the fallback.
+    $smsOn = SmsService::enabled();
 
     Suite::check(
         'the goodbye goes by text when SMS is on, and nowhere otherwise (P43)',

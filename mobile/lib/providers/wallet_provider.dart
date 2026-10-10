@@ -82,6 +82,8 @@ class WalletActionsController {
   /// Creates the top-up's gateway order and hands it back for the caller to
   /// complete. The balance only changes once that payment is confirmed
   /// ([verifyPayment] refreshes it then).
+  ///
+  /// Only reachable while `walletTopupEnabledProvider` is on (off by default).
   Future<Map<String, dynamic>> topup({
     required double amount,
     String? method,
@@ -126,11 +128,13 @@ class WalletActionsController {
     int bookingId, {
     required String gateway,
     String? couponCode,
+    String? customerPhone,
   }) async {
     final result = await _ref.read(walletRepositoryProvider).payBooking(
           bookingId,
           gateway: gateway,
           couponCode: couponCode,
+          customerPhone: customerPhone,
         );
     _refresh();
     return result;

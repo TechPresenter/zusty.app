@@ -839,7 +839,7 @@ final class SettingsController extends BaseAdminController
         // SmsService::sendNow() returns false at its first guard when SMS is
         // switched off, before any provider is contacted — reporting that as a
         // rejected API key sent operators hunting a working credential.
-        if (!Config::settingBool('sms', 'enabled', false) && !(bool) Config::get('sms.enabled', false)) {
+        if (!SmsService::enabled()) {
             return ['ok' => false, 'message' => 'SMS is switched off in Settings → SMS. Enable it before sending a test.'];
         }
 

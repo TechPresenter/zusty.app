@@ -1490,6 +1490,18 @@ final class DataExportService
                 $p,
                 label: 'reports_filed'
             ),
+            // The accounts the user blocked. Who blocked them is the other
+            // person's decision, so it is not included.
+            'blocked_accounts' => self::rows(
+                'SELECT COALESCE(NULLIF(c.`display_name`, \'\'), NULLIF(u.`company_name`, \'\'), u.`name`) AS `name`,
+                        c.`handle`, b.`created_at` AS `blocked_at`
+                   FROM `user_blocks` b
+                   JOIN `users` u ON u.`id` = b.`blocked_id`
+                   LEFT JOIN `creators` c ON c.`user_id` = u.`id` AND c.`deleted_at` IS NULL
+                  WHERE b.`blocker_id` = :id ORDER BY b.`id`',
+                $p,
+                label: 'blocked_accounts'
+            ),
             'referrals_made'  => self::rows(
                 'SELECT `code`, `referrer_reward` AS `your_reward`, `status`, `qualified_at`, `rewarded_at`, `created_at`
                    FROM `referrals` WHERE `referrer_user_id` = :id ORDER BY `id`',
@@ -1695,7 +1707,7 @@ final class DataExportService
             'payments.json'        => 'Payments, refunds, invoices, wallet transactions, withdrawals and payout methods (bank account numbers masked)',
             'reviews.json'         => 'Reviews you wrote and reviews you received',
             'verification.json'    => 'Your identity verification (KYC): reference, status, dates, the documents you submitted and masked document numbers',
-            'activity.json'        => 'Saved creators, follows, searches, notifications, support tickets, reports, referrals, files you uploaded, marketing messages we sent you and the creator profiles you viewed',
+            'activity.json'        => 'Saved creators, follows, searches, notifications, support tickets, reports, the accounts you blocked, referrals, files you uploaded, marketing messages we sent you and the creator profiles you viewed',
         ];
 
         $lines = [];

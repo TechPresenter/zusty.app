@@ -184,7 +184,7 @@ INSERT INTO `settings` (`group_key`, `setting_key`, `value`, `type`, `label`, `d
   ('general','app_name','Zusty','string','Application name','Shown in emails, invoices and the admin header.',1,0,1),
   ('general','app_tagline','Shoot. Connect. Grow.','string','Tagline','Brand tagline used on onboarding.',1,0,2),
   ('general','support_email','support@zusty.app','string','Support email','The one public mailbox: shown in the apps, on the website and in emails, and the reply-to for outbound mail.',1,0,3),
-  ('general','support_phone','+91 90000 00000','string','Support phone','Displayed on the Help & Support screen.',1,0,4),
+  ('general','support_phone','','string','Support phone','Leave empty: Zusty publishes no phone number, and support is by email only. The app shows a call option only when this is set.',1,0,4),
   ('general','company_name','Appsgain Technologies Private Limited','string','Legal entity','Printed on invoices.',1,0,5),
   ('general','company_address','','text','Company address','Optional. Printed on invoices only when set; no address is published by default.',1,0,6),
   ('general','company_gstin','','string','GSTIN','Company GST identification number.',0,0,7),
@@ -225,12 +225,14 @@ INSERT INTO `settings` (`group_key`, `setting_key`, `value`, `type`, `label`, `d
 
   -- Wallet
   ('wallet','enabled','1','boolean','Wallet enabled','Master switch for wallet features.',1,0,1),
-  ('wallet','min_topup','500','decimal','Minimum top-up','Smallest wallet deposit.',1,0,2),
-  ('wallet','max_topup','500000','decimal','Maximum top-up','Largest single deposit.',1,0,3),
-  ('wallet','min_withdrawal','1000','decimal','Minimum withdrawal','Smallest payout request.',1,0,4),
-  ('wallet','max_withdrawal','200000','decimal','Maximum withdrawal','Largest single payout request.',1,0,5),
-  ('wallet','withdrawal_hold_days','3','integer','Payout hold (days)','Earnings mature before becoming withdrawable.',1,0,6),
-  ('wallet','require_kyc_for_withdrawal','1','boolean','Require KYC for payouts','Blocks payouts until KYC is verified.',1,0,7),
+  -- Off (migration 056): brands pay each booking at checkout, never preload the wallet.
+  ('wallet','topup_enabled','0','boolean','Wallet top-up ("Add money")','Off: brands pay each booking at checkout and the app offers no Add money. On: brands can preload money, which makes the wallet a prepaid instrument under RBI rules.',1,0,2),
+  ('wallet','min_topup','500','decimal','Minimum top-up','Smallest wallet deposit. Applies only while wallet top-up is on.',1,0,3),
+  ('wallet','max_topup','500000','decimal','Maximum top-up','Largest single deposit. Applies only while wallet top-up is on.',1,0,4),
+  ('wallet','min_withdrawal','1000','decimal','Minimum withdrawal','Smallest payout request.',1,0,5),
+  ('wallet','max_withdrawal','200000','decimal','Maximum withdrawal','Largest single payout request.',1,0,6),
+  ('wallet','withdrawal_hold_days','3','integer','Payout hold (days)','Earnings mature before becoming withdrawable.',1,0,7),
+  ('wallet','require_kyc_for_withdrawal','1','boolean','Require KYC for payouts','Blocks payouts until KYC is verified.',1,0,8),
 
   -- Referral
   ('referral','enabled','1','boolean','Referrals enabled','Master switch for Invite & Earn.',1,0,1),
@@ -248,7 +250,7 @@ INSERT INTO `settings` (`group_key`, `setting_key`, `value`, `type`, `label`, `d
   ('payment','stripe_publishable_key','','string','Stripe publishable key','Public key.',1,0,6),
   ('payment','stripe_secret_key','','secret','Stripe secret key','Stored encrypted.',0,1,7),
   ('payment','stripe_webhook_secret','','secret','Stripe webhook secret','Used to verify webhook signatures.',0,1,8),
-  ('payment','allow_wallet_payment','1','boolean','Allow wallet payment','Let brands pay from wallet balance.',1,0,9),
+  ('payment','allow_wallet_payment','1','boolean','Allow wallet payment','Let a brand pay a booking from balance already in the wallet (a refund, say). Offered at checkout only when it covers the whole total.',1,0,9),
   ('payment','allowed_methods','["card","upi","netbanking","wallet"]','json','Allowed methods','Payment methods offered at checkout.',1,0,10),
 
   -- Firebase

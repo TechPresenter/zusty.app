@@ -7,6 +7,7 @@ import '../../core/network/api_failure.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/booking.dart';
+import '../../models/safety.dart';
 import '../../providers/booking_provider.dart';
 import '../../providers/core_providers.dart';
 import '../../router/routes.dart';
@@ -23,6 +24,7 @@ import '../../shared/widgets/z_image.dart';
 import '../../shared/widgets/z_scaffold.dart';
 import '../../shared/widgets/z_timeline.dart';
 import '../billing/invoice_share.dart';
+import '../safety/report_sheet.dart';
 import 'widgets/booking_dialogs.dart';
 import 'widgets/booking_ui.dart';
 
@@ -1199,8 +1201,10 @@ class _EscrowStatus extends StatelessWidget {
       ),
       'refunded' => (
         Icons.replay_rounded,
+        // Usually the original method; a wallet payment, or one that cannot
+        // be reversed automatically, is refunded to the wallet instead.
         brand
-            ? 'Refunded to the original payment method.'
+            ? 'Refunded to your original payment method or Zusty wallet.'
             : 'Refunded to the brand.',
         StatusTone.warning,
       ),
@@ -1452,8 +1456,8 @@ Future<void> _cancelBooking(
     message:
         notice ??
         (detail.isPaid
-            ? 'Any refund follows the cancellation policy and goes back to '
-                  'the original payment method.'
+            ? 'Any refund follows the cancellation policy and goes back the '
+                  'way you paid.'
             : 'Nothing has been paid yet, so nothing will be charged.'),
     hint: 'Let ${detail.booking.counterparty.name.split(' ').first} know why',
     confirmLabel: 'Cancel booking',
@@ -1510,6 +1514,12 @@ class _MoreMenu extends ConsumerWidget {
             );
           case 'cancel':
             _cancelBooking(context, ref, detail, run);
+          case 'report':
+            showReportSheet(
+              context,
+              target: ReportTarget.booking,
+              id: booking.id,
+            );
         }
       },
       itemBuilder: (_) => [
@@ -1523,6 +1533,14 @@ class _MoreMenu extends ConsumerWidget {
             'Cancel booking',
             color: AppColors.error,
           ),
+        // Conduct, for the moderators. Contesting the work or the money is a
+        // dispute, which has its own place on this screen.
+        _menuItem(
+          'report',
+          Icons.flag_outlined,
+          'Report booking',
+          color: AppColors.error,
+        ),
       ],
     );
   }

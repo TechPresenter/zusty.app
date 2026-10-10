@@ -9,9 +9,11 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/booking.dart';
 import '../../models/message.dart';
+import '../../models/safety.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/core_providers.dart';
 import '../../providers/message_provider.dart';
+import '../../providers/safety_provider.dart';
 import '../../router/routes.dart';
 import '../../shared/motion/motion.dart';
 import '../../shared/widgets/states.dart';
@@ -21,7 +23,8 @@ import '../../shared/widgets/z_button.dart';
 import '../../shared/widgets/z_dialogs.dart';
 import '../../shared/widgets/z_image.dart';
 import '../../shared/widgets/z_scaffold.dart';
-import '../../shared/widgets/z_text_field.dart';
+import '../safety/block_dialogs.dart';
+import '../safety/report_sheet.dart';
 import 'widgets/chat_image.dart';
 
 /// The chat thread behind a conversation row.
@@ -145,6 +148,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  /// Reports the other person. A single message is reported from its own
+  /// long-press, so the report says which one.
   Future<void> _report(Conversation conversation) async {
     final userId = conversation.otherUserId;
     if (userId == null) {
@@ -156,16 +161,80 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
 
-    final message = await showZSheet<String>(
+    await _closingIfBlocked(
+      userId,
+      () => showReportSheet(
+        context,
+        target: ReportTarget.user,
+        id: userId,
+        name: conversation.otherName,
+        blockUserId: userId,
+      ),
+    );
+  }
+
+  Future<void> _reportMessage(Message message, Conversation? conversation) =>
+      _closingIfBlocked(
+        conversation?.otherUserId,
+        () => showReportSheet(
+          context,
+          target: ReportTarget.message,
+          id: message.id,
+          name: conversation?.otherName,
+          blockUserId: conversation?.otherUserId,
+        ),
+      );
+
+  /// Runs [flow] (a report sheet, which can end in "Block them too") and,
+  /// when it blocked [userId], closes the thread the same way [_block] does.
+  Future<void> _closingIfBlocked(
+    int? userId,
+    Future<Object?> Function() flow,
+  ) async {
+    final wasBlocked = ref.read(isBlockedProvider(userId));
+    await flow();
+    if (!mounted || userId == null || wasBlocked) return;
+    if (ref.read(isBlockedProvider(userId))) _closeAfterBlock();
+  }
+
+  /// Blocks the other person. The thread then leaves the inbox, so the chat
+  /// closes with it; the booking it belongs to, if any, still opens it.
+  Future<void> _block(Conversation conversation) async {
+    final userId = conversation.otherUserId;
+    if (userId == null) return;
+
+    final blocked = await confirmBlock(
       context,
-      title: 'Report ${conversation.otherName}',
-      subtitle:
-          'Reports are private. The other person is not told who '
-          'made them.',
-      builder: (_) => _ReportForm(userId: userId),
+      ref,
+      userId: userId,
+      name: conversation.otherName,
     );
 
-    if (message != null && mounted) showZSnack(context, message);
+    if (blocked && mounted) _closeAfterBlock();
+  }
+
+  /// A block just made here: nobody may post any more, whatever the inbox
+  /// row (now gone) said, and the chat closes with the thread.
+  void _closeAfterBlock() {
+    ref.read(threadClosedProvider(widget.conversationId).notifier).state =
+        true;
+    if (context.canPop()) context.pop();
+  }
+
+  Future<void> _unblock(Conversation conversation) async {
+    final userId = conversation.otherUserId;
+    if (userId == null) return;
+
+    final unblocked = await confirmUnblock(
+      context,
+      ref,
+      userId: userId,
+      name: conversation.otherName,
+    );
+
+    if (unblocked) {
+      ref.invalidate(threadProvider(widget.conversationId));
+    }
   }
 
   @override
@@ -181,12 +250,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (next && !(previous ?? false) && _nearBottom) _scrollToEnd();
     });
 
-    final conversation = conversations.valueOrNull
-        ?.where((c) => c.id == widget.conversationId)
-        .firstOrNull;
+    // The inbox row, or the thread's own account of who it is with when the
+    // inbox leaves it out: a thread with someone the user blocked, opened
+    // from its booking or blocked a moment ago from this screen.
+    final conversation =
+        conversations.valueOrNull
+            ?.where((c) => c.id == widget.conversationId)
+            .firstOrNull ??
+        ref.watch(threadConversationProvider(widget.conversationId));
 
     final handle = conversation?.otherHandle;
     final bookingId = conversation?.bookingId;
+    final otherUserId = conversation?.otherUserId;
+
+    // A block either way closes the thread: one this user made in this
+    // session, one the server reports on the inbox row or on the last poll,
+    // or a send it refused as `blocked`.
+    final blockedByMe = ref.watch(isBlockedProvider(otherUserId));
+    final closedByBlock =
+        blockedByMe ||
+        !(conversation?.canMessage ?? true) ||
+        ref.watch(threadClosedProvider(widget.conversationId));
 
     return ZScaffold(
       padded: false,
@@ -215,6 +299,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 'booking' => context.push(Routes.booking(bookingId!)),
                 'mute' => _toggleMute(conversation),
                 'report' => _report(conversation),
+                'block' => _block(conversation),
+                'unblock' => _unblock(conversation),
                 _ => null,
               },
               itemBuilder: (_) => [
@@ -245,6 +331,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   'Report',
                   destructive: true,
                 ),
+                if (otherUserId != null)
+                  blockedByMe
+                      ? _menuItem('unblock', Icons.lock_open_rounded, 'Unblock')
+                      : _menuItem(
+                          'block',
+                          Icons.block_rounded,
+                          'Block',
+                          destructive: true,
+                        ),
               ],
             ),
         ],
@@ -255,7 +350,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       body: Column(
         children: [
           if (conversation != null)
-            _ContextStrip(conversation: conversation, isBrand: isBrand),
+            // No "Book" across a block: the server would refuse the request.
+            _ContextStrip(
+              conversation: conversation,
+              isBrand: isBrand && !closedByBlock,
+            ),
           Expanded(
             child: AsyncView(
               value: thread,
@@ -290,6 +389,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     onRetry: (message) => ref
                         .read(threadProvider(widget.conversationId).notifier)
                         .retry(message),
+                    onReport: (message) =>
+                        _reportMessage(message, conversation),
                   ),
                 );
               },
@@ -297,6 +398,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
           if (conversation?.isLocked ?? false)
             const _ClosedNotice()
+          else if (closedByBlock)
+            _BlockedNotice(
+              name: blockedByMe ? conversation?.otherName : null,
+              onUnblock: blockedByMe && conversation != null
+                  ? () => _unblock(conversation)
+                  : null,
+            )
           else
             _Composer(
               controller: _composer,
@@ -345,6 +453,7 @@ class _ThreadList extends StatelessWidget {
     required this.typing,
     required this.conversation,
     required this.onRetry,
+    this.onReport,
   });
 
   final List<Message> messages;
@@ -353,6 +462,9 @@ class _ThreadList extends StatelessWidget {
   final bool typing;
   final Conversation? conversation;
   final ValueChanged<Message> onRetry;
+
+  /// Reports one message the other person sent, from its long-press menu.
+  final ValueChanged<Message>? onReport;
 
   /// Consecutive messages from one side within a few minutes read as one
   /// burst: tighter spacing, one avatar, one timestamp.
@@ -417,6 +529,11 @@ class _ThreadList extends StatelessWidget {
         final first = showDay || !_sameBurst(previous, message);
         final last = next == null || !_sameBurst(message, next);
 
+        // Only what the other person sent, once the server has it.
+        final report = onReport;
+        final reportable =
+            report != null && !message.isMine && !message.isSystem && message.id > 0;
+
         Widget bubble = MessageBubble(
           message: message,
           isFirstInGroup: first,
@@ -424,6 +541,7 @@ class _ThreadList extends StatelessWidget {
           fallbackName: conversation?.otherName,
           fallbackAvatar: conversation?.otherAvatar,
           onRetry: message.failed ? () => onRetry(message) : null,
+          onReport: reportable ? () => report(message) : null,
         );
 
         // A new message slides in from its sender's side, once. A message
@@ -757,12 +875,14 @@ class _TypingFooter extends StatelessWidget {
 /// Outgoing messages sit on the soft magenta tint with deep plum text — the
 /// brand colour without a wall of saturated pink down one side of the screen.
 /// Incoming messages are white cards with a hairline border, like everything
-/// else in the app. Long-press copies the text.
+/// else in the app. Long-press copies the text; on a message the other person
+/// sent, with [onReport], it offers Copy and Report instead.
 class MessageBubble extends StatelessWidget {
   const MessageBubble({
     super.key,
     required this.message,
     this.onRetry,
+    this.onReport,
     this.isFirstInGroup = true,
     this.isLastInGroup = true,
     this.fallbackName,
@@ -771,6 +891,7 @@ class MessageBubble extends StatelessWidget {
 
   final Message message;
   final VoidCallback? onRetry;
+  final VoidCallback? onReport;
 
   /// Position within a burst of messages from one side; drives spacing,
   /// the tail corner, and whether the avatar and timestamp show.
@@ -826,10 +947,12 @@ class MessageBubble extends StatelessWidget {
           final maxBubble = (constraints.maxWidth * 0.78).clamp(0.0, 360.0);
           final imageWidth = (maxBubble - 8).clamp(120.0, 240.0);
 
+          final canCopy = message.body.isNotEmpty && !isImage;
+
           final bubble = GestureDetector(
-            onLongPress: message.body.isEmpty || isImage
-                ? null
-                : () => _copy(context),
+            onLongPress: onReport != null
+                ? () => _actions(context, canCopy: canCopy)
+                : (canCopy ? () => _copy(context) : null),
             child: Container(
               constraints: BoxConstraints(maxWidth: maxBubble),
               padding: isImage
@@ -913,6 +1036,49 @@ class MessageBubble extends StatelessWidget {
     Clipboard.setData(ClipboardData(text: message.body));
     HapticFeedback.selectionClick();
     showZSnack(context, 'Message copied');
+  }
+
+  /// What a long-press on someone else's message offers: copy its text, and
+  /// report it.
+  Future<void> _actions(BuildContext context, {required bool canCopy}) async {
+    HapticFeedback.selectionClick();
+
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      sheetAnimationStyle: zSheetMotion(context),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (canCopy)
+              ListTile(
+                leading: const Icon(Icons.copy_rounded),
+                title: const Text('Copy text'),
+                onTap: () => Navigator.of(context).pop('copy'),
+              ),
+            ListTile(
+              leading: Icon(Icons.flag_outlined, color: AppColors.error),
+              title: Text(
+                'Report message',
+                style: TextStyle(color: AppColors.error),
+              ),
+              onTap: () => Navigator.of(context).pop('report'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (!context.mounted) return;
+
+    switch (choice) {
+      case 'copy':
+        _copy(context);
+      case 'report':
+        onReport?.call();
+    }
   }
 
   Widget _content(Color foreground, double imageWidth) {
@@ -1258,6 +1424,61 @@ class _ClosedNotice extends StatelessWidget {
   }
 }
 
+/// Shown in place of the composer when a block stands between the two
+/// people in the thread. Someone who made the block ([name] set) is offered
+/// to undo it; the other side is told only that messages are off.
+class _BlockedNotice extends StatelessWidget {
+  const _BlockedNotice({this.name, this.onUnblock});
+
+  final String? name;
+  final VoidCallback? onUnblock;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = this.name;
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainerLowest,
+        border: Border(top: BorderSide(color: AppColors.outlineVariant)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.sm,
+            AppSpacing.sm,
+            AppSpacing.sm,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.block_rounded,
+                size: 18,
+                color: AppColors.onSurfaceVariant,
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Expanded(
+                child: Text(
+                  name == null
+                      ? 'You can\'t send messages in this conversation. You '
+                            'can still read it.'
+                      : 'You blocked $name. Unblock them to send messages.',
+                  style: AppTypography.bodySmall,
+                ),
+              ),
+              if (onUnblock != null)
+                TextButton(onPressed: onUnblock, child: const Text('Unblock')),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// The message composer pinned above the keyboard.
 class _Composer extends StatefulWidget {
   const _Composer({
@@ -1410,115 +1631,3 @@ class _ComposerState extends State<_Composer> {
   }
 }
 
-/// Why the other person is being reported, posted to `POST /reports`.
-class _ReportForm extends ConsumerStatefulWidget {
-  const _ReportForm({required this.userId});
-
-  final int userId;
-
-  @override
-  ConsumerState<_ReportForm> createState() => _ReportFormState();
-}
-
-class _ReportFormState extends ConsumerState<_ReportForm> {
-  /// The server's own reason keys, with how each reads to a person.
-  static const _reasons = <String, String>{
-    'spam': 'Spam or unwanted messages',
-    'fraud': 'Scam or fraud',
-    'payment_issue': 'Asking to pay outside Zusty',
-    'abuse': 'Harassment or abuse',
-    'impersonation': 'Pretending to be someone else',
-    'inappropriate': 'Inappropriate content',
-    'other': 'Something else',
-  };
-
-  final _details = TextEditingController();
-  String? _reason;
-  bool _busy = false;
-  String? _error;
-
-  @override
-  void dispose() {
-    _details.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    if (_reason == null) {
-      setState(() => _error = 'Choose a reason to continue.');
-      return;
-    }
-
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-
-    try {
-      final message = await ref
-          .read(messageRepositoryProvider)
-          .reportUser(
-            userId: widget.userId,
-            reason: _reason!,
-            description: _details.text,
-          );
-      if (mounted) Navigator.of(context).pop(message);
-    } on ApiFailure catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        RadioGroup<String>(
-          groupValue: _reason,
-          onChanged: (value) => setState(() {
-            _reason = value;
-            _error = null;
-          }),
-          child: Column(
-            children: [
-              for (final entry in _reasons.entries)
-                RadioListTile<String>(
-                  value: entry.key,
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  activeColor: AppColors.primary,
-                  title: Text(entry.value, style: AppTypography.bodyMedium),
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: AppSpacing.xs),
-        ZTextField(
-          label: 'Anything else we should know? (optional)',
-          controller: _details,
-          maxLines: 3,
-          minLines: 2,
-          maxLength: 2000,
-          textCapitalization: TextCapitalization.sentences,
-        ),
-        if (_error != null) ...[
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            _error!,
-            style: AppTypography.labelMedium.copyWith(color: AppColors.error),
-          ),
-        ],
-        const SizedBox(height: AppSpacing.md),
-        ZButton(
-          label: 'Submit report',
-          variant: ZButtonVariant.danger,
-          isLoading: _busy,
-          onPressed: _submit,
-        ),
-      ],
-    );
-  }
-}

@@ -349,6 +349,7 @@ class PaymentMethod {
     this.gateway = '',
     this.isEnabled = true,
     this.iconName,
+    this.balance,
   });
 
   /// `upi`, `card`, `netbanking`, `wallet`, …
@@ -359,6 +360,10 @@ class PaymentMethod {
   final bool isEnabled;
   final String? iconName;
 
+  /// The spendable wallet balance, on the wallet option only (`wallet_balance`
+  /// on `GET /payments/methods`). Null for every gateway.
+  final double? balance;
+
   factory PaymentMethod.fromJson(Map<String, dynamic> json) => PaymentMethod(
         key: Json.str(json['key'] ?? json['method']),
         label: Json.str(json['label'] ?? json['name']),
@@ -366,6 +371,7 @@ class PaymentMethod {
         gateway: Json.str(json['gateway']),
         isEnabled: Json.boolean(json['is_enabled'], true),
         iconName: Json.strOrNull(json['icon']),
+        balance: Json.doubleOrNull(json['balance']),
       );
 
   /// Builds an option from a row of `GET /payments/methods` → `gateways`.
@@ -374,7 +380,13 @@ class PaymentMethod {
   /// `POST /payments/booking/{id}` selects on. The instruments a gateway
   /// supports become the subtitle, so the user still sees "UPI, Card, Net
   /// Banking" without the app inventing an option the backend cannot honour.
-  factory PaymentMethod.fromGateway(Map<String, dynamic> json) {
+  ///
+  /// [walletBalance] is the response's `wallet_balance`; only the wallet row
+  /// keeps it.
+  factory PaymentMethod.fromGateway(
+    Map<String, dynamic> json, {
+    double? walletBalance,
+  }) {
     final id = Json.str(json['id']);
     final methods = Json.strings(json['methods']);
 
@@ -384,6 +396,7 @@ class PaymentMethod {
       description: methods.map(_instrumentLabel).join(' · '),
       gateway: id,
       isEnabled: true,
+      balance: id == 'wallet' ? walletBalance : null,
     );
   }
 
@@ -413,4 +426,15 @@ class PaymentMethod {
 
   /// True when the balance covers the bill without leaving the app.
   bool get isWallet => key == 'wallet';
+
+  /// True when this is the wallet and its balance pays [amount] in full.
+  ///
+  /// The wallet cannot be topped up to make up a shortfall, and a booking is
+  /// never split across two methods, so anything less is no option at all.
+  /// Compared in paise, so a balance of exactly the total is enough.
+  bool covers(double amount) {
+    final held = balance;
+    if (!isWallet || held == null || amount <= 0) return false;
+    return (held * 100).round() >= (amount * 100).round();
+  }
 }

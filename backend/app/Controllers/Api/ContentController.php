@@ -18,6 +18,8 @@ use Zuste\Services\AuthConfigService;
 use Zuste\Services\CreatorService;
 use Zuste\Services\MessageService;
 use Zuste\Services\NotificationService;
+use Zuste\Services\SmsService;
+use Zuste\Services\WalletService;
 
 /**
  * Public content: the home feed, CMS pages, FAQs, blogs and app config.
@@ -516,6 +518,9 @@ final class ContentController extends BaseApiController
                     'creator_signup_enabled' => Config::settingBool('app', 'creator_signup_enabled', true),
                     'brand_signup_enabled'   => Config::settingBool('app', 'brand_signup_enabled', true),
                     'chat_realtime'          => Config::settingBool('firebase', 'firestore_chat_mirror', true),
+                    // Whether a text message can go out at all, so the app
+                    // offers no SMS notification switch while it cannot.
+                    'sms_enabled'            => SmsService::enabled(),
                 ],
                 AppContentService::featureFlags(
                     $request->user()['id'] ?? null,
@@ -566,6 +571,15 @@ final class ContentController extends BaseApiController
                 'max_amount'             => Config::settingFloat('booking', 'max_booking_amount', 2000000),
                 'request_expiry_hours'   => Config::settingInt('booking', 'request_expiry_hours', 72),
                 'free_cancellation_days' => Config::settingInt('booking', 'free_cancellation_days', 7),
+            ],
+            // What the app may offer around the wallet. `topup_enabled` is off
+            // by default (migration 056): brands pay bookings at checkout, so
+            // every "Add money" button, preset and prompt stays hidden, and
+            // POST /wallet/topup answers 403 regardless. `wallet_payment`
+            // says whether a balance already held may pay for a booking.
+            'wallet' => [
+                'topup_enabled'  => WalletService::topupEnabled(),
+                'wallet_payment' => Config::settingBool('payment', 'allow_wallet_payment', true),
             ],
             // Named explicitly rather than dumped as a group. settingGroup()
             // ignores is_public and returns values already decrypted, so a

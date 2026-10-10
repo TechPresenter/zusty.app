@@ -56,6 +56,17 @@ final aiFeaturesProvider = Provider<AiFeatures>((ref) {
   return ref.watch(remoteAppConfigProvider).ai;
 });
 
+/// What the app may offer around the wallet (Admin → Settings → Wallet).
+final walletOptionsProvider = Provider<WalletOptions>((ref) {
+  return ref.watch(remoteAppConfigProvider).wallet;
+});
+
+/// Whether "Add money" may be offered anywhere in the app. Off unless an
+/// admin has switched wallet top-ups back on; brands pay at checkout.
+final walletTopupEnabledProvider = Provider<bool>((ref) {
+  return ref.watch(walletOptionsProvider).topupEnabled;
+});
+
 /// The minimum-version gate.
 final updateGateProvider = Provider<UpdateGate>((ref) {
   return ref.watch(remoteAppConfigProvider).update;

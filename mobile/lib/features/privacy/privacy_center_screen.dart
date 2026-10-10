@@ -84,6 +84,20 @@ class PrivacyCenterScreen extends ConsumerWidget {
           Reveal(
             index: 3,
             child: SettingsGroup(
+              title: 'Safety',
+              children: [
+                ZMenuTile(
+                  icon: Icons.block_rounded,
+                  title: 'Blocked accounts',
+                  subtitle: 'See and unblock the people you blocked',
+                  onTap: () => context.push(Routes.blockedUsers),
+                ),
+              ],
+            ),
+          ),
+          Reveal(
+            index: 4,
+            child: SettingsGroup(
               title: 'Learn more',
               children: [
                 ZMenuTile(

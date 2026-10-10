@@ -623,7 +623,7 @@ class _PackageOption extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    '${package.turnaroundLabel} · ${package.revisions} revisions',
+                    '${package.turnaroundLabel} · ${package.revisionsLabel}',
                     style: AppTypography.bodySmall,
                   ),
                 ],

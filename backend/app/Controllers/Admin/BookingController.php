@@ -7,14 +7,16 @@ namespace Zuste\Controllers\Admin;
 use Zuste\Core\Database;
 use Zuste\Core\HttpException;
 use Zuste\Core\Request;
+use Zuste\Core\Response;
 use Zuste\Helpers\Money;
 use Zuste\Helpers\Str;
 use Zuste\Services\ApprovalService;
 use Zuste\Services\BookingService;
 use Zuste\Services\CreatorService;
+use Zuste\Services\DisputeService;
 use Zuste\Services\ExportService;
 use Zuste\Services\PaymentService;
-use Zuste\Services\WalletService;
+use Zuste\Services\ReportService;
 
 /**
  * Bookings, disputes, reviews and abuse reports.
@@ -312,13 +314,6 @@ final class BookingController extends BaseAdminController
             throw HttpException::notFound('No refundable payment found for this booking.');
         }
 
-        // Test the threshold against the money that will actually move, not
-        // whatever was typed into the box — PaymentService clamps it anyway.
-        $amount = min(
-            (float) $data['amount'],
-            Money::subtract((float) $payment['amount'], (float) $payment['amount_refunded'])
-        );
-
         // Segregation of duties, exactly as FinanceController::refundPayment
         // enforces it on the payments screen. The seeded "Large refund"
         // workflow was configurable in the panel and consulted by no code path
@@ -382,6 +377,23 @@ final class BookingController extends BaseAdminController
                 'Parked refund closed — approval ' . ($status === '' ? 'was never raised' : $status) . '.',
                 ['reference' => $parked['reference']]
             );
+        }
+
+        // Test the threshold against the money that will actually move, not
+        // whatever was typed into the box — PaymentService clamps it anyway.
+        // Read after any dead parked refund was closed above, and net of
+        // refunds still on their way back, so a refund Cashfree has accepted
+        // but not yet confirmed cannot be paid a second time.
+        $amount = min((float) $data['amount'], PaymentService::refundableBalance($payment));
+
+        if ($amount <= 0) {
+            $nothingLeft = 'There is nothing left to refund on this payment: the rest is already refunded or on its way back.';
+
+            if ($request->expectsJson()) {
+                throw HttpException::unprocessable($nothingLeft);
+            }
+
+            $this->back('error', $nothingLeft, '/admin/bookings/' . $bookingId);
         }
 
         if (ApprovalService::workflowFor('refund', $amount) !== null) {
@@ -468,11 +480,17 @@ final class BookingController extends BaseAdminController
             ['reference' => $refund['reference'], 'reason' => $reason, 'destination' => $data['destination']]
         );
 
+        // Cashfree accepts a refund first and confirms it by webhook, so
+        // `processing` is the normal answer for a refund to the original
+        // method, not a rejection.
         $this->respond(
             $request,
-            $refund['status'] === 'completed'
-                ? 'Refund of ' . Money::format((float) $refund['amount']) . ' processed.'
-                : 'Refund recorded but the gateway rejected it — check the payment log.',
+            match ((string) $refund['status']) {
+                'completed'  => 'Refund of ' . Money::format((float) $refund['amount']) . ' processed.',
+                'processing' => 'Refund of ' . Money::format((float) $refund['amount'])
+                    . ' sent to the original payment method. It completes when the gateway confirms it.',
+                default      => 'Refund recorded but the gateway rejected it — check the payment log.',
+            },
             '/admin/bookings/' . $bookingId
         );
     }
@@ -532,107 +550,46 @@ final class BookingController extends BaseAdminController
         $this->authorize($request, 'bookings.dispute');
 
         $data = $this->validate($request, [
-            'outcome'       => 'required|in:resolved_brand,resolved_creator,resolved_split,withdrawn',
-            'refund_amount' => 'nullable|numeric|min_value:0',
-            'payout_amount' => 'nullable|numeric|min_value:0',
-            'note'          => 'required|string|min:10|max:2000',
+            'outcome'            => 'required|in:resolved_brand,resolved_creator,resolved_split,withdrawn',
+            'refund_amount'      => 'nullable|numeric|min_value:0',
+            'refund_destination' => 'nullable|in:source,wallet',
+            'payout_amount'      => 'nullable|numeric|min_value:0',
+            'note'               => 'required|string|min:10|max:2000',
         ]);
 
         $disputeId = $request->routeParamInt('id');
 
-        $dispute = Database::selectOne(
-            'SELECT d.*, b.`total_amount`, b.`creator_earning`, b.`code`, b.`creator_user_id`
-             FROM `booking_disputes` d
-             INNER JOIN `bookings` b ON b.`id` = d.`booking_id`
-             WHERE d.`id` = :id',
-            ['id' => $disputeId]
-        );
+        $status = Database::scalar('SELECT `status` FROM `booking_disputes` WHERE `id` = :id', ['id' => $disputeId]);
 
-        if ($dispute === null) {
+        if ($status === null) {
             throw HttpException::notFound('Dispute not found.');
         }
 
-        if (str_starts_with((string) $dispute['status'], 'resolved') || $dispute['status'] === 'withdrawn') {
+        if (str_starts_with((string) $status, 'resolved') || $status === 'withdrawn') {
             $this->back('error', 'This dispute has already been resolved.');
         }
 
-        $refundAmount = Money::clamp((float) ($data['refund_amount'] ?? 0), 0.0, (float) $dispute['total_amount']);
-        $payoutAmount = Money::clamp((float) ($data['payout_amount'] ?? 0), 0.0, (float) $dispute['creator_earning']);
+        // The brand's refund goes back to the original payment method unless
+        // the admin picks the wallet. It used to be forced into the wallet,
+        // which kept money the brand never chose to leave with us.
+        //
+        // DisputeService records the refund inside the resolution and sends
+        // it only after that commits, re-checking the dispute and the booking
+        // under their locks first. Where the booking lands (the previous
+        // ternary force-completed every outcome, withdrawn included, and
+        // wrote no history row) is decided there too.
+        $resolved = DisputeService::resolve(
+            $disputeId,
+            (string) $data['outcome'],
+            (float) ($data['refund_amount'] ?? 0),
+            (string) ($data['refund_destination'] ?? '') === 'wallet' ? 'wallet' : 'source',
+            (float) ($data['payout_amount'] ?? 0),
+            (string) $data['note'],
+            $this->adminId($request)
+        );
 
-        $adminId   = $this->adminId($request);
-        $bookingId = (int) $dispute['booking_id'];
-
-        Database::transaction(static function () use ($dispute, $disputeId, $bookingId, $data, $refundAmount, $payoutAmount, $adminId): void {
-            if ($refundAmount > 0) {
-                PaymentService::refundBooking($bookingId, $refundAmount, 'dispute', 'admin', $adminId, 'wallet');
-            }
-
-            if ($payoutAmount > 0) {
-                WalletService::credit((int) $dispute['creator_user_id'], $payoutAmount, [
-                    'category'          => 'booking_earning',
-                    'description'       => 'Dispute settlement for #' . (string) $dispute['code'],
-                    'reference_type'    => 'booking',
-                    'reference_id'      => $bookingId,
-                    'idempotency_key'   => 'dispute-payout:' . $disputeId,
-                    'performed_by_type' => 'admin',
-                    'performed_by_id'   => $adminId,
-                ]);
-            }
-
-            Database::update('booking_disputes', [
-                'status'          => (string) $data['outcome'],
-                'refund_amount'   => $refundAmount,
-                'payout_amount'   => $payoutAmount,
-                'resolution_note' => (string) $data['note'],
-                'handled_by'      => $adminId,
-                'resolved_at'     => date('Y-m-d H:i:s'),
-            ], ['id' => $disputeId]);
-
-            // Where the booking lands depends on the outcome. The previous
-            // ternary had two identical branches, so every outcome — including
-            // a withdrawn dispute — force-completed the booking. That revived
-            // cancelled and unpaid bookings as "completed collaborations with
-            // released escrow", and wrote no status-history row, so the ledger
-            // and the timeline disagreed with the booking itself.
-            $current = (string) Database::scalar(
-                'SELECT `status` FROM `bookings` WHERE `id` = :id',
-                ['id' => $bookingId]
-            );
-
-            $target = match ((string) $data['outcome']) {
-                // Nothing was decided — put the booking back where it was
-                // before the dispute, read from its own status history.
-                'withdrawn' => BookingService::statusBeforeDispute($bookingId),
-                // A full refund ends the booking as refunded, not completed.
-                default     => $refundAmount > 0 && $payoutAmount <= 0 ? 'refunded' : 'completed',
-            };
-
-            // Only move if the state machine allows it; a booking that is not
-            // in `disputed` must not be dragged into a terminal state by a
-            // dispute record that no longer matches it.
-            if ($current === $target) {
-                return;
-            }
-
-            if (!BookingService::canTransition($current, $target)) {
-                throw HttpException::conflict(
-                    'This booking is ' . $current . ' and cannot be moved to ' . $target . '. '
-                    . 'Resolve the booking itself first.'
-                );
-            }
-
-            BookingService::forceStatus(
-                $bookingId,
-                $target,
-                'admin',
-                $adminId,
-                'Dispute resolved: ' . (string) $data['outcome'],
-                [
-                    'escrow_status' => $refundAmount > 0 ? 'refunded' : 'released',
-                    'completed_at'  => $target === 'completed' ? date('Y-m-d H:i:s') : null,
-                ]
-            );
-        });
+        $refund    = $resolved['refund'];
+        $bookingId = $resolved['booking_id'];
 
         $this->log(
             $request,
@@ -640,10 +597,54 @@ final class BookingController extends BaseAdminController
             'booking',
             $bookingId,
             'Dispute resolved: ' . (string) $data['outcome'],
-            ['refund' => $refundAmount, 'payout' => $payoutAmount]
+            [
+                'refund'             => $resolved['refund_amount'],
+                'payout'             => $resolved['payout_amount'],
+                'refund_reference'   => $refund['reference'] ?? null,
+                'refund_destination' => $refund['destination'] ?? null,
+                'refund_status'      => $refund['status'] ?? null,
+            ]
         );
 
-        $this->respond($request, 'Dispute resolved.', '/admin/disputes');
+        $payload = $refund === null ? [] : [
+            'refund_reference'   => (string) $refund['reference'],
+            'refund_destination' => (string) $refund['destination'],
+            'refund_status'      => (string) $refund['status'],
+        ];
+
+        if ($refund === null) {
+            $this->respond($request, 'Dispute resolved.', '/admin/disputes');
+        }
+
+        $amount = Money::format((float) $refund['amount'], (string) $refund['currency']);
+
+        // A gateway refund used to be reported as "Dispute resolved." whatever
+        // became of it, so a refused one left the brand unpaid with nobody
+        // told. Each outcome is spelled out, and a failure is an error toast.
+        if ((string) $refund['status'] === 'failed') {
+            $message = 'Dispute resolved, but the refund of ' . $amount . ' (' . (string) $refund['reference'] . ') failed: '
+                . trim((string) ($refund['failure_reason'] ?? 'the gateway refused it.'))
+                . ' The payment is still refundable: issue the refund again from the booking (Admin actions → Issue refund)'
+                . ' or Finance → Payments, to the Zusty wallet if the original method keeps refusing.';
+
+            if ($request->expectsJson()) {
+                Response::success($payload, $message);
+            }
+
+            $this->back('error', $message, '/admin/bookings/' . $bookingId);
+        }
+
+        $this->respond(
+            $request,
+            match (true) {
+                (string) $refund['status'] === 'processing' => 'Dispute resolved. The refund of ' . $amount
+                    . ' was sent to the original payment method; it completes when the gateway confirms it.',
+                (string) $refund['destination'] === 'wallet' => 'Dispute resolved. ' . $amount . ' was refunded to the brand\'s Zusty wallet.',
+                default => 'Dispute resolved. ' . $amount . ' was refunded to the original payment method.',
+            },
+            '/admin/disputes',
+            $payload
+        );
     }
 
     // =================================================================
@@ -668,6 +669,12 @@ final class BookingController extends BaseAdminController
         if ($request->filled('rating')) {
             $clauses[]           = 'r.`rating` = :rating';
             $bindings['rating']  = $request->int('rating');
+        }
+
+        // One review, as linked from the abuse reports queue.
+        if ($request->int('id') > 0) {
+            $clauses[]      = 'r.`id` = :review_id';
+            $bindings['review_id'] = $request->int('id');
         }
 
         if ($request->string('visibility') === 'hidden') {
@@ -769,19 +776,48 @@ final class BookingController extends BaseAdminController
             $bindings['type'] = $request->string('reportable_type');
         }
 
+        if ($request->filled('reason')) {
+            $clauses[]          = 'rp.`reason` = :reason';
+            $bindings['reason'] = $request->string('reason');
+        }
+
+        // Every report about one account, as linked from its user page.
+        if ($request->int('reported_user_id') > 0) {
+            $clauses[]            = 'rp.`reported_user_id` = :reported';
+            $bindings['reported'] = $request->int('reported_user_id');
+        }
+
+        if ($params['search'] !== '') {
+            $clauses[]          = "(rp.`subject_excerpt` LIKE :search ESCAPE '\\\\' OR rp.`description` LIKE :search ESCAPE '\\\\'
+                                    OR u.`name` LIKE :search ESCAPE '\\\\' OR ru.`name` LIKE :search ESCAPE '\\\\')";
+            $bindings['search'] = Str::likeTerm($params['search']);
+        }
+
         $where = ' WHERE ' . implode(' AND ', $clauses);
 
         $total = (int) Database::scalar(
-            'SELECT COUNT(*) FROM `reports` rp INNER JOIN `users` u ON u.`id` = rp.`reporter_id`' . $where,
+            'SELECT COUNT(*) FROM `reports` rp
+             INNER JOIN `users` u ON u.`id` = rp.`reporter_id`
+             LEFT JOIN `users` ru ON ru.`id` = rp.`reported_user_id`' . $where,
             $bindings
         );
 
+        // The reported account, its creator profile (where a portfolio item
+        // links to), how many people have blocked it and how many reports
+        // about it are still open: what a moderator weighs first.
         $rows = Database::select(
-            'SELECT rp.*, u.`name` AS `reporter_name`, u.`avatar_url` AS `reporter_avatar`,
-                    a.`name` AS `handler_name`
+            "SELECT rp.*, u.`name` AS `reporter_name`, u.`avatar_url` AS `reporter_avatar`,
+                    a.`name` AS `handler_name`,
+                    ru.`name` AS `reported_name`, ru.`status` AS `reported_status`,
+                    rc.`id` AS `reported_creator_id`,
+                    (SELECT COUNT(*) FROM `user_blocks` ub WHERE ub.`blocked_id` = rp.`reported_user_id`) AS `reported_blocked_by`,
+                    (SELECT COUNT(*) FROM `reports` ro
+                      WHERE ro.`reported_user_id` = rp.`reported_user_id` AND ro.`status` IN ('open','investigating')) AS `reported_open_reports`
              FROM `reports` rp
              INNER JOIN `users` u ON u.`id` = rp.`reporter_id`
-             LEFT JOIN `admins` a ON a.`id` = rp.`handled_by`' . $where . '
+             LEFT JOIN `users` ru ON ru.`id` = rp.`reported_user_id`
+             LEFT JOIN `creators` rc ON rc.`user_id` = rp.`reported_user_id` AND rc.`deleted_at` IS NULL
+             LEFT JOIN `admins` a ON a.`id` = rp.`handled_by`" . $where . '
              ORDER BY rp.`' . $params['sort_by'] . '` ' . $params['sort_dir'] . '
              LIMIT ' . $params['per_page'] . ' OFFSET ' . $params['offset'],
             $bindings
@@ -822,6 +858,40 @@ final class BookingController extends BaseAdminController
         $this->log($request, 'report.' . (string) $data['status'], 'report', $reportId, 'Report handled.', ['note' => $data['note'] ?? null]);
 
         $this->respond($request, 'Report marked as ' . (string) $data['status'] . '.', '/admin/reports');
+    }
+
+    /**
+     * POST /admin/reports/{id}/take-down
+     *
+     * Removes the reported message, brief, review or portfolio item and
+     * resolves every open report on it (ReportService::takeDown).
+     */
+    public function takeDownReport(Request $request): never
+    {
+        $this->authorize($request, 'reports.handle');
+
+        $data = $this->validate($request, [
+            'note' => 'nullable|string|max:900',
+        ]);
+
+        $reportId = $request->routeParamInt('id');
+        $result   = ReportService::takeDown($reportId, $this->adminId($request), (string) ($data['note'] ?? ''));
+
+        $this->log(
+            $request,
+            'report.take_down',
+            'report',
+            $reportId,
+            $result['label'] . '.',
+            ['subject_type' => $result['type'], 'resolved' => $result['resolved'], 'note' => $data['note'] ?? null]
+        );
+
+        $this->respond(
+            $request,
+            $result['label'] . '. ' . $result['resolved'] . ' report' . ($result['resolved'] === 1 ? '' : 's') . ' resolved.',
+            '/admin/reports',
+            $result
+        );
     }
 
     // =================================================================

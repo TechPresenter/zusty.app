@@ -712,8 +712,7 @@ final class PrivacyService
      */
     private static function smsAvailable(): bool
     {
-        return AuthConfigService::enabled('mobile_otp', true)
-            && (Config::settingBool('sms', 'enabled', false) || (bool) Config::get('sms.enabled', false));
+        return AuthConfigService::enabled('mobile_otp', true) && SmsService::enabled();
     }
 
     /**

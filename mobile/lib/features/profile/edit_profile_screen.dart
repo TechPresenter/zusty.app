@@ -439,7 +439,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 ZMenuTile(
                   icon: Icons.notifications_active_outlined,
                   title: 'Notification preferences',
-                  subtitle: 'Push, email, SMS and product updates',
+                  subtitle: 'Push, email and product updates',
                   onTap: () => context.push(Routes.settings),
                 ),
               ],
@@ -613,7 +613,10 @@ class _VerificationCard extends ConsumerWidget {
       KycStatus.notSubmitted => (
         StatusTone.warning,
         Icons.shield_outlined,
-        'Verified accounts rank higher and can withdraw earnings.',
+        // The same requirement the server's KYC gate states for each role.
+        user.role.isBrand
+            ? 'Verify your business to post campaigns and pay for bookings.'
+            : 'Verify your identity to accept bookings and withdraw earnings.',
         'Verify',
         Routes.kyc,
       ),

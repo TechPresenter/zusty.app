@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../models/creator.dart';
+import '../../../router/routes.dart';
 import '../../../shared/widgets/platform_icon.dart';
 import '../../../shared/widgets/stat_card.dart';
 import '../../../shared/widgets/states.dart';
@@ -11,11 +13,16 @@ import '../../../shared/widgets/z_card.dart';
 import 'profile_layout.dart';
 
 /// The Insights tab: reach, engagement and track record, per platform and in
-/// total, and — when the platform sync has supplied it — who the audience is.
+/// total, and — when the profile carries it — who the audience is.
 ///
 /// Every figure here comes from the profile payload. Nothing is estimated or
 /// filled in: a block whose data is missing is left out, and a creator with
 /// no linked accounts and no bookings gets an honest empty state.
+///
+/// Follower and engagement figures are the ones the creator typed in. Zusty
+/// does not fetch them from the networks, so each place they appear says
+/// "self-reported", and the date under an account is when the creator last
+/// entered them, never a sync.
 class ProfileInsightsTab extends StatelessWidget {
   const ProfileInsightsTab({
     super.key,
@@ -48,10 +55,15 @@ class ProfileInsightsTab extends StatelessWidget {
             title: 'No insights yet',
             message: profile.isOwner
                 ? 'Link a social account to show brands your reach and '
-                      'engagement.'
+                      'engagement. You can also do this later from the '
+                      'Profile tab, under For creators.'
                 : 'Insights appear once ${firstNameOf(creator.displayName)} '
                       'links a social account or completes a booking.',
             icon: Icons.insights_rounded,
+            actionLabel: profile.isOwner ? 'Link an account' : null,
+            onAction: profile.isOwner
+                ? () => context.push(Routes.socialAccounts)
+                : null,
             compact: true,
           ),
         ],
@@ -74,7 +86,7 @@ class ProfileInsightsTab extends StatelessWidget {
             'Followers by platform',
             subtitle:
                 '${Formatters.compact(totalFollowers)} across '
-                '${accounts.length} platforms',
+                '${accounts.length} platforms, self-reported',
           ),
           ZCard(
             child: Column(
@@ -95,9 +107,13 @@ class ProfileInsightsTab extends StatelessWidget {
 
         // -- Engagement per account --------------------------------
         if (accounts.isNotEmpty) ...[
+          // These used to read "As reported by each platform at its last
+          // sync". There is no sync: the creator types the figures in.
           const ProfileSectionTitle(
             'Engagement by account',
-            subtitle: 'As reported by each platform at its last sync',
+            subtitle:
+                'Self-reported by the creator. Zusty does not fetch these '
+                'figures from the networks.',
           ),
           for (final account in accounts)
             Padding(
@@ -118,7 +134,7 @@ class ProfileInsightsTab extends StatelessWidget {
             subtitle: audience.accounts > 1
                 ? 'Across ${audience.accounts} linked accounts, weighted '
                       'by followers'
-                : 'From the linked account\'s platform data',
+                : 'For the linked account',
           ),
           _AudienceCard(audience: audience),
         ],
@@ -169,10 +185,10 @@ class ProfileInsightsTab extends StatelessWidget {
           value: creator.followersLabel,
           icon: Icons.groups_rounded,
           caption: accounts.isEmpty
-              ? null
+              ? 'Self-reported'
               : accounts.length == 1
-              ? 'On ${accounts.first.platformLabel}'
-              : 'Across ${accounts.length} platforms',
+              ? 'Self-reported, on ${accounts.first.platformLabel}'
+              : 'Self-reported, across ${accounts.length} platforms',
         ),
       if (engagement > 0)
         StatCard(
@@ -180,7 +196,9 @@ class ProfileInsightsTab extends StatelessWidget {
           value: '${engagement.toStringAsFixed(1)}%',
           icon: Icons.favorite_rounded,
           tint: AppColors.secondary,
-          caption: accounts.length > 1 ? 'Weighted by followers' : null,
+          caption: accounts.length > 1
+              ? 'Self-reported, weighted by followers'
+              : 'Self-reported',
         ),
       StatCard(
         label: 'Collabs completed',
@@ -370,15 +388,18 @@ class _AccountCard extends StatelessWidget {
               style: AppTypography.bodySmall,
             ),
           ],
-          if (synced != null) ...[
-            const SizedBox(height: AppSpacing.base),
-            Text(
-              'Updated ${Formatters.relative(synced)}',
-              style: AppTypography.labelSmall.copyWith(
-                color: AppColors.onSurfaceVariant,
-              ),
+          const SizedBox(height: AppSpacing.base),
+          // `last_synced_at` is written when the creator saves the figures;
+          // "Updated 2 min" under them read as a fetch from the network.
+          Text(
+            synced == null
+                ? 'Self-reported by the creator'
+                : 'Self-reported by the creator · entered '
+                      '${Formatters.date(synced)}',
+            style: AppTypography.labelSmall.copyWith(
+              color: AppColors.onSurfaceVariant,
             ),
-          ],
+          ),
         ],
       ),
     );

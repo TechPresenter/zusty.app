@@ -51,16 +51,34 @@ $isLive = in_array(
 // perfectly well (and an operator regularly needs to), and the first partial
 // refund flips payment_status to 'partially_refunded', which hid the form while
 // money was still refundable. The balance is the only thing that decides.
+//
+// Net of refunds still on their way back: amount_refunded only moves when a
+// refund completes, and a Cashfree refund sits in `processing` for days. The
+// full amount used to stay pre-filled meanwhile, and a second refund to the
+// wallet (instant) paid the same money back twice. PaymentService refuses it
+// either way (refundableBalance); this keeps the form from offering it.
+$inFlight = [];
+
+foreach ($refunds as $refund) {
+    if (in_array((string) $refund['status'], ['pending', 'processing'], true)) {
+        $inFlight[(int) $refund['payment_id']] = ($inFlight[(int) $refund['payment_id']] ?? 0.0) + (float) $refund['amount'];
+    }
+}
+
 $refundable = 0.0;
 
 foreach ($payments as $payment) {
     if (in_array((string) $payment['status'], ['captured', 'partially_refunded'], true)) {
-        $refundable += (float) $payment['amount'] - (float) $payment['amount_refunded'];
+        $refundable += max(
+            0.0,
+            (float) $payment['amount'] - (float) $payment['amount_refunded'] - ($inFlight[(int) $payment['id']] ?? 0.0)
+        );
     }
 }
 
-$refundable = round(max(0.0, $refundable), 2);
-$canRefund  = $refundable > 0 && $this->can('payments.refund');
+$refundable     = round(max(0.0, $refundable), 2);
+$refundInFlight = round(array_sum($inFlight), 2);
+$canRefund      = $refundable > 0 && $this->can('payments.refund');
 
 ?>
 
@@ -292,7 +310,7 @@ $canRefund  = $refundable > 0 && $this->can('payments.refund');
                 <td class="mono tiny"><?= $this->e($refund['reference']) ?></td>
                 <td class="small muted">to <?= $this->e($refund['destination']) ?></td>
                 <td class="text-right text-error" style="font-weight:600">− <?= $this->money($refund['amount'], (string) $refund['currency']) ?></td>
-                <td><span class="chip chip--<?= $refund['status'] === 'completed' ? 'success' : 'error' ?>"><?= $this->e($refund['status']) ?></span></td>
+                <td><span class="chip chip--<?= match ((string) $refund['status']) { 'completed' => 'success', 'failed' => 'error', default => 'warning' } ?>"><?= $this->e($refund['status']) ?></span></td>
                 <td class="small muted" style="white-space:nowrap"><?= $this->dateTime($refund['processed_at'] ?? $refund['created_at']) ?></td>
               </tr>
             <?php endforeach; ?>
@@ -455,7 +473,8 @@ $canRefund  = $refundable > 0 && $this->can('payments.refund');
               <input class="input" type="number" step="0.01" min="1" max="<?= $this->e((string) $refundable) ?>"
                      name="amount" id="refund_amount" value="<?= $this->e((string) $refundable) ?>" required>
               <p class="tiny muted"><?= $this->money($refundable, $currency) ?> of
-                <?= $this->money($booking['total_amount'], $currency) ?> is still refundable.</p>
+                <?= $this->money($booking['total_amount'], $currency) ?> is still refundable.<?php if ($refundInFlight > 0): ?>
+                <?= $this->money($refundInFlight, $currency) ?> more is already on its way back and waits for the gateway to confirm it.<?php endif; ?></p>
             </div>
             <div class="field">
               <label class="field__label" for="refund_destination">Destination</label>
@@ -463,6 +482,8 @@ $canRefund  = $refundable > 0 && $this->can('payments.refund');
                 <option value="source">Original payment method</option>
                 <option value="wallet">Zusty wallet (instant)</option>
               </select>
+              <p class="tiny muted">A brand can withdraw its wallet only from
+                <?= $this->money(\Zuste\Core\Config::settingFloat('wallet', 'min_withdrawal', 1000), $currency) ?>; less than that can only pay for a booking it covers, or be paid out by support.</p>
             </div>
             <div class="field">
               <label class="field__label" for="refund_reason">Reason</label>

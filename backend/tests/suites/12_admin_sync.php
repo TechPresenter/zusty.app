@@ -1213,8 +1213,25 @@ $testimonial = Database::selectOne(
     'SELECT * FROM `testimonials` WHERE `is_active` = 1 ORDER BY `is_featured` DESC, `sort_order`, `id` LIMIT 1'
 );
 
+// Seed 002's testimonials are switched off (migration 053: no customer said
+// them), so an install without a real one gets an "IT " fixture for this
+// group, removed again below (09_cms_content's cleanup also catches it).
+$plantedTestimonial = null;
 if ($testimonial === null) {
-    Suite::skipGroup('Admin sync — testimonials', 'no active testimonial is seeded');
+    $plantedTestimonial = (int) Database::insert('testimonials', [
+        'author_name' => 'IT Sync Author',
+        'author_role' => 'Fixture',
+        'content'     => 'IT fixture quote for the admin-sync testimonial checks.',
+        'rating'      => 4,
+        'is_featured' => 0,
+        'is_active'   => 1,
+        'sort_order'  => 99,
+    ]);
+    $testimonial = Database::selectOne('SELECT * FROM `testimonials` WHERE `id` = :id', ['id' => $plantedTestimonial]);
+}
+
+if ($testimonial === null) {
+    Suite::skipGroup('Admin sync — testimonials', 'no testimonial could be planted');
 } else {
     $testimonialSnapshot = $snapshot('testimonials', (int) $testimonial['id']);
     $originalAuthor      = (string) $testimonial['author_name'];
@@ -1256,6 +1273,10 @@ if ($testimonial === null) {
         in_array($originalAuthor, $pluck(Http::get('/testimonials')->list('testimonials'), 'author_name'), true),
         'the original testimonial did not come back'
     );
+}
+
+if ($plantedTestimonial !== null) {
+    Database::delete('testimonials', ['id' => $plantedTestimonial]);
 }
 
 // -----------------------------------------------------------------

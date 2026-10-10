@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../models/account_settings.dart';
 import '../../models/user.dart';
 import '../../providers/account_provider.dart';
+import '../../providers/app_config_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/core_providers.dart';
 import '../../router/routes.dart';
@@ -92,6 +93,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     final prefs = user.notificationPrefs;
     final isCreator = user.role.isCreator || user.isCreator;
+    // No SMS switch while no text message can go out (Settings → SMS off).
+    final smsAvailable = ref.watch(featureFlagsProvider).smsEnabled;
 
     return ZScaffold(
       padded: false,
@@ -149,9 +152,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           SettingsGroup(
             title: 'Privacy & data',
             footer:
-                'Both ask you to confirm it\'s you first, with your password '
-                'or a one-time code.',
+                'Downloading your data and deleting your account both ask you '
+                'to confirm it\'s you first, with your password or a one-time '
+                'code.',
             children: [
+              ZMenuTile(
+                icon: Icons.block_rounded,
+                title: 'Blocked accounts',
+                subtitle: 'See and unblock the people you blocked',
+                onTap: () => context.push(Routes.blockedUsers),
+              ),
               ZMenuTile(
                 icon: Icons.file_download_outlined,
                 title: 'Download my data',
@@ -189,14 +199,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 busy: _savingPrefs.contains('email'),
                 onChanged: (v) => _setPref(prefs, 'email', v),
               ),
-              SettingsSwitchTile(
-                icon: Icons.sms_outlined,
-                title: 'SMS',
-                subtitle: 'Critical booking and payout updates',
-                value: prefs.sms,
-                busy: _savingPrefs.contains('sms'),
-                onChanged: (v) => _setPref(prefs, 'sms', v),
-              ),
+              if (smsAvailable)
+                SettingsSwitchTile(
+                  icon: Icons.sms_outlined,
+                  title: 'SMS',
+                  subtitle: 'Critical booking and payout updates',
+                  value: prefs.sms,
+                  busy: _savingPrefs.contains('sms'),
+                  onChanged: (v) => _setPref(prefs, 'sms', v),
+                ),
               SettingsSwitchTile(
                 icon: Icons.campaign_outlined,
                 title: 'Product updates & offers',

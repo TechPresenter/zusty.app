@@ -9,9 +9,11 @@ use Zuste\Core\Database;
 use Zuste\Core\HttpException;
 use Zuste\Core\Request;
 use Zuste\Core\Response;
+use Zuste\Core\ValidationException;
 use Zuste\Helpers\Money;
 use Zuste\Helpers\Str;
 use Zuste\Services\ActivityLogger;
+use Zuste\Services\BlockService;
 use Zuste\Services\CreatorBadgeService;
 use Zuste\Services\CreatorChangeService;
 use Zuste\Services\CreatorProfileLockService;
@@ -28,6 +30,18 @@ use Zuste\Services\UploadService;
  */
 final class CreatorController extends BaseApiController
 {
+    /** Most "what's included" lines one package may list. */
+    private const PACKAGE_INCLUDES_MAX = 10;
+
+    /** Longest single "what's included" line, in characters. */
+    private const PACKAGE_INCLUDE_MAX_CHARS = 120;
+
+    /** The `social_platform` term that marks a direct upload, not a network. */
+    private const UPLOAD_SOURCE = 'upload';
+
+    /** creator.max_portfolio_items when the setting row is missing. */
+    private const PORTFOLIO_ITEMS_DEFAULT = 100;
+
     // -----------------------------------------------------------------
     // Discovery
     // -----------------------------------------------------------------
@@ -139,7 +153,10 @@ final class CreatorController extends BaseApiController
 
         $creator = CreatorService::profile($key, $viewerId);
 
-        CreatorService::recordView((int) $creator['id'], $viewerId, $request->string('source', 'direct'));
+        // A creator the viewer blocked is not "viewed" in their analytics.
+        if (empty($creator['is_blocked'])) {
+            CreatorService::recordView((int) $creator['id'], $viewerId, $request->string('source', 'direct'));
+        }
 
         Response::success(['creator' => $creator]);
     }
@@ -168,11 +185,25 @@ final class CreatorController extends BaseApiController
         $creatorId  = $request->routeParamInt('id');
         $pagination = $this->pagination($request, 10, 50);
 
+        // As on the profile: a visitor does not see reviews by someone they
+        // have a block with. The owner sees them all; the breakdown counts all.
+        $viewerId = $request->userId();
+        $filter   = '';
+        $bindings = ['id' => $creatorId];
+
+        if ($viewerId > 0 && Database::scalar(
+            'SELECT 1 FROM `creators` WHERE `id` = :id AND `user_id` = :viewer',
+            ['id' => $creatorId, 'viewer' => $viewerId]
+        ) === null) {
+            $filter                   = ' AND ' . BlockService::notBlockedSql('r.`reviewer_id`');
+            $bindings['block_viewer'] = $viewerId;
+        }
+
         $total = (int) Database::scalar(
-            "SELECT COUNT(*) FROM `reviews`
-             WHERE `creator_id` = :id AND `is_published` = 1 AND `deleted_at` IS NULL
-               AND `direction` = 'brand_to_creator'",
-            ['id' => $creatorId]
+            "SELECT COUNT(*) FROM `reviews` r
+             WHERE r.`creator_id` = :id AND r.`is_published` = 1 AND r.`deleted_at` IS NULL
+               AND r.`direction` = 'brand_to_creator'" . $filter,
+            $bindings
         );
 
         $reviews = Database::select(
@@ -184,10 +215,10 @@ final class CreatorController extends BaseApiController
              INNER JOIN `users` u ON u.`id` = r.`reviewer_id`
              INNER JOIN `bookings` b ON b.`id` = r.`booking_id`
              WHERE r.`creator_id` = :id AND r.`is_published` = 1 AND r.`deleted_at` IS NULL
-               AND r.`direction` = 'brand_to_creator'
+               AND r.`direction` = 'brand_to_creator'" . $filter . "
              ORDER BY r.`id` DESC
              LIMIT " . $pagination['per_page'] . ' OFFSET ' . $pagination['offset'],
-            ['id' => $creatorId]
+            $bindings
         );
 
         Response::paginated($reviews, $total, $pagination['page'], $pagination['per_page'], 'OK', [
@@ -734,6 +765,43 @@ final class CreatorController extends BaseApiController
         );
     }
 
+    /**
+     * GET /me/creator/packages — every package the creator owns, hidden ones
+     * included.
+     *
+     * The profile payload lists ACTIVE packages only, because it is what a
+     * brand sees. Read from there, a package the creator hid could never be
+     * found again to show or delete, so the editor reads its own list. The
+     * price bounds travel with it so the form can say what the API will
+     * accept before the creator presses Save.
+     */
+    public function myPackages(Request $request): never
+    {
+        $creatorId = $this->creatorId($request);
+        $bounds    = self::packagePriceBounds();
+
+        $rows = Database::select(
+            'SELECT `id`, `title`, `description`, `platform`, `deliverable_type`, `quantity`,
+                    `price`, `currency`, `turnaround_days`, `revisions`, `includes`, `is_active`,
+                    `sort_order`, `created_at`, `updated_at`
+               FROM `creator_packages`
+              WHERE `creator_id` = :id AND `deleted_at` IS NULL
+              ORDER BY `is_active` DESC, `sort_order`, `price`, `id`',
+            ['id' => $creatorId]
+        );
+
+        Response::success([
+            'packages' => array_map(static fn (array $row): array => self::presentPackage($row), $rows),
+            'locked'   => CreatorProfileLockService::isLocked($creatorId, 'pricing'),
+            'limits'   => [
+                'min_price'          => $bounds['min'],
+                'max_price'          => $bounds['max'],
+                'max_includes'       => self::PACKAGE_INCLUDES_MAX,
+                'include_max_length' => self::PACKAGE_INCLUDE_MAX_CHARS,
+            ],
+        ]);
+    }
+
     /** POST /me/creator/packages */
     public function createPackage(Request $request): never
     {
@@ -747,11 +815,13 @@ final class CreatorController extends BaseApiController
             'platform'         => $this->taxonomyRule('platform', 'required', 'required|string|max:40'),
             'deliverable_type' => $this->taxonomyRule('deliverable_type', 'required', 'required|string|max:40'),
             'quantity'         => 'nullable|integer|min_value:1|max_value:100',
-            'price'            => 'required|numeric|min_value:1',
+            'price'            => self::packagePriceRule('required'),
             'turnaround_days'  => 'nullable|integer|min_value:1|max_value:180',
             'revisions'        => 'nullable|integer|min_value:0|max_value:10',
             'includes'         => 'nullable|array',
-        ]);
+        ], self::packagePriceMessages());
+
+        $includes = isset($data['includes']) ? self::packageIncludes((array) $data['includes']) : [];
 
         $packageId = Database::insert('creator_packages', [
             'creator_id'       => $creatorId,
@@ -764,7 +834,7 @@ final class CreatorController extends BaseApiController
             'currency'         => Money::defaultCurrency(),
             'turnaround_days'  => (int) ($data['turnaround_days'] ?? 7),
             'revisions'        => (int) ($data['revisions'] ?? 1),
-            'includes'         => isset($data['includes']) ? json_encode(array_values((array) $data['includes']), JSON_UNESCAPED_UNICODE) : null,
+            'includes'         => $includes === [] ? null : json_encode($includes, JSON_UNESCAPED_UNICODE),
             'created_at'       => date('Y-m-d H:i:s'),
         ]);
 
@@ -775,7 +845,7 @@ final class CreatorController extends BaseApiController
             'Created pricing package #' . $packageId . '.', ['package_id' => $packageId]);
 
         Response::created(
-            ['package' => Database::selectOne('SELECT * FROM `creator_packages` WHERE `id` = :id', ['id' => $packageId])],
+            ['package' => $this->ownPackage($packageId)],
             'Package created.'
         );
     }
@@ -796,16 +866,15 @@ final class CreatorController extends BaseApiController
             'platform'         => $this->taxonomyRule('platform', 'nullable', 'nullable|string|max:40'),
             'deliverable_type' => $this->taxonomyRule('deliverable_type', 'nullable', 'nullable|string|max:40'),
             'quantity'         => 'nullable|integer|min_value:1|max_value:100',
-            'price'            => 'nullable|numeric|min_value:1',
+            'price'            => self::packagePriceRule('nullable'),
             'turnaround_days'  => 'nullable|integer|min_value:1|max_value:180',
             'revisions'        => 'nullable|integer|min_value:0|max_value:10',
             'is_active'        => 'nullable|boolean',
             'includes'         => 'nullable|array',
-        ]);
+        ], self::packagePriceMessages());
 
         $updates = array_filter([
             'title'            => $data['title'] ?? null,
-            'description'      => $data['description'] ?? null,
             'platform'         => $data['platform'] ?? null,
             'deliverable_type' => $data['deliverable_type'] ?? null,
             'quantity'         => isset($data['quantity']) ? (int) $data['quantity'] : null,
@@ -814,24 +883,35 @@ final class CreatorController extends BaseApiController
             'revisions'        => isset($data['revisions']) ? (int) $data['revisions'] : null,
         ], static fn ($value): bool => $value !== null);
 
-        if (array_key_exists('is_active', $data)) {
-            $updates['is_active'] = $data['is_active'] ? 1 : 0;
+        // The two optional texts are cleared by sending them empty. Filtered
+        // with the rest above, an emptied description or "what's included"
+        // list was dropped as "not sent" and the old copy stayed on the card.
+        if (array_key_exists('description', $data)) {
+            $updates['description'] = $data['description'];
         }
 
-        if (isset($data['includes'])) {
-            $updates['includes'] = json_encode(array_values((array) $data['includes']), JSON_UNESCAPED_UNICODE);
+        if (array_key_exists('includes', $data)) {
+            $includes = self::packageIncludes((array) ($data['includes'] ?? []));
+
+            $updates['includes'] = $includes === [] ? null : json_encode($includes, JSON_UNESCAPED_UNICODE);
+        }
+
+        if (array_key_exists('is_active', $data) && $data['is_active'] !== null) {
+            $updates['is_active'] = $data['is_active'] ? 1 : 0;
         }
 
         if ($updates !== []) {
             Database::update('creator_packages', $updates, ['id' => $packageId]);
             CreatorService::refreshStatistics($creatorId);
+            CreatorService::computeProfileScore($creatorId);
         }
 
         $this->logCreatorChange($request, 'creator.package_updated', $creatorId,
-            'Updated pricing package #' . $packageId . '.', ['package_id' => $packageId]);
+            'Updated pricing package #' . $packageId . '.',
+            ['package_id' => $packageId, 'fields' => array_keys($updates)]);
 
         Response::success(
-            ['package' => Database::selectOne('SELECT * FROM `creator_packages` WHERE `id` = :id', ['id' => $packageId])],
+            ['package' => $this->ownPackage($packageId)],
             'Package updated.'
         );
     }
@@ -848,6 +928,7 @@ final class CreatorController extends BaseApiController
 
         Database::update('creator_packages', ['deleted_at' => date('Y-m-d H:i:s'), 'is_active' => 0], ['id' => $packageId]);
         CreatorService::refreshStatistics($creatorId);
+        CreatorService::computeProfileScore($creatorId);
 
         $this->logCreatorChange($request, 'creator.package_deleted', $creatorId,
             'Removed pricing package #' . $packageId . '.', ['package_id' => $packageId]);
@@ -867,18 +948,45 @@ final class CreatorController extends BaseApiController
             'title'         => 'nullable|string|max:191',
             'caption'       => 'nullable|string|max:1000',
             'external_url'  => 'nullable|url|max:500',
+            // Both were read raw, so any string at all — `javascript:…`, a
+            // file path, 2,000 characters — went into a column the profile
+            // and the admin moderation queue render as a link and an image.
+            'media_url'     => 'nullable|url|max:500',
+            'thumbnail_url' => 'nullable|url|max:500',
             'aspect_ratio'  => 'nullable|string|max:10',
             'duration_secs' => 'nullable|integer|min_value:0',
         ]);
 
-        $mediaUrl     = $request->string('media_url');
-        $thumbnailUrl = $request->string('thumbnail_url') ?: null;
+        // Every item is a stored file and a media row, so there is a ceiling,
+        // checked before anything is written. 0 means none.
+        $cap = self::portfolioCap();
+
+        if ($cap > 0 && self::portfolioCount($creatorId) >= $cap) {
+            throw HttpException::unprocessable(
+                "Your portfolio holds up to {$cap} items. Remove one to add another.",
+                'portfolio_full'
+            );
+        }
+
+        $mediaUrl     = (string) ($data['media_url'] ?? '');
+        $thumbnailUrl = $data['thumbnail_url'] ?? null;
 
         // Accept either a direct upload or a pre-uploaded URL.
         if ($request->hasFile('media')) {
-            $kind   = in_array($data['media_kind'], ['reel', 'video'], true) ? 'video' : 'image';
+            $file = (array) $request->file('media');
+
+            // What is stored is decided by the FILE, not by the tab it is
+            // filed under. The app shows every item as a picture and plays
+            // a reel or video from its link, so a reel arrives as its cover
+            // image — which the old kind-based choice refused as "not a
+            // video". An actual video file under a video kind still goes
+            // through the video rules and limits.
+            $extension = strtolower((string) pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
+            $isImage   = in_array($extension, UploadService::limitsFor('image')[0], true);
+            $kind      = !$isImage && in_array($data['media_kind'], ['reel', 'video'], true) ? 'video' : 'image';
+
             $upload = UploadService::store(
-                (array) $request->file('media'),
+                $file,
                 'portfolio',
                 $kind,
                 'user',
@@ -887,6 +995,10 @@ final class CreatorController extends BaseApiController
 
             $mediaUrl     = $upload['url'];
             $thumbnailUrl ??= $upload['url'];
+
+            // The grid and the viewer size each tile from this; an upload
+            // knows its own shape, so the creator is not asked for it.
+            $data['aspect_ratio'] ??= self::aspectRatio($upload['width'] ?? null, $upload['height'] ?? null);
         }
 
         if ($mediaUrl === '') {
@@ -919,10 +1031,69 @@ final class CreatorController extends BaseApiController
         $this->logCreatorChange($request, 'creator.portfolio_added', $creatorId,
             'Added portfolio item #' . $itemId . '.', ['item_id' => $itemId]);
 
-        Response::created(
-            ['item' => Database::selectOne('SELECT * FROM `creator_portfolio` WHERE `id` = :id', ['id' => $itemId])],
-            'Added to your portfolio.'
+        $item = self::presentPortfolioItem(
+            Database::selectOne('SELECT * FROM `creator_portfolio` WHERE `id` = :id', ['id' => $itemId]) ?? []
         );
+
+        Response::created(
+            ['item' => $item],
+            $item['moderation_status'] === 'pending'
+                ? 'Added. It shows on your profile once our team has reviewed it.'
+                : 'Added to your portfolio.'
+        );
+    }
+
+    /**
+     * GET /me/creator/portfolio — the creator's own items, newest first.
+     *
+     * The public views show approved, active items only. With
+     * creator.moderate_gallery_uploads on, everything a creator adds starts
+     * `pending`, so read from there their newest work simply vanished — and
+     * an item the team turned down could never be found to remove. This
+     * lists every item they have not deleted, with where it stands.
+     */
+    public function myPortfolio(Request $request): never
+    {
+        $creatorId  = $this->creatorId($request);
+        $pagination = $this->pagination($request, 30, 60);
+
+        $total = self::portfolioCount($creatorId);
+
+        $rows = Database::select(
+            'SELECT * FROM `creator_portfolio`
+              WHERE `creator_id` = :id AND `deleted_at` IS NULL
+              ORDER BY `id` DESC
+              LIMIT ' . $pagination['per_page'] . ' OFFSET ' . $pagination['offset'],
+            ['id' => $creatorId]
+        );
+
+        Response::paginated(
+            array_map(static fn (array $row): array => self::presentPortfolioItem($row), $rows),
+            $total,
+            $pagination['page'],
+            $pagination['per_page'],
+            'OK',
+            [
+                'locked'    => CreatorProfileLockService::isLocked($creatorId, 'portfolio'),
+                // 0 means no ceiling, exactly as addPortfolioItem() reads it.
+                'max_items' => self::portfolioCap(),
+            ]
+        );
+    }
+
+    /** creator.max_portfolio_items; 0 means no ceiling. */
+    private static function portfolioCap(): int
+    {
+        return max(0, Config::settingInt('creator', 'max_portfolio_items', self::PORTFOLIO_ITEMS_DEFAULT));
+    }
+
+    /** Items the creator has not deleted, whatever their review status. */
+    private static function portfolioCount(int $creatorId): int
+    {
+        return (int) (Database::scalar(
+            'SELECT COUNT(*) FROM `creator_portfolio` WHERE `creator_id` = :id AND `deleted_at` IS NULL',
+            ['id' => $creatorId]
+        ) ?? 0);
     }
 
     /** DELETE /me/creator/portfolio/{id} */
@@ -934,7 +1105,8 @@ final class CreatorController extends BaseApiController
         CreatorProfileLockService::assertUnlocked($creatorId, 'portfolio');
 
         $owned = Database::scalar(
-            'SELECT 1 FROM `creator_portfolio` WHERE `id` = :id AND `creator_id` = :creator_id',
+            'SELECT 1 FROM `creator_portfolio`
+              WHERE `id` = :id AND `creator_id` = :creator_id AND `deleted_at` IS NULL',
             ['id' => $itemId, 'creator_id' => $creatorId]
         );
 
@@ -944,11 +1116,31 @@ final class CreatorController extends BaseApiController
 
         Database::update('creator_portfolio', ['deleted_at' => date('Y-m-d H:i:s'), 'is_active' => 0], ['id' => $itemId]);
         CreatorService::refreshStatistics($creatorId);
+        CreatorService::computeProfileScore($creatorId);
 
         $this->logCreatorChange($request, 'creator.portfolio_removed', $creatorId,
             'Removed portfolio item #' . $itemId . '.', ['item_id' => $itemId]);
 
         Response::noContent('Removed from your portfolio.');
+    }
+
+    /**
+     * GET /me/creator/social — the creator's linked accounts, in their order.
+     *
+     * Every write below already answers with this list; the editor needs
+     * the same list to open with, and the profile payload is the wrong
+     * source for it (primary-first ordering, and a different set of keys).
+     */
+    public function mySocialAccounts(Request $request): never
+    {
+        $creatorId = $this->creatorId($request);
+
+        Response::success([
+            'social_accounts' => $this->socialAccounts($creatorId),
+            'locked'          => CreatorProfileLockService::isLocked($creatorId, 'social'),
+            // 0 means no ceiling, exactly as upsertSocialAccount() reads it.
+            'max_accounts'    => max(0, Config::settingInt('creator', 'max_social_accounts', 20)),
+        ]);
     }
 
     /** PUT /me/creator/social */
@@ -976,14 +1168,17 @@ final class CreatorController extends BaseApiController
 
         $platform = strtolower(trim((string) $data['platform']));
 
-        if (!TaxonomyService::isValid('social_platform', $platform)) {
-            throw HttpException::unprocessable('That is not a network we support.');
+        // `upload` is a term of this taxonomy only because it is the default
+        // of creator_portfolio.source_platform (migration 035). It marks a
+        // file sent straight to us; it is not a network anyone links.
+        if ($platform === self::UPLOAD_SOURCE || !TaxonomyService::isValid('social_platform', $platform)) {
+            throw ValidationException::forField('platform', 'That is not a network we support.');
         }
 
         $handle = ltrim(trim((string) $data['handle']), '@');
 
         if ($handle === '') {
-            throw HttpException::unprocessable('Enter the handle or the link.');
+            throw ValidationException::forField('handle', 'Enter the handle or the link.');
         }
 
         // A network that reports follower counts holds one account per
@@ -992,30 +1187,62 @@ final class CreatorController extends BaseApiController
         $term      = self::socialTerm($platform);
         $metadata  = is_array($term['metadata'] ?? null) ? $term['metadata'] : [];
         $singleton = ($metadata['metrics'] ?? false) === true;
+        $custom    = ($metadata['custom_label'] ?? false) === true;
+
+        // The label replaces the network's name wherever the account is shown
+        // (socialAccounts(), CreatorService::profile()). It is the creator's
+        // own name for a custom link and nothing else: kept on an Instagram
+        // row it let a direct API call show "Instagram - Verified by Zusty"
+        // next to the Instagram icon on the profile brands read.
+        $label = $custom ? trim((string) ($data['label'] ?? '')) : '';
+
+        if ($custom && $label === '') {
+            throw ValidationException::forField('label', 'Give this link a name.');
+        }
 
         $existingId = (int) ($data['id'] ?? 0);
+        $existing   = null;
 
         if ($existingId > 0) {
-            $owns = Database::scalar(
-                'SELECT 1 FROM `creator_social_accounts` WHERE `id` = :id AND `creator_id` = :creator_id',
+            $existing = Database::selectOne(
+                'SELECT `platform`, `handle`, `profile_url` FROM `creator_social_accounts`
+                  WHERE `id` = :id AND `creator_id` = :creator_id',
                 ['id' => $existingId, 'creator_id' => $creatorId]
             );
 
-            if ($owns === null) {
+            if ($existing === null) {
                 throw HttpException::notFound('That linked account was not found.');
             }
+
+            // The update below never writes `platform`, so a link edited
+            // "from Instagram to YouTube" kept saying Instagram while its
+            // handle and URL said YouTube. Moving networks is unlink + add.
+            if ((string) $existing['platform'] !== $platform) {
+                throw ValidationException::forField(
+                    'platform',
+                    'A linked account cannot move to another network. Remove it and add the new one.'
+                );
+            }
         } elseif ($singleton) {
-            // The row to write is now chosen explicitly rather than left to
-            // the index. The old blind ON DUPLICATE KEY UPDATE relied on a
-            // unique key of (creator_id, platform); that key is now
-            // (creator_id, platform, handle), because a creator may hold
-            // several custom links — so changing an Instagram handle would
-            // have inserted a SECOND Instagram row instead of updating the
-            // first.
-            $existingId = (int) (Database::scalar(
-                'SELECT `id` FROM `creator_social_accounts` WHERE `creator_id` = :c AND `platform` = :p LIMIT 1',
+            // Without an id this is "link an account". It used to pick the
+            // creator's existing row for the network and overwrite it — its
+            // handle, its figures and its verified mark — while answering
+            // "saved", so a creator adding a second Instagram replaced their
+            // verified one. (The unique key is (creator_id, platform, handle),
+            // so the index cannot stop a second row either.) A network with
+            // figures holds one account; the creator is told to edit it.
+            $linked = Database::scalar(
+                'SELECT 1 FROM `creator_social_accounts`
+                  WHERE `creator_id` = :c AND `platform` = :p LIMIT 1',
                 ['c' => $creatorId, 'p' => $platform]
-            ) ?? 0);
+            );
+
+            if ($linked !== null) {
+                throw ValidationException::forField(
+                    'platform',
+                    'Your ' . (string) ($term['label'] ?? ucfirst($platform)) . ' account is already linked. Edit it instead.'
+                );
+            }
         }
 
         $limit = Config::settingInt('creator', 'max_social_accounts', 20);
@@ -1031,14 +1258,42 @@ final class CreatorController extends BaseApiController
             }
         }
 
+        // The unique key is (creator_id, platform, handle). A second link to
+        // the same account — a repeated website, or an edit that renames one
+        // link onto another — hit it as a raw duplicate-key error, a 500.
+        $duplicate = Database::scalar(
+            'SELECT 1 FROM `creator_social_accounts`
+              WHERE `creator_id` = :c AND `platform` = :p AND `handle` = :h AND `id` <> :id
+              LIMIT 1',
+            ['c' => $creatorId, 'p' => $platform, 'h' => $handle, 'id' => $existingId]
+        );
+
+        if ($duplicate !== null) {
+            throw ValidationException::forField('handle', 'That account is already linked.');
+        }
+
+        // Figures belong to networks that have them. On a website row they
+        // were stored as sent and summed into the profile's follower total.
+        // They are the creator's own numbers (nothing fetches them), and
+        // `last_synced_at` records when the creator last entered them; the
+        // apps label both as self-reported.
         $fields = [
             'handle'          => $handle,
             'profile_url'     => (string) $data['profile_url'],
-            'label'           => $data['label'] ?? null,
-            'followers'       => (int) ($data['followers'] ?? 0),
-            'engagement_rate' => (float) ($data['engagement_rate'] ?? 0),
+            'label'           => $label === '' ? null : $label,
+            'followers'       => $singleton ? (int) ($data['followers'] ?? 0) : 0,
+            'engagement_rate' => $singleton ? (float) ($data['engagement_rate'] ?? 0) : 0.0,
             'last_synced_at'  => date('Y-m-d H:i:s'),
         ];
+
+        // A verified mark belongs to the account that was checked. Pointing
+        // the row at a different handle or URL must not carry it across, or
+        // renaming a verified link would verify whatever it now points to —
+        // and the `social_verified` badge is drawn from this flag.
+        if ($existing !== null
+            && ((string) $existing['handle'] !== $handle || (string) $existing['profile_url'] !== $fields['profile_url'])) {
+            $fields['is_verified'] = 0;
+        }
 
         if ($existingId > 0) {
             Database::update('creator_social_accounts', $fields, ['id' => $existingId]);
@@ -1200,8 +1455,12 @@ final class CreatorController extends BaseApiController
             $metadata = is_array($term['metadata'] ?? null) ? $term['metadata'] : [];
 
             // A custom link shows the creator's own label; everything else
-            // shows the network's name.
-            $row['display_name'] = (string) ($row['label'] ?: ($term['label'] ?? ucfirst((string) $row['platform'])));
+            // shows the network's name, whatever an older row's label says.
+            $ownLabel            = ($metadata['custom_label'] ?? false) === true ? (string) ($row['label'] ?? '') : '';
+            $row['display_name'] = (string) ($ownLabel ?: ($term['label'] ?? ucfirst((string) $row['platform'])));
+            // The name the public profile sends it under, so one client model
+            // reads both payloads.
+            $row['platform_label'] = $row['display_name'];
             $row['icon']         = $term['icon'] ?? 'link';
             $row['color']        = $term['color'] ?? null;
             $row['has_metrics']  = ($metadata['metrics'] ?? false) === true;
@@ -1355,6 +1614,205 @@ final class CreatorController extends BaseApiController
         if ($owned === null) {
             throw HttpException::notFound('Package not found.');
         }
+    }
+
+    /**
+     * The range a package price must fall within.
+     *
+     * A package IS a booking amount: once a brand picks one, BookingService
+     * takes the package's price as the amount — after the min/max checks
+     * have already run on what the brand typed. A package priced under
+     * booking.min_booking_amount therefore slipped beneath the floor, and
+     * one over the ceiling could be requested at a price no checkout would
+     * take. Holding packages to the same bounds keeps every one bookable.
+     *
+     * @return array{min:float,max:float}
+     */
+    private static function packagePriceBounds(): array
+    {
+        $min = max(1.0, Config::settingFloat('booking', 'min_booking_amount', 1000));
+        $max = max($min, Config::settingFloat('booking', 'max_booking_amount', 2000000));
+
+        return ['min' => $min, 'max' => $max];
+    }
+
+    /** The `price` rule, `required` on create and `nullable` on update. */
+    private static function packagePriceRule(string $presence): string
+    {
+        $bounds = self::packagePriceBounds();
+
+        return $presence . '|numeric|min_value:' . $bounds['min'] . '|max_value:' . $bounds['max'];
+    }
+
+    /** @return array<string,string> */
+    private static function packagePriceMessages(): array
+    {
+        $bounds = self::packagePriceBounds();
+
+        return [
+            'price.min_value' => 'The lowest price a package can have is ' . Money::formatShort($bounds['min']) . '.',
+            'price.max_value' => 'The highest price a package can have is ' . Money::formatShort($bounds['max']) . '.',
+        ];
+    }
+
+    /**
+     * The "what's included" list as it is stored: trimmed lines, no blanks.
+     *
+     * The rule was `array` and nothing more, so a nested object, a number or
+     * a line of ten thousand characters went straight into the column and
+     * from there onto every brand's package card.
+     *
+     * @param  array<mixed> $lines
+     * @return list<string>
+     */
+    private static function packageIncludes(array $lines): array
+    {
+        $clean = [];
+
+        foreach ($lines as $line) {
+            if (!is_string($line) && !is_int($line) && !is_float($line)) {
+                throw ValidationException::forField('includes', 'List what is included as lines of text.');
+            }
+
+            $text = trim((string) preg_replace('/\s+/u', ' ', (string) $line));
+
+            if ($text === '') {
+                continue;
+            }
+
+            if (mb_strlen($text) > self::PACKAGE_INCLUDE_MAX_CHARS) {
+                throw ValidationException::forField(
+                    'includes',
+                    'Keep each included item to ' . self::PACKAGE_INCLUDE_MAX_CHARS . ' characters.'
+                );
+            }
+
+            $clean[] = $text;
+        }
+
+        if (count($clean) > self::PACKAGE_INCLUDES_MAX) {
+            throw ValidationException::forField(
+                'includes',
+                'List up to ' . self::PACKAGE_INCLUDES_MAX . ' included items.'
+            );
+        }
+
+        return $clean;
+    }
+
+    /** @return array<string,mixed> */
+    private function ownPackage(int $packageId): array
+    {
+        return self::presentPackage(
+            Database::selectOne('SELECT * FROM `creator_packages` WHERE `id` = :id', ['id' => $packageId]) ?? []
+        );
+    }
+
+    /**
+     * One package as the creator's editor reads it.
+     *
+     * The write endpoints used to answer with the raw row, where `includes`
+     * is a JSON string and `is_active` a 0/1 — so the app could not use the
+     * answer and had to reload. This is the profile's shape plus the two
+     * fields only the owner needs, `is_active` and `sort_order`.
+     *
+     * @param  array<string,mixed> $row
+     * @return array<string,mixed>
+     */
+    private static function presentPackage(array $row): array
+    {
+        $includes = json_decode((string) ($row['includes'] ?? ''), true);
+        $price    = Money::round((float) ($row['price'] ?? 0));
+        $currency = (string) ($row['currency'] ?? Money::defaultCurrency());
+
+        return [
+            'id'               => (int) ($row['id'] ?? 0),
+            'title'            => (string) ($row['title'] ?? ''),
+            'description'      => isset($row['description']) ? (string) $row['description'] : null,
+            'platform'         => isset($row['platform']) ? (string) $row['platform'] : null,
+            'deliverable_type' => isset($row['deliverable_type']) ? (string) $row['deliverable_type'] : null,
+            'quantity'         => (int) ($row['quantity'] ?? 1),
+            'price'            => $price,
+            'currency'         => $currency,
+            'price_formatted'  => Money::formatShort($price, $currency),
+            'turnaround_days'  => (int) ($row['turnaround_days'] ?? 0),
+            'revisions'        => (int) ($row['revisions'] ?? 0),
+            'includes'         => is_array($includes)
+                ? array_values(array_map('strval', array_filter($includes, 'is_scalar')))
+                : [],
+            'is_active'        => (int) ($row['is_active'] ?? 0) === 1,
+            'sort_order'       => (int) ($row['sort_order'] ?? 0),
+            'created_at'       => $row['created_at'] ?? null,
+            'updated_at'       => $row['updated_at'] ?? null,
+        ];
+    }
+
+    /**
+     * One portfolio item as its owner sees it: the public fields, whether it
+     * is live, and — when the team turned it down — the reason's label.
+     *
+     * The moderator's free-text note and the reviewer stay out, as they do
+     * from the data export: they are the operator's working notes.
+     *
+     * @param  array<string,mixed> $row
+     * @return array<string,mixed>
+     */
+    private static function presentPortfolioItem(array $row): array
+    {
+        $status = (string) ($row['moderation_status'] ?? 'approved');
+        $reason = $row['moderation_reason'] ?? null;
+
+        return [
+            'id'                => (int) ($row['id'] ?? 0),
+            'media_kind'        => (string) ($row['media_kind'] ?? ''),
+            'collection'        => (string) ($row['collection'] ?? 'portfolio'),
+            'title'             => $row['title'] ?? null,
+            'caption'           => $row['caption'] ?? null,
+            'media_url'         => $row['media_url'] ?? null,
+            'thumbnail_url'     => $row['thumbnail_url'] ?? null,
+            'external_url'      => $row['external_url'] ?? null,
+            'source_platform'   => $row['source_platform'] ?? null,
+            'aspect_ratio'      => $row['aspect_ratio'] ?? null,
+            'duration_secs'     => isset($row['duration_secs']) ? (int) $row['duration_secs'] : null,
+            'views_count'       => (int) ($row['views_count'] ?? 0),
+            'likes_count'       => (int) ($row['likes_count'] ?? 0),
+            'comments_count'    => (int) ($row['comments_count'] ?? 0),
+            'published_at'      => $row['published_at'] ?? null,
+            'is_active'         => (int) ($row['is_active'] ?? 0) === 1,
+            'moderation_status' => $status,
+            'reason_label'      => $status === 'rejected' && is_string($reason) && $reason !== ''
+                ? TaxonomyService::label('moderation_reason', $reason)
+                : null,
+            'created_at'        => $row['created_at'] ?? null,
+        ];
+    }
+
+    /**
+     * "4:5" from an image's pixel size, or null when it is not known.
+     *
+     * Stored the way the column has always held it (`3:4`, `9:16`); reduced
+     * so a 1080×1350 photo reads as 4:5. Sizes are capped by the upload
+     * pipeline, so the result always fits the column's ten characters.
+     */
+    private static function aspectRatio(mixed $width, mixed $height): ?string
+    {
+        $w = is_numeric($width) ? (int) $width : 0;
+        $h = is_numeric($height) ? (int) $height : 0;
+
+        if ($w <= 0 || $h <= 0) {
+            return null;
+        }
+
+        $a = $w;
+        $b = $h;
+
+        while ($b !== 0) {
+            [$a, $b] = [$b, $a % $b];
+        }
+
+        $ratio = intdiv($w, $a) . ':' . intdiv($h, $a);
+
+        return strlen($ratio) <= 10 ? $ratio : null;
     }
 
     private function detectPlatform(string $url): string

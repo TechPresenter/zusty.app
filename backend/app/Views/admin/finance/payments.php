@@ -86,6 +86,12 @@ $tone = static fn (string $s): string => match ($s) {
         </thead>
         <tbody>
           <?php foreach ($payments as $payment): ?>
+            <?php
+              // Refunds recorded or accepted by the gateway but not completed
+              // yet are not in amount_refunded, and can no longer be refunded.
+              $inFlight   = (float) ($payment['refund_in_flight'] ?? 0);
+              $refundable = round(max(0.0, (float) $payment['amount'] - (float) $payment['amount_refunded'] - $inFlight), 2);
+            ?>
             <tr>
               <td>
                 <span class="mono small" style="font-weight:700"><?= $this->e($payment['reference']) ?></span>
@@ -121,6 +127,9 @@ $tone = static fn (string $s): string => match ($s) {
 
               <td class="text-right mono small <?= (float) $payment['amount_refunded'] > 0 ? 'text-error' : 'faint' ?>">
                 <?= (float) $payment['amount_refunded'] > 0 ? $this->money($payment['amount_refunded'], (string) $payment['currency']) : '—' ?>
+                <?php if ($inFlight > 0): ?>
+                  <div class="tiny muted" style="white-space:nowrap"><?= $this->money($inFlight, (string) $payment['currency']) ?> in progress</div>
+                <?php endif; ?>
               </td>
 
               <td>
@@ -137,10 +146,10 @@ $tone = static fn (string $s): string => match ($s) {
               <td class="actions">
                 <?php if ($this->can('payments.refund')
                           && in_array($payment['status'], ['captured', 'partially_refunded'], true)
-                          && (float) $payment['amount_refunded'] < (float) $payment['amount']
+                          && $refundable > 0
                           && $payment['booking_id'] !== null): ?>
                   <button type="button" class="btn btn--outline btn--sm"
-                          onclick="openRefund(<?= (int) $payment['id'] ?>, '<?= $this->e($payment['reference']) ?>', <?= (float) $payment['amount'] - (float) $payment['amount_refunded'] ?>)">
+                          onclick="openRefund(<?= (int) $payment['id'] ?>, '<?= $this->e($payment['reference']) ?>', <?= $refundable ?>)">
                     <?= $this->icon('refresh', 'ic ic--sm') ?> Refund
                   </button>
                 <?php elseif (!empty($payment['booking_id'])): ?>

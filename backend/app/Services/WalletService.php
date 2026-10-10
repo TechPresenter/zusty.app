@@ -75,6 +75,34 @@ final class WalletService
         return Database::selectOne('SELECT * FROM `wallets` WHERE `user_id` = :user_id', ['user_id' => $userId]);
     }
 
+    /**
+     * Whether money may be added to a wallet (`POST /wallet/topup`).
+     *
+     * Off unless an admin switches it on (Settings → Wallet, migration 056).
+     * Brands pay each booking at the gateway's checkout instead, so the wallet
+     * only ever holds what the platform put there — creator earnings and
+     * refunds — and never money a customer loaded in advance, which is what
+     * would make it a prepaid payment instrument under RBI's rules. A missing
+     * row reads as off for the same reason.
+     */
+    public static function topupEnabled(): bool
+    {
+        return Config::settingBool('wallet', 'enabled', true)
+            && Config::settingBool('wallet', 'topup_enabled', false);
+    }
+
+    /** Refuse a top-up while they are switched off: 403 `topup_disabled`. */
+    public static function assertTopupEnabled(): void
+    {
+        if (!self::topupEnabled()) {
+            throw new HttpException(
+                'Adding money to the wallet is not available. Pay for a booking directly at checkout instead.',
+                403,
+                'topup_disabled'
+            );
+        }
+    }
+
     /** @return array{balance:float,locked:float,total:float,currency:string,is_frozen:bool} */
     public static function balance(int $userId): array
     {

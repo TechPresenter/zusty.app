@@ -124,9 +124,13 @@ class _ChannelBlock extends ConsumerWidget {
     final policy = book.policy;
 
     final canAddMore =
-        policy.allowAlternateContacts &&
-        !policy.contactLocked &&
+        policy.canAddAlternate(channel) &&
         alternates.length < policy.maxAlternatesPerChannel;
+
+    // SMS is off and a new number needs a code by text: say why the mobile
+    // buttons are missing rather than leave a silent gap.
+    final mobileUnprovable =
+        !isEmail && !policy.contactLocked && !policy.mobileCodesAvailable;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -205,6 +209,20 @@ class _ChannelBlock extends ConsumerWidget {
             ],
           ),
         ),
+
+        if (mobileUnprovable) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
+            child: Text(
+              'A new mobile number is confirmed by a text message, and text '
+              'messages are switched off, so a number can\'t be added or '
+              'changed for now. When you pay for a booking, checkout asks for '
+              'a number if your account has none.',
+              style: AppTypography.bodySmall,
+            ),
+          ),
+        ],
 
         if (canAddMore) ...[
           const SizedBox(height: AppSpacing.xs),

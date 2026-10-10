@@ -49,6 +49,8 @@ final class WalletController extends BaseApiController
                 'hold_days'      => Config::settingInt('wallet', 'withdrawal_hold_days', 3),
             ],
             'kyc_required_for_withdrawal' => Config::settingBool('wallet', 'require_kyc_for_withdrawal', true),
+            // Whether "Add money" may be offered; off by default (migration 056).
+            'topup_enabled'               => WalletService::topupEnabled(),
             'recent_transactions'         => array_map([$this, 'presentTransaction'], $recent['items']),
         ] + $this->walletTotals($userId));
     }
@@ -119,9 +121,17 @@ final class WalletController extends BaseApiController
         );
     }
 
-    /** POST /wallet/topup — start a wallet deposit. */
+    /**
+     * POST /wallet/topup — start a wallet deposit.
+     *
+     * Switched off by default (wallet.topup_enabled): brands pay bookings at
+     * checkout. The switch is checked before the body is validated, so a
+     * disabled feature answers 403 `topup_disabled` whatever is sent.
+     */
     public function topup(Request $request): never
     {
+        WalletService::assertTopupEnabled();
+
         $data = $this->validate($request, [
             'amount'  => 'required|numeric|min_value:1',
             'gateway' => 'required|in:razorpay,stripe,cashfree',
@@ -140,13 +150,27 @@ final class WalletController extends BaseApiController
     // Payments
     // -----------------------------------------------------------------
 
-    /** GET /payments/methods — what the checkout screen should offer. */
+    /**
+     * GET /payments/methods — what the checkout screen should offer.
+     *
+     * The wallet cannot be topped up for a booking (wallet.topup_enabled is
+     * off), so it is only a way to pay while it already holds money — a
+     * refund that landed there, say. An empty or frozen wallet is not
+     * offered: it could only ever fail at the debit. Whether the balance
+     * covers a particular booking is the checkout's call, against
+     * `wallet_balance`; the debit re-checks it either way.
+     */
     public function methods(Request $request): never
     {
         $balance = WalletService::balance($this->userId($request));
 
+        $spendable = $balance['balance'] > 0 && !$balance['is_frozen'];
+
         Response::success([
-            'gateways'       => PaymentService::availableGateways(),
+            'gateways'       => array_values(array_filter(
+                PaymentService::availableGateways(),
+                static fn (array $gateway): bool => $gateway['id'] !== 'wallet' || $spendable
+            )),
             'wallet_balance' => $balance['balance'],
             'wallet_label'   => Money::formatShort($balance['balance'], $balance['currency']),
             'currency'       => $balance['currency'],
@@ -154,19 +178,27 @@ final class WalletController extends BaseApiController
         ]);
     }
 
-    /** POST /payments/booking/{id} — create a gateway order for a booking. */
+    /**
+     * POST /payments/booking/{id} — create a gateway order for a booking.
+     *
+     * `customer_phone` is optional: Cashfree needs a mobile number on every
+     * order, and an account without one (email or Google sign-up) gives it
+     * here instead of verifying one by SMS. It is used for that order only.
+     */
     public function payBooking(Request $request): never
     {
         $data = $this->validate($request, [
-            'gateway'     => 'required|in:razorpay,stripe,cashfree,wallet',
-            'coupon_code' => 'nullable|string|max:32',
+            'gateway'        => 'required|in:razorpay,stripe,cashfree,wallet',
+            'coupon_code'    => 'nullable|string|max:32',
+            'customer_phone' => 'nullable|string|max:20',
         ]);
 
         $order = PaymentService::createBookingOrder(
             $request->routeParamInt('id'),
             $this->userId($request),
             (string) $data['gateway'],
-            isset($data['coupon_code']) ? (string) $data['coupon_code'] : null
+            isset($data['coupon_code']) ? (string) $data['coupon_code'] : null,
+            isset($data['customer_phone']) ? (string) $data['customer_phone'] : null
         );
 
         Response::success(

@@ -141,6 +141,9 @@ abstract final class ApiEndpoints {
   static const creatorSetAvailability = '/me/creator/availability';
   static String creatorPackage(int packageId) => '/me/creator/packages/$packageId';
   static String creatorPortfolioItem(int itemId) => '/me/creator/portfolio/$itemId';
+  static String creatorSocialAccount(int accountId) =>
+      '/me/creator/social/$accountId';
+  static const creatorSocialOrder = '/me/creator/social/order';
 
   // -- Bookings ------------------------------------------------------------
   static const bookings = '/bookings';
@@ -192,6 +195,10 @@ abstract final class ApiEndpoints {
   // -- Reviews and reports -------------------------------------------------
   static const reports = '/reports';
   static String replyToReview(int reviewId) => '/reviews/$reviewId/reply';
+
+  // -- Blocked accounts ----------------------------------------------------
+  static const myBlocks = '/me/blocks';
+  static String myBlock(int userId) => '/me/blocks/$userId';
 
   // -- Wallet --------------------------------------------------------------
   static const wallet = '/wallet';

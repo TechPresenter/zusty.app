@@ -1,6 +1,7 @@
 import '../../core/network/api_endpoints.dart';
 import '../../core/network/api_failure.dart';
 import '../../core/network/api_response.dart';
+import '../../core/utils/json.dart';
 import '../../models/invoice.dart';
 import '../../models/wallet.dart';
 import 'base_repository.dart';
@@ -165,14 +166,21 @@ class WalletRepository extends BaseRepository {
 
   /// What the checkout and the top-up sheet may offer: the server's enabled
   /// gateways, less any this build cannot complete.
+  ///
+  /// The server lists the wallet only while it holds money; the balance rides
+  /// on that option so the checkout can tell whether it covers the booking.
   Future<List<PaymentMethod>> paymentMethods() => readThrough(
         () async {
           final response = await client.get(ApiEndpoints.paymentMethods);
           final gateways = response.listAt('gateways');
 
           if (gateways.isNotEmpty) {
+            final balance = Json.doubleOrNull(
+              response.dataMap['wallet_balance'],
+            );
+
             return gateways
-                .map(PaymentMethod.fromGateway)
+                .map((g) => PaymentMethod.fromGateway(g, walletBalance: balance))
                 .where((g) => completableGateways.contains(g.gateway))
                 .toList();
           }
@@ -257,6 +265,10 @@ class WalletRepository extends BaseRepository {
 
   /// Starts a wallet deposit and returns the gateway order the server created.
   ///
+  /// Only offered while `/app/config` → `wallet.topup_enabled` is on, which
+  /// it is not by default — brands pay each booking at checkout. With it off
+  /// the server answers 403 `topup_disabled` whatever is sent.
+  ///
   /// Nothing is added to the wallet by this call: the reply carries
   /// `requires_client_action` and a `checkout_url`, and the money arrives
   /// only once the payer has paid there and the payment is confirmed
@@ -336,16 +348,25 @@ class WalletRepository extends BaseRepository {
   /// hosted page. The outcome is never taken from the client — the caller
   /// confirms through [verifyPayment], and the gateway webhook settles it
   /// independently if the app never comes back.
+  ///
+  /// [customerPhone] is the mobile number the payer typed at checkout after
+  /// the server answered `phone_required` (Cashfree needs one on every order
+  /// and an email-only account has none). It is used for that order only.
   Future<Map<String, dynamic>> payBooking(
     int bookingId, {
     required String gateway,
     String? couponCode,
+    String? customerPhone,
   }) =>
       writeThrough(
         () async {
           final response = await client.post(
             ApiEndpoints.payBooking(bookingId),
-            body: {'gateway': gateway, 'coupon_code': couponCode},
+            body: {
+              'gateway': gateway,
+              'coupon_code': couponCode,
+              'customer_phone': ?customerPhone,
+            },
           );
           return response.dataMap;
         },

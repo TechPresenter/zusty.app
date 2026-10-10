@@ -222,52 +222,52 @@ VALUES
  'https://picsum.photos/seed/zuste-blog-480-bookings/1200/630',
  DATE_SUB(NOW(), INTERVAL 216 DAY), DATE_SUB(NOW(), INTERVAL 150 DAY)),
 
-(1315, 4, 'case-study-glow-theory-nano-creator-wave', 'Case study: Glow Theory got 4.1x ROAS from 12 nano creators',
+(1315, 4, 'case-study-velvetfern-nano-creator-wave', 'Case study: Velvetfern got 4.1x ROAS from 12 nano creators',
  'A Bengaluru skincare brand skipped the macro shortlist entirely, booked twelve creators under 10k followers for one serum launch, and beat their own paid benchmark.',
- 'Glow Theory Skincare had a launch budget of Rs 3,20,000 and a new niacinamide serum with no reviews and no social proof.\n\n## The decision\n\nThe obvious plan was two 300k beauty creators. Instead the team booked twelve creators between 4k and 9k followers, all in Bengaluru, Hyderabad and Chennai, at an average of Rs 9,500 per Reel plus product.\n\n## The structure\n\nEach creator got the same brief with one variable: the specific skin concern they personally deal with. Twelve creators, twelve genuinely different opening lines, one product claim. Posting was staged across nine days so the product appeared repeatedly in the same city feeds rather than all at once.\n\n## The numbers\n\n- Spend on creators: Rs 1,14,000\n- Product and shipping: Rs 26,000\n- Paid amplification on the three best assets: Rs 1,60,000\n- Attributed revenue in 30 days: Rs 12,30,000\n- Blended ROAS: 4.1x\n\n## What actually drove it\n\nThe three assets that were whitelisted into paid did 78 percent of the revenue. The other nine creators were not wasted spend, they were the audition round. Without twelve variations the team would never have found the hook that worked, which turned out to be a plain unfiltered close-up with no music.\n\n## The uncomfortable finding\n\nThe two highest-follower creators in the wave, both around 9k, performed worst. The best performer had 4,200 followers and a comment section that read like a group chat.\n\n## What they did next\n\nGlow Theory now runs a standing wave of eight to ten nano creators per quarter and treats it as a creative testing line item rather than an awareness one.',
- 'https://picsum.photos/seed/zuste-case-glow-theory/1200/630',
+ 'Velvetfern Skincare had a launch budget of Rs 3,20,000 and a new niacinamide serum with no reviews and no social proof.\n\n## The decision\n\nThe obvious plan was two 300k beauty creators. Instead the team booked twelve creators between 4k and 9k followers, all in Bengaluru, Hyderabad and Chennai, at an average of Rs 9,500 per Reel plus product.\n\n## The structure\n\nEach creator got the same brief with one variable: the specific skin concern they personally deal with. Twelve creators, twelve genuinely different opening lines, one product claim. Posting was staged across nine days so the product appeared repeatedly in the same city feeds rather than all at once.\n\n## The numbers\n\n- Spend on creators: Rs 1,14,000\n- Product and shipping: Rs 26,000\n- Paid amplification on the three best assets: Rs 1,60,000\n- Attributed revenue in 30 days: Rs 12,30,000\n- Blended ROAS: 4.1x\n\n## What actually drove it\n\nThe three assets that were whitelisted into paid did 78 percent of the revenue. The other nine creators were not wasted spend, they were the audition round. Without twelve variations the team would never have found the hook that worked, which turned out to be a plain unfiltered close-up with no music.\n\n## The uncomfortable finding\n\nThe two highest-follower creators in the wave, both around 9k, performed worst. The best performer had 4,200 followers and a comment section that read like a group chat.\n\n## What they did next\n\nVelvetfern now runs a standing wave of eight to ten nano creators per quarter and treats it as a creative testing line item rather than an awareness one.',
+ 'https://picsum.photos/seed/zuste-case-velvetfern/1200/630',
  1, 'Zusty Editorial', '["case-study","skincare","nano-influencers","roas"]', 6, 17920,
  'published', 1, DATE_SUB(NOW(), INTERVAL 198 DAY),
- 'Case study: Glow Theory got 4.1x ROAS from 12 nano creators | Zusty',
+ 'Case study: Velvetfern got 4.1x ROAS from 12 nano creators | Zusty',
  'How a Bengaluru skincare brand launched a serum with twelve nano creators instead of two macro names, and turned three of the assets into its best paid ads.',
  'skincare influencer case study, nano creator roas, d2c launch india',
- 'https://picsum.photos/seed/zuste-case-glow-theory/1200/630',
+ 'https://picsum.photos/seed/zuste-case-velvetfern/1200/630',
  DATE_SUB(NOW(), INTERVAL 200 DAY), DATE_SUB(NOW(), INTERVAL 160 DAY)),
 
-(1316, 4, 'case-study-masala-monk-sold-out-a-spice-box', 'Case study: Masala Monk sold out a spice box with food vloggers',
+(1316, 4, 'case-study-chutneyverse-sold-out-a-spice-box', 'Case study: Chutneyverse sold out a spice box with food vloggers',
  'Seven regional food creators, one festive gifting box, 1,800 units gone in eleven days. The unglamorous logistics decision that made the campaign work.',
- 'Masala Monk Foods makes small-batch regional spice blends. Their festive gifting box had sold 340 units the previous year, mostly to existing customers.\n\n## The plan\n\nSeven food creators, each in a different language and region: Marathi in Pune, Tamil in Coimbatore, Bengali in Kolkata, Malayalam in Kochi, Hindi in Lucknow, Telugu in Hyderabad and English in Mumbai. Each cooked one dish using one blend from the box, in their own kitchen, in their own language.\n\n## The logistics decision\n\nThe team shipped every creator three boxes six weeks early: one to cook with, one to keep, one to give away to their audience. That third box turned every post into a comment-driven giveaway thread and roughly doubled comment volume without any paid spend.\n\n## The numbers\n\n- Creator fees: Rs 2,45,000 across seven bookings\n- Product and courier: Rs 18,400\n- Units sold in 11 days: 1,806\n- Revenue: Rs 21,67,200\n- Cost per acquired customer: Rs 146\n\n## What worked\n\nRegional language content carried the campaign. The Malayalam and Marathi Reels each outperformed the English one by more than 3x on saves, and saves were the metric that tracked closest to orders.\n\n## What did not\n\nA planned Instagram Live cook-along drew 210 concurrent viewers and produced 14 orders. It was pleasant and it was not worth the four hours of coordination.\n\n## The takeaway\n\nRegional food creators are still dramatically underpriced relative to the intent they produce, and a giveaway unit costs less than any comparable engagement you could buy.',
- 'https://picsum.photos/seed/zuste-case-masala-monk/1200/630',
+ 'Chutneyverse Foods makes small-batch regional spice blends. Their festive gifting box had sold 340 units the previous year, mostly to existing customers.\n\n## The plan\n\nSeven food creators, each in a different language and region: Marathi in Pune, Tamil in Coimbatore, Bengali in Kolkata, Malayalam in Kochi, Hindi in Lucknow, Telugu in Hyderabad and English in Mumbai. Each cooked one dish using one blend from the box, in their own kitchen, in their own language.\n\n## The logistics decision\n\nThe team shipped every creator three boxes six weeks early: one to cook with, one to keep, one to give away to their audience. That third box turned every post into a comment-driven giveaway thread and roughly doubled comment volume without any paid spend.\n\n## The numbers\n\n- Creator fees: Rs 2,45,000 across seven bookings\n- Product and courier: Rs 18,400\n- Units sold in 11 days: 1,806\n- Revenue: Rs 21,67,200\n- Cost per acquired customer: Rs 146\n\n## What worked\n\nRegional language content carried the campaign. The Malayalam and Marathi Reels each outperformed the English one by more than 3x on saves, and saves were the metric that tracked closest to orders.\n\n## What did not\n\nA planned Instagram Live cook-along drew 210 concurrent viewers and produced 14 orders. It was pleasant and it was not worth the four hours of coordination.\n\n## The takeaway\n\nRegional food creators are still dramatically underpriced relative to the intent they produce, and a giveaway unit costs less than any comparable engagement you could buy.',
+ 'https://picsum.photos/seed/zuste-case-chutneyverse/1200/630',
  1, 'Zusty Editorial', '["case-study","food","regional-creators","festive"]', 6, 13650,
  'published', 0, DATE_SUB(NOW(), INTERVAL 184 DAY),
- 'Case study: Masala Monk sold out a spice box with food vloggers | Zusty',
+ 'Case study: Chutneyverse sold out a spice box with food vloggers | Zusty',
  'How seven regional Indian food creators sold 1,800 festive spice boxes in eleven days, and why the giveaway unit was the highest-leverage line in the budget.',
  'food influencer case study, regional creators india, festive gifting campaign',
- 'https://picsum.photos/seed/zuste-case-masala-monk/1200/630',
+ 'https://picsum.photos/seed/zuste-case-chutneyverse/1200/630',
  DATE_SUB(NOW(), INTERVAL 186 DAY), DATE_SUB(NOW(), INTERVAL 150 DAY)),
 
-(1317, 4, 'case-study-paysetu-and-the-finance-creator-trust-problem', 'Case study: PaySetu and the finance creator trust problem',
- 'Fintech has the hardest compliance surface in Indian influencer marketing. How PaySetu ran 9 finance creators without a single takedown, and what it cost in process.',
- 'PaySetu Technologies needed awareness for a UPI-linked savings feature. Finance content in India carries real regulatory weight, and a careless creator line becomes a company problem.\n\n## The constraint\n\nNo returns language, no guaranteed outcomes, no comparison against named competitors, no implied advisory. Every claim had to be traceable to approved product copy.\n\n## The process that made it work\n\n- A two-page claims sheet with approved and banned phrasing, sent before the brief\n- Script-level review of the spoken claims only, with full creative freedom on everything else\n- A 24-hour compliance review window written into the booking, with a fee for delays caused by the brand\n- A named contact who could approve, not a committee\n\n## The numbers\n\n- Nine creators, average 68k followers, personal finance and markets\n- Total fees: Rs 8,40,000\n- App installs attributed in 45 days: 41,300\n- Cost per install: Rs 20.34, against a paid social benchmark of Rs 63\n- Compliance takedowns: zero\n\n## The surprise\n\nCreators did not resist review. They resisted slow review. When the team committed to a 24-hour turnaround and honoured it, the friction disappeared entirely. The one booking that ran late did so because a brand-side approver was on leave.\n\n## What transferred\n\nThe claims sheet is now used for every campaign the company runs, including its own paid social. Writing down what may and may not be said turned out to be useful well beyond influencer work.',
- 'https://picsum.photos/seed/zuste-case-paysetu/1200/630',
+(1317, 4, 'case-study-kiranapay-and-the-finance-creator-trust-problem', 'Case study: Kiranapay and the finance creator trust problem',
+ 'Fintech has the hardest compliance surface in Indian influencer marketing. How Kiranapay ran 9 finance creators without a single takedown, and what it cost in process.',
+ 'Kiranapay Labs needed awareness for a UPI-linked savings feature. Finance content in India carries real regulatory weight, and a careless creator line becomes a company problem.\n\n## The constraint\n\nNo returns language, no guaranteed outcomes, no comparison against named competitors, no implied advisory. Every claim had to be traceable to approved product copy.\n\n## The process that made it work\n\n- A two-page claims sheet with approved and banned phrasing, sent before the brief\n- Script-level review of the spoken claims only, with full creative freedom on everything else\n- A 24-hour compliance review window written into the booking, with a fee for delays caused by the brand\n- A named contact who could approve, not a committee\n\n## The numbers\n\n- Nine creators, average 68k followers, personal finance and markets\n- Total fees: Rs 8,40,000\n- App installs attributed in 45 days: 41,300\n- Cost per install: Rs 20.34, against a paid social benchmark of Rs 63\n- Compliance takedowns: zero\n\n## The surprise\n\nCreators did not resist review. They resisted slow review. When the team committed to a 24-hour turnaround and honoured it, the friction disappeared entirely. The one booking that ran late did so because a brand-side approver was on leave.\n\n## What transferred\n\nThe claims sheet is now used for every campaign the company runs, including its own paid social. Writing down what may and may not be said turned out to be useful well beyond influencer work.',
+ 'https://picsum.photos/seed/zuste-case-kiranapay/1200/630',
  1, 'Zusty Editorial', '["case-study","fintech","compliance","finance-creators"]', 7, 10480,
  'published', 0, DATE_SUB(NOW(), INTERVAL 171 DAY),
- 'Case study: PaySetu and the finance creator trust problem | Zusty',
+ 'Case study: Kiranapay and the finance creator trust problem | Zusty',
  'How an Indian fintech ran nine finance creators with zero compliance takedowns, using a claims sheet, script-level review and a committed 24-hour approval window.',
  'fintech influencer marketing india, finance creators compliance, cost per install',
- 'https://picsum.photos/seed/zuste-case-paysetu/1200/630',
+ 'https://picsum.photos/seed/zuste-case-kiranapay/1200/630',
  DATE_SUB(NOW(), INTERVAL 173 DAY), DATE_SUB(NOW(), INTERVAL 140 DAY)),
 
-(1318, 4, 'case-study-wanderloom-cut-cac-with-travel-micro-creators', 'Case study: Wanderloom cut CAC 38% with travel micro-creators',
+(1318, 4, 'case-study-homestay-hopper-cut-cac-with-travel-micro-creators', 'Case study: Homestay Hopper cut CAC 38% with travel micro-creators',
  'Travel has long lead times and terrible attribution. A Goa-based tour operator fixed both with six micro creators, a dedicated landing page each, and a lot of patience.',
- 'Wanderloom Travel sells small-group trips in the Western Ghats and Konkan. Average ticket Rs 24,000, decision cycle six to ten weeks.\n\n## The attribution problem\n\nTravel purchases almost never happen in the same session as discovery. Standard link tracking made every creator look useless. The fix was to give each creator a named landing page and a distinct discount code, then measure over a 90-day window rather than 7 days.\n\n## The campaign\n\nSix travel creators between 30k and 90k followers, each hosted on a real trip rather than a staged shoot. Deliverables were one Reel, one carousel and a five-frame story sequence, spread over three weeks so the content followed the arc of the trip.\n\n## The numbers\n\n- Creator fees and trip costs: Rs 6,90,000\n- Bookings attributed in 90 days: 84\n- Revenue: Rs 20,16,000\n- CAC: Rs 8,214 against a previous blended CAC of Rs 13,250, a 38 percent reduction\n\n## The long tail\n\nThirty-one of the 84 bookings landed between day 45 and day 90. On a 7-day attribution window this campaign would have been declared a failure and cancelled.\n\n## The unexpected asset\n\nThe carousels outperformed the Reels for bookings, though not for reach. Prospective travellers screenshot itineraries, prices and packing lists. Static, information-dense content converts in travel in a way it does not in beauty or food.\n\n## What they changed\n\nWanderloom now requires an itinerary carousel in every travel creator brief and never reports on a window shorter than 60 days.',
- 'https://picsum.photos/seed/zuste-case-wanderloom/1200/630',
+ 'Homestay Hopper Trips sells small-group trips in the Western Ghats and Konkan. Average ticket Rs 24,000, decision cycle six to ten weeks.\n\n## The attribution problem\n\nTravel purchases almost never happen in the same session as discovery. Standard link tracking made every creator look useless. The fix was to give each creator a named landing page and a distinct discount code, then measure over a 90-day window rather than 7 days.\n\n## The campaign\n\nSix travel creators between 30k and 90k followers, each hosted on a real trip rather than a staged shoot. Deliverables were one Reel, one carousel and a five-frame story sequence, spread over three weeks so the content followed the arc of the trip.\n\n## The numbers\n\n- Creator fees and trip costs: Rs 6,90,000\n- Bookings attributed in 90 days: 84\n- Revenue: Rs 20,16,000\n- CAC: Rs 8,214 against a previous blended CAC of Rs 13,250, a 38 percent reduction\n\n## The long tail\n\nThirty-one of the 84 bookings landed between day 45 and day 90. On a 7-day attribution window this campaign would have been declared a failure and cancelled.\n\n## The unexpected asset\n\nThe carousels outperformed the Reels for bookings, though not for reach. Prospective travellers screenshot itineraries, prices and packing lists. Static, information-dense content converts in travel in a way it does not in beauty or food.\n\n## What they changed\n\nHomestay Hopper now requires an itinerary carousel in every travel creator brief and never reports on a window shorter than 60 days.',
+ 'https://picsum.photos/seed/zuste-case-homestay-hopper/1200/630',
  1, 'Zusty Editorial', '["case-study","travel","attribution","cac"]', 7, 11930,
  'published', 0, DATE_SUB(NOW(), INTERVAL 158 DAY),
- 'Case study: Wanderloom cut CAC 38% with travel micro-creators | Zusty',
+ 'Case study: Homestay Hopper cut CAC 38% with travel micro-creators | Zusty',
  'How an Indian travel operator used six micro creators, per-creator landing pages and a 90-day attribution window to cut customer acquisition cost by 38 percent.',
  'travel influencer marketing india, creator attribution, cac reduction',
- 'https://picsum.photos/seed/zuste-case-wanderloom/1200/630',
+ 'https://picsum.photos/seed/zuste-case-homestay-hopper/1200/630',
  DATE_SUB(NOW(), INTERVAL 160 DAY), DATE_SUB(NOW(), INTERVAL 130 DAY)),
 
 (1319, 3, 'escrow-milestones-and-creator-payments', 'Escrow, milestones and why creators stopped chasing payments',
@@ -443,10 +443,10 @@ VALUES
 (1412,'local','blogs',3,'why-your-reel-died-cover.jpg','reel hook retention cover.jpg','blogs/2025/why-your-reel-died-cover.jpg','https://picsum.photos/seed/zuste-blog-reel-hooks/1200/630','https://picsum.photos/seed/zuste-blog-reel-hooks/320/180','image/jpeg','jpg',243760,627480,1,1200,630,NULL,'Retention graph showing a sharp drop in the first three seconds','admin',1,MD5('media-1412'),DATE_SUB(NOW(), INTERVAL 243 DAY)),
 (1413,'local','blogs',3,'whitelisting-creator-content-cover.jpg','whitelisting cover.jpg','blogs/2025/whitelisting-creator-content-cover.jpg','https://picsum.photos/seed/zuste-blog-whitelisting/1200/630','https://picsum.photos/seed/zuste-blog-whitelisting/320/180','image/jpeg','jpg',236190,608930,1,1200,630,NULL,'Partnership ad running from a creator handle on a phone screen','admin',1,MD5('media-1413'),DATE_SUB(NOW(), INTERVAL 230 DAY)),
 (1414,'local','blogs',3,'480-bookings-data-cover.jpg','marketplace data cover.jpg','blogs/2025/480-bookings-data-cover.jpg','https://picsum.photos/seed/zuste-blog-480-bookings/1200/630','https://picsum.photos/seed/zuste-blog-480-bookings/320/180','image/jpeg','jpg',262340,679110,1,1200,630,NULL,'Dashboard showing booking completion rates across a marketplace','admin',1,MD5('media-1414'),DATE_SUB(NOW(), INTERVAL 216 DAY)),
-(1415,'local','blogs',3,'case-glow-theory-cover.jpg','glow theory case study cover.jpg','blogs/2026/case-glow-theory-cover.jpg','https://picsum.photos/seed/zuste-case-glow-theory/1200/630','https://picsum.photos/seed/zuste-case-glow-theory/320/180','image/jpeg','jpg',274580,713920,1,1200,630,NULL,'Niacinamide serum bottle styled for a nano creator shoot','admin',1,MD5('media-1415'),DATE_SUB(NOW(), INTERVAL 200 DAY)),
-(1416,'local','blogs',3,'case-masala-monk-cover.jpg','masala monk case study cover.jpg','blogs/2026/case-masala-monk-cover.jpg','https://picsum.photos/seed/zuste-case-masala-monk/1200/630','https://picsum.photos/seed/zuste-case-masala-monk/320/180','image/jpeg','jpg',291630,758410,1,1200,630,NULL,'Festive spice gifting box photographed on a wooden surface','admin',1,MD5('media-1416'),DATE_SUB(NOW(), INTERVAL 186 DAY)),
-(1417,'local','blogs',3,'case-paysetu-cover.jpg','paysetu case study cover.jpg','blogs/2026/case-paysetu-cover.jpg','https://picsum.photos/seed/zuste-case-paysetu/1200/630','https://picsum.photos/seed/zuste-case-paysetu/320/180','image/jpeg','jpg',228740,592330,1,1200,630,NULL,'Finance creator recording a UPI savings explainer','admin',1,MD5('media-1417'),DATE_SUB(NOW(), INTERVAL 173 DAY)),
-(1418,'local','blogs',3,'case-wanderloom-cover.jpg','wanderloom case study cover.jpg','blogs/2026/case-wanderloom-cover.jpg','https://picsum.photos/seed/zuste-case-wanderloom/1200/630','https://picsum.photos/seed/zuste-case-wanderloom/320/180','image/jpeg','jpg',303210,791560,1,1200,630,NULL,'Western Ghats trail photographed during a creator hosted trip','admin',1,MD5('media-1418'),DATE_SUB(NOW(), INTERVAL 160 DAY)),
+(1415,'local','blogs',3,'case-velvetfern-cover.jpg','velvetfern case study cover.jpg','blogs/2026/case-velvetfern-cover.jpg','https://picsum.photos/seed/zuste-case-velvetfern/1200/630','https://picsum.photos/seed/zuste-case-velvetfern/320/180','image/jpeg','jpg',274580,713920,1,1200,630,NULL,'Niacinamide serum bottle styled for a nano creator shoot','admin',1,MD5('media-1415'),DATE_SUB(NOW(), INTERVAL 200 DAY)),
+(1416,'local','blogs',3,'case-chutneyverse-cover.jpg','chutneyverse case study cover.jpg','blogs/2026/case-chutneyverse-cover.jpg','https://picsum.photos/seed/zuste-case-chutneyverse/1200/630','https://picsum.photos/seed/zuste-case-chutneyverse/320/180','image/jpeg','jpg',291630,758410,1,1200,630,NULL,'Festive spice gifting box photographed on a wooden surface','admin',1,MD5('media-1416'),DATE_SUB(NOW(), INTERVAL 186 DAY)),
+(1417,'local','blogs',3,'case-kiranapay-cover.jpg','kiranapay case study cover.jpg','blogs/2026/case-kiranapay-cover.jpg','https://picsum.photos/seed/zuste-case-kiranapay/1200/630','https://picsum.photos/seed/zuste-case-kiranapay/320/180','image/jpeg','jpg',228740,592330,1,1200,630,NULL,'Finance creator recording a UPI savings explainer','admin',1,MD5('media-1417'),DATE_SUB(NOW(), INTERVAL 173 DAY)),
+(1418,'local','blogs',3,'case-homestay-hopper-cover.jpg','homestay hopper case study cover.jpg','blogs/2026/case-homestay-hopper-cover.jpg','https://picsum.photos/seed/zuste-case-homestay-hopper/1200/630','https://picsum.photos/seed/zuste-case-homestay-hopper/320/180','image/jpeg','jpg',303210,791560,1,1200,630,NULL,'Western Ghats trail photographed during a creator hosted trip','admin',1,MD5('media-1418'),DATE_SUB(NOW(), INTERVAL 160 DAY)),
 (1419,'local','blogs',3,'escrow-and-milestones-cover.jpg','escrow explainer cover.jpg','blogs/2026/escrow-and-milestones-cover.jpg','https://picsum.photos/seed/zuste-blog-escrow-payments/1200/630','https://picsum.photos/seed/zuste-blog-escrow-payments/320/180','image/jpeg','jpg',214380,552700,1,1200,630,NULL,'Escrow status shown on a booking screen in the Zusty app','admin',1,MD5('media-1419'),DATE_SUB(NOW(), INTERVAL 147 DAY)),
 (1420,'local','blogs',3,'instant-payouts-upi-cover.jpg','instant payout cover.jpg','blogs/2026/instant-payouts-upi-cover.jpg','https://picsum.photos/seed/zuste-blog-instant-payouts/1200/630','https://picsum.photos/seed/zuste-blog-instant-payouts/320/180','image/jpeg','jpg',207940,536480,1,1200,630,NULL,'Creator wallet screen showing an instant UPI settlement','admin',1,MD5('media-1420'),DATE_SUB(NOW(), INTERVAL 134 DAY)),
 (1421,'local','blogs',3,'campaigns-launch-cover.jpg','campaign briefs launch cover.jpg','blogs/2026/campaigns-launch-cover.jpg','https://picsum.photos/seed/zuste-blog-campaigns-launch/1200/630','https://picsum.photos/seed/zuste-blog-campaigns-launch/320/180','image/jpeg','jpg',225610,583140,1,1200,630,NULL,'Campaign applicants list with shortlisted creators highlighted','admin',1,MD5('media-1421'),DATE_SUB(NOW(), INTERVAL 121 DAY)),
@@ -492,8 +492,8 @@ VALUES
 (1445,'local','marketing',5,'campaign-brief-template.pdf','Campaign brief one pager.pdf','marketing/templates/campaign-brief-template.pdf','https://picsum.photos/seed/zuste-marketing-brief-template/1200/675','https://picsum.photos/seed/zuste-marketing-brief-template/320/180','application/pdf','pdf',987420,987420,0,NULL,NULL,NULL,'One page campaign brief template for brand teams','admin',1,MD5('media-1445'),DATE_SUB(NOW(), INTERVAL 176 DAY)),
 (1446,'local','marketing',5,'gst-invoice-checklist.pdf','GST invoice checklist for creators.pdf','marketing/guides/gst-invoice-checklist.pdf','https://picsum.photos/seed/zuste-marketing-gst-checklist/1200/675','https://picsum.photos/seed/zuste-marketing-gst-checklist/320/180','application/pdf','pdf',742160,742160,0,NULL,NULL,NULL,'Printable GST invoice checklist for creators','admin',1,MD5('media-1446'),DATE_SUB(NOW(), INTERVAL 302 DAY)),
 (1447,'local','marketing',5,'zuste-explainer-60s.mp4','Zuste explainer final 60s.mp4','marketing/video/zuste-explainer-60s.mp4','https://picsum.photos/seed/zuste-marketing-explainer/1920/1080','https://picsum.photos/seed/zuste-marketing-explainer/320/180','video/mp4','mp4',28471920,64328400,1,1920,1080,61,'Sixty second product explainer for the Zusty marketplace','admin',1,MD5('media-1447'),DATE_SUB(NOW(), INTERVAL 245 DAY)),
-(1448,'local','marketing',5,'creator-testimonial-aanya.mp4','Aanya testimonial cut.mp4','marketing/video/creator-testimonial-aanya.mp4','https://picsum.photos/seed/zuste-marketing-testimonial-aanya/1080/1920','https://picsum.photos/seed/zuste-marketing-testimonial-aanya/320/180','video/mp4','mp4',19238470,41208630,1,1080,1920,38,'Creator testimonial about getting paid on time through escrow','admin',1,MD5('media-1448'),DATE_SUB(NOW(), INTERVAL 138 DAY)),
-(1449,'local','marketing',5,'brand-testimonial-glow-theory.mp4','Glow Theory testimonial.mp4','marketing/video/brand-testimonial-glow-theory.mp4','https://picsum.photos/seed/zuste-marketing-testimonial-glow/1080/1920','https://picsum.photos/seed/zuste-marketing-testimonial-glow/320/180','video/mp4','mp4',22104580,47831260,1,1080,1920,44,'Skincare brand founder describing a nano creator launch','admin',1,MD5('media-1449'),DATE_SUB(NOW(), INTERVAL 122 DAY)),
+(1448,'local','marketing',5,'creator-testimonial-aanya.mp4','Aanya testimonial cut.mp4','marketing/video/creator-testimonial-aanya.mp4','https://picsum.photos/seed/zuste-marketing-testimonial-aanya/1080/1920','https://picsum.photos/seed/zuste-marketing-testimonial-aanya/320/180','video/mp4','mp4',19238470,41208630,1,1080,1920,38,'Creator testimonial video about escrow payments','admin',1,MD5('media-1448'),DATE_SUB(NOW(), INTERVAL 138 DAY)),
+(1449,'local','marketing',5,'brand-testimonial-velvetfern.mp4','Velvetfern testimonial.mp4','marketing/video/brand-testimonial-velvetfern.mp4','https://picsum.photos/seed/zuste-marketing-testimonial-velvetfern/1080/1920','https://picsum.photos/seed/zuste-marketing-testimonial-velvetfern/320/180','video/mp4','mp4',22104580,47831260,1,1080,1920,44,'Skincare brand founder describing a nano creator launch','admin',1,MD5('media-1449'),DATE_SUB(NOW(), INTERVAL 122 DAY)),
 (1450,'local','marketing',5,'festive-campaign-social-1.jpg','festive social 1.jpg','marketing/social/festive-campaign-social-1.jpg','https://picsum.photos/seed/zuste-marketing-festive-social-1/1080/1080','https://picsum.photos/seed/zuste-marketing-festive-social-1/320/320','image/jpeg','jpg',287340,731920,1,1080,1080,NULL,'Festive social post announcing the Diwali creator wave','admin',1,MD5('media-1450'),DATE_SUB(NOW(), INTERVAL 256 DAY)),
 (1451,'local','marketing',5,'festive-campaign-social-2.jpg','festive social 2.jpg','marketing/social/festive-campaign-social-2.jpg','https://picsum.photos/seed/zuste-marketing-festive-social-2/1080/1080','https://picsum.photos/seed/zuste-marketing-festive-social-2/320/320','image/jpeg','jpg',274180,708440,1,1080,1080,NULL,'Second festive social post with creator rate highlights','admin',1,MD5('media-1451'),DATE_SUB(NOW(), INTERVAL 254 DAY)),
 (1452,'local','marketing',5,'rate-report-infographic.png','rate report infographic.png','marketing/social/rate-report-infographic.png','https://picsum.photos/seed/zuste-marketing-rate-infographic/1080/1350','https://picsum.photos/seed/zuste-marketing-rate-infographic/320/400','image/png','png',612830,1284730,1,1080,1350,NULL,'Infographic summarising Indian creator rate ranges by tier','admin',1,MD5('media-1452'),DATE_SUB(NOW(), INTERVAL 371 DAY)),
@@ -977,7 +977,7 @@ VALUES
  '["https://picsum.photos/seed/zuste-ticket-1601-approval/900/1600"]', 0, DATE_SUB(NOW(), INTERVAL 132 HOUR)),
 
 -- 1602 open, the brand side of the same dispute
-(1624, 1602, 'user', 1017, 'Ayur Bloom Wellness',
+(1624, 1602, 'user', 1017, 'Kashayam Kendra Wellness',
  'The delivered Reel on ZB2400429 does not include the ingredient callout we specified as a mandatory in the brief, and the product label is out of focus for most of the video. We have asked for a fix twice in the booking chat.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 120 HOUR)),
 (1625, 1602, 'agent', 1, 'Zusty Support',
@@ -1017,19 +1017,19 @@ VALUES
  NULL, 0, DATE_SUB(NOW(), INTERVAL 540 HOUR)),
 
 -- 1605 closed, wrong GST state code on an invoice
-(1635, 1605, 'user', 1005, 'PaySetu Technologies',
+(1635, 1605, 'user', 1005, 'Kiranapay Labs',
  'The invoice generated for ZB2400456 shows IGST but both our GSTIN and the platform GSTIN are registered in Karnataka. Our finance team cannot take input credit against it as issued.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 984 HOUR)),
 (1636, 1605, 'agent', 1, 'Zusty Support',
  'You are right, that should be a CGST and SGST split at 9 percent each on the platform fee, not 18 percent IGST. The state code was picked from your older billing address. I am correcting the billing profile and regenerating the invoice.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 978 HOUR)),
-(1637, 1605, 'user', 1005, 'PaySetu Technologies',
+(1637, 1605, 'user', 1005, 'Kiranapay Labs',
  'Please also confirm the taxable value is only the platform fee and not the full Rs 6,00,000 creator amount. That is what tripped our reviewer.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 972 HOUR)),
 (1638, 1605, 'agent', 1, 'Zusty Support',
  'Confirmed. GST applies only to the Rs 90,000 platform fee at 15 percent commission, giving Rs 16,200 of tax split as Rs 8,100 CGST and Rs 8,100 SGST. The creator fee itself is invoiced separately by the creator. Corrected invoice is on the booking now.',
  '["https://picsum.photos/seed/zuste-ticket-1605-invoice/1240/1754"]', 0, DATE_SUB(NOW(), INTERVAL 960 HOUR)),
-(1639, 1605, 'user', 1005, 'PaySetu Technologies',
+(1639, 1605, 'user', 1005, 'Kiranapay Labs',
  'Received and passed. Thank you for turning that around quickly.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 948 HOUR)),
 (1640, 1605, 'system', NULL, 'Zusty System',
@@ -1051,13 +1051,13 @@ VALUES
  NULL, 0, DATE_SUB(NOW(), INTERVAL 270 HOUR)),
 
 -- 1607 resolved, wrong deliverable format
-(1645, 1607, 'user', 1011, 'Wanderloom Travel',
+(1645, 1607, 'user', 1011, 'Homestay Hopper Trips',
  'ZB2400442 was booked for an itinerary carousel. The creator has delivered a Reel. The Reel is good but a carousel is what our audience screenshots, which is the whole reason we specified it.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 792 HOUR)),
 (1646, 1607, 'agent', 1, 'Zusty Support',
  'The booking deliverable type does read carousel, so this is a genuine mismatch and not a preference. I have opened a change request with the creator asking for the carousel as originally scoped, with the Reel kept as a bonus asset at no extra cost. Escrow stays held meanwhile.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 786 HOUR)),
-(1647, 1607, 'user', 1011, 'Wanderloom Travel',
+(1647, 1607, 'user', 1011, 'Homestay Hopper Trips',
  'That works for us. We are happy to keep the Reel.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 780 HOUR)),
 (1648, 1607, 'agent', 1, 'Zusty Support',
@@ -1073,7 +1073,7 @@ VALUES
  NULL, 0, DATE_SUB(NOW(), INTERVAL 68 HOUR)),
 
 -- 1609 closed, delayed refund
-(1651, 1609, 'user', 1006, 'RupeeNest Finserv',
+(1651, 1609, 'user', 1006, 'Paisaprism Finserv',
  'ZB2400421 was cancelled and marked refunded on your side eight days ago, for Rs 2,40,000 plus the platform fee. Nothing has hit our current account and our bank says they have no incoming reference.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 2304 HOUR)),
 (1652, 1609, 'agent', 1, 'Zusty Support',
@@ -1082,7 +1082,7 @@ VALUES
 (1653, 1609, 'agent', 1, 'Zusty Support',
  'Internal note: gateway confirms the reversal was stuck in the acquirer queue after a weekend outage. Manual push requested, ETA 48 hours. Customer is a repeat brand with four completed bookings, keep the priority urgent.',
  NULL, 1, DATE_SUB(NOW(), INTERVAL 2292 HOUR)),
-(1654, 1609, 'user', 1006, 'RupeeNest Finserv',
+(1654, 1609, 'user', 1006, 'Paisaprism Finserv',
  'Credit has arrived this morning with the reference you shared. Thank you for staying on it.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 2280 HOUR)),
 (1655, 1609, 'agent', 1, 'Zusty Support',
@@ -1101,13 +1101,13 @@ VALUES
  '["https://picsum.photos/seed/zuste-ticket-1610-upload-error/1080/1920"]', 0, DATE_SUB(NOW(), INTERVAL 156 HOUR)),
 
 -- 1611 resolved, usage rights extension
-(1659, 1611, 'user', 1013, 'PixelForge Games',
+(1659, 1611, 'user', 1013, 'Tiffinbox Games',
  'The 30 day paid usage window on ZB2400444 expires on Friday and the asset is our best performing ad. We want to extend by another 60 days. What is the process and what does it cost?',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1128 HOUR)),
 (1660, 1611, 'agent', 1, 'Zusty Support',
  'Extensions are agreed directly with the creator and recorded as a variation on the booking so the permission does not lapse. The named renewal rate on this booking is 40 percent of the base fee per 30 days, so 60 days would be Rs 4,16,000 on a Rs 5,20,000 base. I can raise the variation for you to approve.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1122 HOUR)),
-(1661, 1611, 'user', 1013, 'PixelForge Games',
+(1661, 1611, 'user', 1013, 'Tiffinbox Games',
  'Please raise it. Also make sure the partnership ad permission on the creator handle is re-granted, last time it expired silently and our ad set switched off.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1116 HOUR)),
 (1662, 1611, 'agent', 1, 'Zusty Support',
@@ -1126,13 +1126,13 @@ VALUES
  NULL, 0, DATE_SUB(NOW(), INTERVAL 348 HOUR)),
 
 -- 1613 closed, content taken down early
-(1666, 1613, 'user', 1019, 'Terracotta Home',
+(1666, 1613, 'user', 1019, 'Dhokra Den Home',
  'The creator on ZB2400450 removed the post after eleven days. Our brief and the booking both specify a 30 day minimum live period. We were still running paid behind it.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1488 HOUR)),
 (1667, 1613, 'agent', 1, 'Zusty Support',
  'The 30 day minimum is on the booking record, so this is a scope breach rather than a disagreement. I have contacted the creator to understand what happened before we decide on any adjustment.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1482 HOUR)),
-(1668, 1613, 'user', 1019, 'Terracotta Home',
+(1668, 1613, 'user', 1019, 'Dhokra Den Home',
  'We would rather have the post back up than a refund. The ad account is already tied to that permalink.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1476 HOUR)),
 (1669, 1613, 'agent', 1, 'Zusty Support',
@@ -1151,13 +1151,13 @@ VALUES
  NULL, 0, DATE_SUB(NOW(), INTERVAL 88 HOUR)),
 
 -- 1615 resolved, milestone split request
-(1673, 1615, 'user', 1003, 'Masala Monk Foods',
+(1673, 1615, 'user', 1003, 'Chutneyverse Foods',
  'ZB2400454 is Rs 82,500 and involves a two day shoot. We would like to release part of it on concept approval and the rest on final delivery. Is that possible after the booking is already confirmed?',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 672 HOUR)),
 (1674, 1615, 'agent', 1, 'Zusty Support',
  'Yes, milestone splits can be applied to a confirmed booking as long as the creator agrees. The usual structure is 40 percent on concept or script approval and 60 percent on accepted delivery. Would that split work for you?',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 666 HOUR)),
-(1675, 1615, 'user', 1003, 'Masala Monk Foods',
+(1675, 1615, 'user', 1003, 'Chutneyverse Foods',
  'Yes. 40 and 60 is fine.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 660 HOUR)),
 (1676, 1615, 'agent', 1, 'Zusty Support',
@@ -1182,19 +1182,19 @@ VALUES
  NULL, 0, DATE_SUB(NOW(), INTERVAL 246 HOUR)),
 
 -- 1617 closed, fee and tax breakdown query
-(1682, 1617, 'user', 1001, 'Glow Theory Skincare',
+(1682, 1617, 'user', 1001, 'Velvetfern Skincare',
  'Our PO for ZB2400452 was raised for Rs 3,25,000 but the amount charged was Rs 3,83,500. Finance has flagged it. Can you break down the difference?',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1776 HOUR)),
 (1683, 1617, 'agent', 1, 'Zusty Support',
  'The Rs 3,25,000 is the creator fee only. On top of that sits the platform fee of 15 percent, Rs 48,750, and GST at 18 percent on that platform fee, Rs 8,775. That gives a total of Rs 3,82,525. I will check the remaining difference against your booking and come back.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1770 HOUR)),
-(1684, 1617, 'user', 1001, 'Glow Theory Skincare',
+(1684, 1617, 'user', 1001, 'Velvetfern Skincare',
  'Understood on the fee and tax. What is the remaining Rs 975?',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1764 HOUR)),
 (1685, 1617, 'agent', 1, 'Zusty Support',
  'That is a rush turnaround surcharge agreed in the booking chat when you moved the delivery date forward by four days. It was accepted on the thread but it was not itemised clearly on the summary screen, which is a fair complaint.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1752 HOUR)),
-(1686, 1617, 'user', 1001, 'Glow Theory Skincare',
+(1686, 1617, 'user', 1001, 'Velvetfern Skincare',
  'That reconciles. Please do surface surcharges as their own line, it would have saved this thread.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1740 HOUR)),
 (1687, 1617, 'agent', 1, 'Zusty Support',
@@ -1213,7 +1213,7 @@ VALUES
  NULL, 0, DATE_SUB(NOW(), INTERVAL 420 HOUR)),
 
 -- 1619 resolved, impersonation report
-(1691, 1619, 'user', 1014, 'Ampere Arena Esports',
+(1691, 1619, 'user', 1014, 'Clutchkart Esports',
  'There is a profile on your platform using our logo, our team name and our brand colours, offering paid shoutouts. It is not us and it is not anyone we work with.',
  '["https://picsum.photos/seed/zuste-ticket-1619-fake-profile/1080/1920"]', 0, DATE_SUB(NOW(), INTERVAL 1320 HOUR)),
 (1692, 1619, 'agent', 1, 'Zusty Support',
@@ -1377,16 +1377,16 @@ INSERT INTO newsletter_subscribers
     (id, email, name, user_id, source, status, unsubscribe_token,
      subscribed_at, unsubscribed_at)
 VALUES
-(1851, 'hello@glowtheory.in',            'Glow Theory Skincare',  1001, 'app',    'subscribed',   MD5('ns-1851'), DATE_SUB(NOW(), INTERVAL 418 DAY), NULL),
-(1852, 'team@masalamonkfoods.in',        'Masala Monk Foods',     1003, 'app',    'subscribed',   MD5('ns-1852'), DATE_SUB(NOW(), INTERVAL 410 DAY), NULL),
-(1853, 'brand@paysetu.com',              'PaySetu Technologies',  1005, 'app',    'subscribed',   MD5('ns-1853'), DATE_SUB(NOW(), INTERVAL 402 DAY), NULL),
-(1854, 'hello@korathreads.com',          'Kora Threads',          1007, 'app',    'subscribed',   MD5('ns-1854'), DATE_SUB(NOW(), INTERVAL 396 DAY), NULL),
-(1855, 'growth@scholarleap.in',          'ScholarLeap Edu',       1009, 'app',    'unsubscribed', MD5('ns-1855'), DATE_SUB(NOW(), INTERVAL 388 DAY), DATE_SUB(NOW(), INTERVAL 122 DAY)),
-(1856, 'trips@wanderloom.in',            'Wanderloom Travel',     1011, 'app',    'subscribed',   MD5('ns-1856'), DATE_SUB(NOW(), INTERVAL 379 DAY), NULL),
-(1857, 'press@pixelforgegames.in',       'PixelForge Games',      1013, 'app',    'subscribed',   MD5('ns-1857'), DATE_SUB(NOW(), INTERVAL 371 DAY), NULL),
-(1858, 'connect@torqline.in',            'Torqline Motors',       1015, 'app',    'subscribed',   MD5('ns-1858'), DATE_SUB(NOW(), INTERVAL 362 DAY), NULL),
-(1859, 'care@ayurbloom.in',              'Ayur Bloom Wellness',   1017, 'app',    'subscribed',   MD5('ns-1859'), DATE_SUB(NOW(), INTERVAL 354 DAY), NULL),
-(1860, 'studio@terracottahome.in',       'Terracotta Home',       1019, 'app',    'subscribed',   MD5('ns-1860'), DATE_SUB(NOW(), INTERVAL 347 DAY), NULL),
+(1851, 'hello@glowtheory.in',            'Velvetfern Skincare',  1001, 'app',    'subscribed',   MD5('ns-1851'), DATE_SUB(NOW(), INTERVAL 418 DAY), NULL),
+(1852, 'team@masalamonkfoods.in',        'Chutneyverse Foods',     1003, 'app',    'subscribed',   MD5('ns-1852'), DATE_SUB(NOW(), INTERVAL 410 DAY), NULL),
+(1853, 'brand@paysetu.com',              'Kiranapay Labs',  1005, 'app',    'subscribed',   MD5('ns-1853'), DATE_SUB(NOW(), INTERVAL 402 DAY), NULL),
+(1854, 'hello@korathreads.com',          'Sanganera Looms',          1007, 'app',    'subscribed',   MD5('ns-1854'), DATE_SUB(NOW(), INTERVAL 396 DAY), NULL),
+(1855, 'growth@scholarleap.in',          'Doubtbuster Academy',       1009, 'app',    'unsubscribed', MD5('ns-1855'), DATE_SUB(NOW(), INTERVAL 388 DAY), DATE_SUB(NOW(), INTERVAL 122 DAY)),
+(1856, 'trips@wanderloom.in',            'Homestay Hopper Trips',     1011, 'app',    'subscribed',   MD5('ns-1856'), DATE_SUB(NOW(), INTERVAL 379 DAY), NULL),
+(1857, 'press@pixelforgegames.in',       'Tiffinbox Games',      1013, 'app',    'subscribed',   MD5('ns-1857'), DATE_SUB(NOW(), INTERVAL 371 DAY), NULL),
+(1858, 'connect@torqline.in',            'Detailbay Motors',       1015, 'app',    'subscribed',   MD5('ns-1858'), DATE_SUB(NOW(), INTERVAL 362 DAY), NULL),
+(1859, 'care@ayurbloom.in',              'Kashayam Kendra Wellness',   1017, 'app',    'subscribed',   MD5('ns-1859'), DATE_SUB(NOW(), INTERVAL 354 DAY), NULL),
+(1860, 'studio@terracottahome.in',       'Dhokra Den Home',       1019, 'app',    'subscribed',   MD5('ns-1860'), DATE_SUB(NOW(), INTERVAL 347 DAY), NULL),
 (1861, 'aanya.kapoor@gmail.com',         'Aanya Kapoor',          2001, 'app',    'subscribed',   MD5('ns-1861'), DATE_SUB(NOW(), INTERVAL 340 DAY), NULL),
 (1862, 'kabirlivesit@gmail.com',         'Kabir Sethi',           2003, 'app',    'subscribed',   MD5('ns-1862'), DATE_SUB(NOW(), INTERVAL 332 DAY), NULL),
 (1863, 'draped.by.ishita@gmail.com',     'Ishita Rane',           2005, 'app',    'subscribed',   MD5('ns-1863'), DATE_SUB(NOW(), INTERVAL 324 DAY), NULL),
@@ -1512,6 +1512,61 @@ VALUES
  'investigating', 1, NULL, NULL,
  DATE_SUB(NOW(), INTERVAL 19 DAY), DATE_SUB(NOW(), INTERVAL 16 DAY))
 ON DUPLICATE KEY UPDATE id = VALUES(id);
+
+/* The account behind each report (reports.reported_user_id, migration 054),
+ * which the moderation queue and the admin user page count by. Seeds run
+ * after the migrations, so 054's own backfill never reaches these rows on a
+ * fresh install: the same statements are repeated here, limited to this
+ * file's ids, followed by a copy of what was reported where it is content
+ * (subject_excerpt), as ReportService::file() stores it. Every statement
+ * only fills a column that is still empty, so re-running changes nothing. */
+
+UPDATE reports r
+  JOIN users u ON u.id = r.reportable_id
+   SET r.reported_user_id = u.id
+ WHERE r.id BETWEEN 1901 AND 1912 AND r.reported_user_id IS NULL
+   AND r.reportable_type = 'user';
+
+UPDATE reports r
+  JOIN creators c ON c.id = r.reportable_id
+  JOIN users u ON u.id = c.user_id
+   SET r.reported_user_id = u.id
+ WHERE r.id BETWEEN 1901 AND 1912 AND r.reported_user_id IS NULL
+   AND r.reportable_type = 'creator';
+
+UPDATE reports r
+  JOIN creator_portfolio p ON p.id = r.reportable_id
+  JOIN creators c ON c.id = p.creator_id
+  JOIN users u ON u.id = c.user_id
+   SET r.reported_user_id = u.id,
+       r.subject_excerpt  = COALESCE(r.subject_excerpt, NULLIF(TRIM(p.title), ''))
+ WHERE r.id BETWEEN 1901 AND 1912 AND r.reported_user_id IS NULL
+   AND r.reportable_type = 'portfolio';
+
+UPDATE reports r
+  JOIN reviews v ON v.id = r.reportable_id
+  JOIN users u ON u.id = v.reviewer_id
+   SET r.reported_user_id = u.id,
+       r.subject_excerpt  = COALESCE(r.subject_excerpt,
+                                     LEFT(CONCAT_WS(' - ', NULLIF(TRIM(v.title), ''), NULLIF(TRIM(v.comment), '')), 500))
+ WHERE r.id BETWEEN 1901 AND 1912 AND r.reported_user_id IS NULL
+   AND r.reportable_type = 'review';
+
+UPDATE reports r
+  JOIN messages m ON m.id = r.reportable_id AND m.sender_type = 'user'
+  JOIN users u ON u.id = m.sender_id
+   SET r.reported_user_id = u.id,
+       r.subject_excerpt  = COALESCE(r.subject_excerpt, LEFT(NULLIF(TRIM(m.body), ''), 500))
+ WHERE r.id BETWEEN 1901 AND 1912 AND r.reported_user_id IS NULL
+   AND r.reportable_type = 'message';
+
+-- A booking report is about the other party: whichever side did not file it.
+UPDATE reports r
+  JOIN bookings b ON b.id = r.reportable_id
+  JOIN users u ON u.id = IF(b.brand_user_id = r.reporter_id, b.creator_user_id, b.brand_user_id)
+   SET r.reported_user_id = u.id
+ WHERE r.id BETWEEN 1901 AND 1912 AND r.reported_user_id IS NULL
+   AND r.reportable_type = 'booking';
 
 
 /* ==========================================================================

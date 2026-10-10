@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../shared/motion/motion.dart';
 import '../../core/network/api_failure.dart';
@@ -9,7 +8,6 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/validators.dart';
 import '../../models/auth_config.dart';
 import '../../models/user.dart';
-import '../../providers/app_config_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/core_providers.dart';
 import '../../router/routes.dart';
@@ -17,6 +15,7 @@ import '../../shared/widgets/states.dart';
 import '../../shared/widgets/z_button.dart';
 import '../../shared/widgets/z_text_field.dart';
 import 'widgets/auth_scaffold.dart';
+import 'widgets/legal_links.dart';
 import 'widgets/role_choice_card.dart';
 import 'widgets/social_buttons.dart';
 
@@ -31,6 +30,11 @@ import 'widgets/social_buttons.dart';
 /// Authentication → Sign-up): with only one open, the role step is skipped and
 /// that role is used; with neither, the screen says sign-ups are paused rather
 /// than showing a form the server would refuse.
+///
+/// Every account is made with an email address (there are no phone-only
+/// accounts), the terms must be agreed to, and product updates and offers are
+/// an unticked opt-in. Google sign-up agrees to the terms through the notice
+/// above its button and starts with marketing off.
 class SignUpScreen extends ConsumerStatefulWidget {
   const SignUpScreen({super.key});
 
@@ -43,7 +47,7 @@ enum _Step { role, details }
 class _SignUpScreenState extends ConsumerState<SignUpScreen> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
-  final _identifier = TextEditingController();
+  final _email = TextEditingController();
   final _password = TextEditingController();
   final _referral = TextEditingController();
 
@@ -54,6 +58,10 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
   UserRole? _role;
 
   bool _agreed = false;
+
+  /// Product updates and offers. Unticked until the person ticks it: consent
+  /// to marketing is never assumed (DPDP Act).
+  bool _marketing = false;
   bool _submitting = false;
   bool _showReferral = false;
   String? _formError;
@@ -76,7 +84,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
   @override
   void dispose() {
     _name.dispose();
-    _identifier.dispose();
+    _email.dispose();
     _password.dispose();
     _referral.dispose();
     super.dispose();
@@ -122,20 +130,17 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
 
     setState(() => _submitting = true);
 
-    final identifier = _identifier.text.trim();
-    final isEmail = identifier.contains('@');
-
     try {
       await ref
           .read(authProvider.notifier)
           .register(
             name: _name.text.trim(),
-            email: isEmail ? identifier : '',
-            phone: isEmail ? null : identifier,
+            email: _email.text.trim(),
             password: _password.text,
             // Sent as `account_type` by the repository, exactly as before.
             role: role,
             referralCode: _referral.text.trim(),
+            marketingOptIn: _marketing,
           );
       if (mounted) context.go(Routes.home);
     } on ValidationFailure catch (e) {
@@ -143,9 +148,16 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
       setState(() {
         _fieldErrors = e.errors;
         if (e.errorFor('referral_code') != null) _showReferral = true;
+        _termsError = e.errorFor('accept_terms') ?? _termsError;
 
         // Errors with no field on this form still need a home.
-        const onForm = {'name', 'email', 'phone', 'password', 'referral_code'};
+        const onForm = {
+          'name',
+          'email',
+          'password',
+          'referral_code',
+          'accept_terms',
+        };
         final unplaced = e.errors.keys.where((k) => !onForm.contains(k));
         _formError = unplaced.isEmpty
             ? null
@@ -272,7 +284,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
         if (roles.contains(UserRole.creator))
           RoleChoiceCard(
             title: 'I am a Creator',
-            benefit: 'Get booked by brands and paid on time.',
+            benefit: 'Get booked by brands and paid when the work is approved.',
             icon: Icons.auto_awesome_rounded,
             accent: Icons.photo_camera_rounded,
             selected: _role == UserRole.creator,
@@ -327,19 +339,18 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
             onChanged: (_) => _clearFieldError('name'),
           ),
           const SizedBox(height: AppSpacing.md),
+          // Email only: with no SMS a number could never be verified, so
+          // every account is made with an email address.
           ZTextField(
-            label: 'Email or phone',
-            hint: 'you@brand.com or 98765 43210',
-            controller: _identifier,
+            label: 'Email address',
+            hint: 'you@brand.com',
+            controller: _email,
             prefixIcon: Icons.alternate_email_rounded,
             keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.next,
-            validator: Validators.emailOrPhone,
-            errorText: _errorFor(['email', 'phone']),
-            onChanged: (_) {
-              _clearFieldError('email');
-              _clearFieldError('phone');
-            },
+            validator: Validators.email,
+            errorText: _errorFor(['email']),
+            onChanged: (_) => _clearFieldError('email'),
           ),
           const SizedBox(height: AppSpacing.md),
           ZTextField(
@@ -407,6 +418,10 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
               if (value) _termsError = null;
             }),
           ),
+          _MarketingCheckbox(
+            value: _marketing,
+            onChanged: (value) => setState(() => _marketing = value),
+          ),
           if (_formError != null) ...[
             const SizedBox(height: AppSpacing.md),
             AuthErrorBanner(message: _formError!),
@@ -417,6 +432,8 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
             const SizedBox(height: AppSpacing.lg),
             // The chosen role goes with a first-time social sign-in too, so
             // a creator who taps Google does not end up with a brand account.
+            // The row carries its own terms notice; the boxes above belong to
+            // the email form.
             SocialLoginRow(role: role),
           ],
           const SizedBox(height: AppSpacing.lg),
@@ -526,13 +543,7 @@ class _TermsCheckbox extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final signup = ref.watch(authConfigProvider).signup;
-    final legal = ref.watch(legalLinksProvider);
-
-    final terms = signup.termsUrl.isNotEmpty ? signup.termsUrl : legal.termsUrl;
-    final privacy = signup.privacyUrl.isNotEmpty
-        ? signup.privacyUrl
-        : legal.privacyUrl;
+    final urls = legalUrls(ref);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -548,24 +559,24 @@ class _TermsCheckbox extends ConsumerWidget {
                 isError: error != null,
               ),
             ),
+            // No top padding: each link is a 48 dp touch target, so a run of
+            // the Wrap is already as tall as the checkbox and centres its
+            // text on it.
             Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    GestureDetector(
-                      onTap: () => onChanged(!value),
-                      child: Text(
-                        'I agree to the ',
-                        style: AppTypography.bodyMedium,
-                      ),
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  GestureDetector(
+                    onTap: () => onChanged(!value),
+                    child: Text(
+                      'I agree to the ',
+                      style: AppTypography.bodyMedium,
                     ),
-                    _InlineLink(label: 'Terms & Conditions', url: terms),
-                    Text(' and ', style: AppTypography.bodyMedium),
-                    _InlineLink(label: 'Privacy Policy', url: privacy),
-                  ],
-                ),
+                  ),
+                  LegalLink(label: 'Terms & Conditions', url: urls.terms),
+                  Text(' and ', style: AppTypography.bodyMedium),
+                  LegalLink(label: 'Privacy Policy', url: urls.privacy),
+                ],
               ),
             ),
           ],
@@ -583,46 +594,54 @@ class _TermsCheckbox extends ConsumerWidget {
   }
 }
 
-class _InlineLink extends StatelessWidget {
-  const _InlineLink({required this.label, required this.url});
+/// The marketing opt-in: unticked, optional, and saying where it can be
+/// changed later. Ticked, the account starts with "product updates and
+/// offers" on in Settings → Notifications; left alone, it starts off.
+class _MarketingCheckbox extends StatelessWidget {
+  const _MarketingCheckbox({required this.value, required this.onChanged});
 
-  final String label;
-  final String url;
+  final bool value;
+  final ValueChanged<bool> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final style = AppTypography.bodyMedium.copyWith(
-      color: AppColors.primary,
-      fontWeight: FontWeight.w600,
-    );
-
-    final uri = Uri.tryParse(url);
-    if (url.isEmpty || uri == null) return Text(label, style: style);
-
-    return Semantics(
-      link: true,
-      child: InkWell(
-        onTap: () async {
-          final opened = await launchUrl(
-            uri,
-            mode: LaunchMode.inAppBrowserView,
-          );
-          if (!opened && context.mounted) {
-            showZSnack(context, 'Could not open $label.', isError: true);
-          }
-        },
-        borderRadius: AppRadius.smAll,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Text(
-            label,
-            style: style.copyWith(
-              decoration: TextDecoration.underline,
-              decorationColor: AppColors.primary.withValues(alpha: 0.4),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Semantics(
+          label: 'Send me product updates and offers',
+          child: Checkbox(
+            value: value,
+            onChanged: (v) => onChanged(v ?? false),
+          ),
+        ),
+        Expanded(
+          child: GestureDetector(
+            onTap: () => onChanged(!value),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Send me product updates and offers',
+                    style: AppTypography.bodyMedium,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Optional. You can change this any time in '
+                    'Settings → Notifications.',
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-      ),
+      ],
     );
   }
 }

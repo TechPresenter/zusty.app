@@ -154,7 +154,7 @@ final class CampaignService
      */
     public static function channelSupport(string $channel): array
     {
-        $smsOn = Config::settingBool('sms', 'enabled', false) || (bool) Config::get('sms.enabled', false);
+        $smsOn = SmsService::enabled();
 
         return match ($channel) {
             'email' => [
@@ -509,7 +509,7 @@ final class CampaignService
 
         if ($total === 0) {
             $warnings[] = 'Nobody matches. Check the audience, and remember that banned and deleted accounts, '
-                . 'unsubscribed addresses and accounts that opted out of marketing are always excluded.';
+                . 'unsubscribed addresses and accounts that have not opted in to marketing are always excluded.';
         }
 
         return [
@@ -583,14 +583,14 @@ final class CampaignService
         $joins    = [];
         $bindings = [];
 
-        // Never market to an account that is gone, banned, or has opted out.
+        // Never market to an account that is gone, banned, or has not opted
+        // in. Marketing is opt-in (NotificationService::DEFAULT_PREFERENCES),
+        // so an account with no stored choice is left out, not counted in.
         $clauses = [
             'u.`deleted_at` IS NULL',
             "u.`status` NOT IN ('banned','deleted')",
-            "(u.`notification_prefs` IS NULL
-              OR u.`notification_prefs` = ''
-              OR JSON_VALID(u.`notification_prefs`) = 0
-              OR COALESCE(JSON_UNQUOTE(JSON_EXTRACT(u.`notification_prefs`, '$.marketing')), 'true') NOT IN ('false','0'))",
+            "(JSON_VALID(u.`notification_prefs`) = 1
+              AND JSON_UNQUOTE(JSON_EXTRACT(u.`notification_prefs`, '$.marketing')) IN ('true','1'))",
         ];
 
         if ($channel === 'email') {
@@ -960,6 +960,43 @@ final class CampaignService
                     AND (u.`deleted_at` IS NOT NULL OR u.`status` IN ('deleted', 'banned'))",
                 ['campaign_id' => $campaignId]
             );
+
+            // Consent is read again at send time, not only when the list was
+            // built: someone who switches off "Product updates & offers"
+            // while a large campaign drains gets none of the rest, and rows
+            // queued under an older, looser rule (one that counted a missing
+            // choice as a yes) are held to today's opt-in-only rule. The
+            // newsletter list is exempt: there the subscription itself is the
+            // consent, and it is re-checked just below.
+            if ((string) ($campaign['audience'] ?? '') !== 'subscribers') {
+                Database::execute(
+                    "UPDATE `campaign_recipients` cr
+                       JOIN `users` u ON u.`id` = cr.`user_id`
+                        SET cr.`status` = 'failed',
+                            cr.`error_message` = 'Not sent: the account has not opted in to marketing.'
+                      WHERE cr.`campaign_id` = :campaign_id AND cr.`status` = 'pending'
+                        AND NOT COALESCE(
+                            JSON_VALID(u.`notification_prefs`) = 1
+                            AND JSON_UNQUOTE(JSON_EXTRACT(u.`notification_prefs`, '$.marketing')) IN ('true','1'),
+                            0
+                        )",
+                    ['campaign_id' => $campaignId]
+                );
+            }
+
+            // An address that unsubscribed or hard-bounced since the list was
+            // built is off limits, whichever audience selected it.
+            if ($channel === 'email') {
+                Database::execute(
+                    "UPDATE `campaign_recipients` cr
+                       JOIN `newsletter_subscribers` ns ON ns.`email` = cr.`destination`
+                        SET cr.`status` = 'failed',
+                            cr.`error_message` = 'Not sent: the address unsubscribed after the list was built.'
+                      WHERE cr.`campaign_id` = :campaign_id AND cr.`status` = 'pending'
+                        AND ns.`status` <> 'subscribed'",
+                    ['campaign_id' => $campaignId]
+                );
+            }
 
             $batch = Database::select(
                 "SELECT cr.`id`, cr.`user_id`, cr.`destination`, cr.`tracking_token`, u.`name` AS `user_name`

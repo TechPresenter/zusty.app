@@ -131,6 +131,18 @@ final class AuthConfigService
     }
 
     /**
+     * What the password sign-in field asks for: `email`, or `email_or_phone`
+     * so an account that already holds a number may sign in with it. New
+     * accounts always have an email address; there is no phone-only mode.
+     */
+    public static function identifierMode(): string
+    {
+        return Config::settingString('auth', 'identifier_mode', 'email') === 'email_or_phone'
+            ? 'email_or_phone'
+            : 'email';
+    }
+
+    /**
      * The OTP button's label: auth.otp_label when the operator set one,
      * otherwise a label that says where the code goes.
      */
@@ -249,7 +261,10 @@ final class AuthConfigService
                 'brand_enabled'        => Config::settingBool('app', 'brand_signup_enabled', true),
                 'default_role'         => Config::settingString('auth', 'default_signup_role', 'brand'),
                 'role_choice_visible'  => Config::settingBool('auth', 'role_choice_visible', true),
-                'require_terms_accept' => Config::settingBool('auth', 'require_terms_accept', true),
+                // Always: every sign-up, Google's included, accepts the terms
+                // (AuthService::register refuses one that has not). Kept in
+                // the block for apps that read it.
+                'require_terms_accept' => true,
                 'terms_url'            => Config::settingString('auth', 'terms_url') ?: $siteUrl . '/terms',
                 'privacy_url'          => Config::settingString('auth', 'privacy_url') ?: $siteUrl . '/privacy',
             ],
@@ -276,8 +291,10 @@ final class AuthConfigService
             [
                 'key'                     => self::PUBLIC_KEYS['email_password'],
                 'enabled'                 => self::enabled('email_password', true),
-                'label'                   => 'Email or phone',
-                'identifier_mode'         => Config::settingString('auth', 'identifier_mode', 'email_or_phone'),
+                'label'                   => self::identifierMode() === 'email' ? 'Email' : 'Email or phone',
+                // What the sign-in field asks for. Sign-up always asks for an
+                // email address, whatever this says.
+                'identifier_mode'         => self::identifierMode(),
                 'password_min_length'     => Config::settingInt('security', 'password_min_length', 8),
                 'forgot_password_enabled' => Config::settingBool('auth', 'forgot_password_enabled', true),
                 'reset_token_ttl_minutes' => Config::settingInt('auth', 'reset_token_ttl_minutes', 60),
@@ -287,8 +304,12 @@ final class AuthConfigService
                 'enabled'               => self::enabled('mobile_otp', true),
                 'label'                 => self::otpLabel(),
                 // Whether a code alone can sign someone in, as opposed to only
-                // verifying an address or number they already own.
-                'login_enabled'         => Config::settingBool('auth', 'otp_login_enabled', false),
+                // verifying an address or number they already own. Never while
+                // no channel can deliver one — "SMS" alone with SMS delivery
+                // switched off — or the app would offer a sign-in that
+                // /auth/otp/send can only refuse.
+                'login_enabled'         => Config::settingBool('auth', 'otp_login_enabled', false)
+                    && self::otpChannels() !== [],
                 // `email`: the code goes to the account's email address, and
                 // the app asks for that. `sms` appears only while SMS delivery
                 // is on.

@@ -6,10 +6,10 @@
 
 INSERT INTO `onboarding_slides` (`title`, `subtitle`, `icon`, `audience`, `sort_order`) VALUES
   ('Find the perfect Creator for your brand.',
-   'Connect with verified influencers and grow your brand effortlessly.',
+   'Search creators by city, category and price, and book them in a few taps.',
    'search', 'all', 10),
   ('Verified creators you can trust.',
-   'Every creator passes KYC verification, so you always know exactly who you are working with.',
+   'Look for the blue tick: it appears only after our team has checked a creator’s identity.',
    'verified_user', 'all', 20),
   ('Collaborate and get paid safely.',
    'Briefs, negotiation, and escrow-protected payments — the whole campaign in one place.',

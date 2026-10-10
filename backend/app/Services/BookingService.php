@@ -85,6 +85,8 @@ final class BookingService
             throw HttpException::unprocessable('You cannot book your own creator profile.');
         }
 
+        BlockService::assertNotBlocked($brandUserId, (int) $creator['creator_user_id']);
+
         if ($creator['availability_status'] === 'unavailable') {
             throw HttpException::unprocessable('This creator is currently unavailable.');
         }
@@ -93,17 +95,10 @@ final class BookingService
         $minimum = Config::settingFloat('booking', 'min_booking_amount', 1000);
         $maximum = Config::settingFloat('booking', 'max_booking_amount', 2000000);
 
-        if ($amount < $minimum) {
-            throw HttpException::unprocessable('The minimum booking amount is ' . Money::format($minimum) . '.');
-        }
-
-        if ($amount > $maximum) {
-            throw HttpException::unprocessable('The maximum booking amount is ' . Money::format($maximum) . '.');
-        }
-
         // A package, when chosen, is the source of truth for the price so a
         // client cannot post a cheaper amount than the creator advertised.
         $packageId = isset($input['package_id']) ? (int) $input['package_id'] : null;
+        $package   = null;
 
         if ($packageId !== null && $packageId > 0) {
             $package = Database::selectOne(
@@ -117,6 +112,23 @@ final class BookingService
             }
 
             $amount = Money::round((float) $package['price']);
+        }
+
+        // The bounds apply to the amount actually booked, so they run after
+        // the package swap. Run before it, they checked whatever the brand
+        // typed, and a package priced outside them (one saved before the
+        // editor enforced them, or before an operator raised the minimum)
+        // could still be booked.
+        if ($amount < $minimum) {
+            throw HttpException::unprocessable($package !== null
+                ? 'This package is priced under the minimum booking amount of ' . Money::format($minimum) . ', so it cannot be booked until the creator updates it.'
+                : 'The minimum booking amount is ' . Money::format($minimum) . '.');
+        }
+
+        if ($amount > $maximum) {
+            throw HttpException::unprocessable($package !== null
+                ? 'This package is priced over the maximum booking amount of ' . Money::format($maximum) . ', so it cannot be booked until the creator updates it.'
+                : 'The maximum booking amount is ' . Money::format($maximum) . '.');
         }
 
         $commissionOverride = $creator['commission_rate'] !== null ? (float) $creator['commission_rate'] : null;
@@ -244,12 +256,19 @@ final class BookingService
     // Transitions
     // -----------------------------------------------------------------
 
-    /** Creator accepts the request. */
+    /**
+     * Creator accepts the request.
+     *
+     * Not across a block: accepting turns a request into a commitment, and a
+     * block stops new ones. The request can still be rejected or cancelled.
+     */
     public static function accept(int $bookingId, int $creatorUserId): array
     {
         $booking = self::lockAndAuthorise($bookingId, $creatorUserId, 'creator');
 
         self::assertTransition($booking, 'accepted');
+
+        BlockService::assertNotBlocked($creatorUserId, (int) $booking['brand_user_id']);
 
         Database::update('bookings', [
             'status'       => 'accepted',
@@ -307,6 +326,12 @@ final class BookingService
         $side    = self::sideOf($booking, $userId);
 
         self::assertTransition($booking, 'countered');
+
+        // An offer is a new proposal, which a block stops either way.
+        BlockService::assertNotBlocked(
+            $userId,
+            $side === 'brand' ? (int) $booking['creator_user_id'] : (int) $booking['brand_user_id']
+        );
 
         $offerCount = (int) Database::scalar(
             'SELECT COUNT(*) FROM `booking_offers` WHERE `booking_id` = :id',
@@ -410,6 +435,11 @@ final class BookingService
         if ($offer['offered_by'] === $side) {
             throw HttpException::forbidden('You cannot accept your own offer.');
         }
+
+        BlockService::assertNotBlocked(
+            $userId,
+            $side === 'brand' ? (int) $booking['creator_user_id'] : (int) $booking['brand_user_id']
+        );
 
         // Re-assert the policy at acceptance, not only when the offer was made.
         // An offer row outlives a change to min/max_booking_amount, and rows

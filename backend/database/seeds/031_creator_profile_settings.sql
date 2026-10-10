@@ -94,6 +94,12 @@ VALUES
  'How many pieces of work a creator must publish before the portfolio section counts as complete.',
  1, 0, 130, NOW()),
 
+-- Migration 057. Each item is a stored file, so there is a ceiling.
+('creator', 'max_portfolio_items', '100', 'integer',
+ 'Maximum portfolio items',
+ 'The most pieces of work one creator may keep in their portfolio, items still in review included. Each one is a stored file. Zero means no limit.',
+ 1, 0, 135, NOW()),
+
 ('creator', 'require_portfolio', '1', 'boolean',
  'Portfolio required', 'When on, a profile cannot be approved without a portfolio.', 0, 0, 140, NOW()),
 

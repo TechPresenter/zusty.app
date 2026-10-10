@@ -30,6 +30,8 @@ class ProfileCoverAppBar extends StatelessWidget {
     required this.profile,
     required this.collapsed,
     required this.onShare,
+    this.overflow,
+    this.blocked = false,
   });
 
   final CreatorProfile profile;
@@ -38,6 +40,12 @@ class ProfileCoverAppBar extends StatelessWidget {
   /// icons and fades the name into the toolbar.
   final bool collapsed;
   final VoidCallback onShare;
+
+  /// The ⋮ menu after the other actions (report and block a visitor's view).
+  final Widget? overflow;
+
+  /// The viewer blocked this creator: saving them is not offered.
+  final bool blocked;
 
   @override
   Widget build(BuildContext context) {
@@ -99,10 +107,16 @@ class ProfileCoverAppBar extends StatelessWidget {
           tooltip: 'Share profile',
           onPressed: onShare,
         ),
-        const SizedBox(width: AppSpacing.xs),
         // The shared heart: optimistic, rolls back and explains itself if
         // the server refuses, and flips every card showing this creator.
-        CreatorFavoriteButton(creator: creator, size: AppSpacing.minTouch),
+        if (!blocked) ...[
+          const SizedBox(width: AppSpacing.xs),
+          CreatorFavoriteButton(creator: creator, size: AppSpacing.minTouch),
+        ],
+        if (overflow != null) ...[
+          const SizedBox(width: AppSpacing.xs),
+          overflow!,
+        ],
         SizedBox(width: margin),
       ],
       flexibleSpace: FlexibleSpaceBar(
@@ -224,6 +238,8 @@ class ProfileIdentity extends StatelessWidget {
     required this.onMessage,
     required this.onSocialTap,
     required this.onCategoryTap,
+    this.blocked = false,
+    this.onUnblock,
   });
 
   final CreatorProfile profile;
@@ -233,6 +249,11 @@ class ProfileIdentity extends StatelessWidget {
   final VoidCallback onMessage;
   final ValueChanged<SocialAccount> onSocialTap;
   final ValueChanged<String> onCategoryTap;
+
+  /// The viewer blocked this creator: Follow and Message give way to a
+  /// notice that offers [onUnblock].
+  final bool blocked;
+  final VoidCallback? onUnblock;
 
   @override
   Widget build(BuildContext context) {
@@ -294,7 +315,24 @@ class ProfileIdentity extends StatelessWidget {
               const SizedBox(height: AppSpacing.md),
               ZCard(
                 padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                child: StatStrip(items: _stats(profile)),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    StatStrip(items: _stats(profile)),
+                    // The creator types these in; nothing fetches them from
+                    // the networks, so the figure says whose it is.
+                    if (profile.creator.followers > 0) ...[
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        'Follower figures are self-reported',
+                        textAlign: TextAlign.center,
+                        style: AppTypography.labelSmall.copyWith(
+                          color: AppColors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
               const SizedBox(height: AppSpacing.md),
               if (profile.isOwner)
@@ -306,6 +344,17 @@ class ProfileIdentity extends StatelessWidget {
                   icon: Icons.visibility_outlined,
                   actionLabel: 'Edit profile',
                   onAction: () => context.push(Routes.editProfile),
+                )
+              else if (blocked)
+                ZInfoBanner(
+                  title: 'You blocked ${creator.displayName}',
+                  message:
+                      'You can\'t message or book each other, and they don\'t '
+                      'appear in your search.',
+                  icon: Icons.block_rounded,
+                  tone: StatusTone.warning,
+                  actionLabel: onUnblock == null ? null : 'Unblock',
+                  onAction: onUnblock,
                 )
               else
                 // Both pinned to the same height so the pair reads as one row.

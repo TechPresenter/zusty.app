@@ -31,10 +31,19 @@ final class AuthService
     // -----------------------------------------------------------------
 
     /**
+     * Create an account: email sign-up, and the first Google sign-in through
+     * loginWithFirebase().
+     *
+     * Every path into here needs the Terms and Privacy Policy accepted
+     * (`terms_accepted`, recorded in `users`.`terms_accepted_at`) and an email
+     * address: SMS is off, so a number alone could never be verified or
+     * reached. Marketing stays off unless `marketing_opt_in` is true.
+     *
      * @param array{
      *   name:string, email?:string|null, phone?:string|null, password?:string|null,
      *   account_type?:string, referral_code?:string|null, firebase_uid?:string|null,
-     *   avatar_url?:string|null, auth_provider?:string
+     *   avatar_url?:string|null, auth_provider?:string, terms_accepted?:bool,
+     *   marketing_opt_in?:bool
      * } $input
      *
      * @return array{user:array<string,mixed>,tokens:array<string,mixed>}
@@ -64,7 +73,9 @@ final class AuthService
             self::assertMethodEnabled($signupMethod, $signupMethod !== 'guest_login', $device);
         }
 
-        $email = isset($input['email']) && $input['email'] !== null ? strtolower(trim((string) $input['email'])) : null;
+        self::assertTermsAccepted(!empty($input['terms_accepted']));
+
+        $email = isset($input['email']) && trim((string) $input['email']) !== '' ? strtolower(trim((string) $input['email'])) : null;
         $phone = null;
         $countryCode = '+91';
 
@@ -72,10 +83,7 @@ final class AuthService
             [$countryCode, $phone] = Str::splitPhone((string) $input['phone']);
         }
 
-        if ($email === null && $phone === null) {
-            throw HttpException::unprocessable('Provide an email address or a phone number.');
-        }
-
+        self::assertEmailPresent($email);
         self::assertIdentifiersAvailable($email, $countryCode, $phone);
 
         $referrer = !empty($input['referral_code'])
@@ -109,10 +117,8 @@ final class AuthService
                 'phone_verified_at'  => !empty($input['phone_verified']) ? $now : null,
                 'referral_code'      => ReferralService::generateCode(),
                 'referred_by'        => $referrer !== null ? (int) $referrer['id'] : null,
-                'notification_prefs' => json_encode(
-                    ['push' => true, 'email' => true, 'sms' => false, 'marketing' => true],
-                    JSON_UNESCAPED_UNICODE
-                ),
+                'notification_prefs' => self::signupPreferences(!empty($input['marketing_opt_in'])),
+                'terms_accepted_at'  => $now,
                 'created_at'         => $now,
             ]);
 
@@ -314,6 +320,12 @@ final class AuthService
         $user = self::firebaseLinkTarget($claims);
 
         if ($user === null) {
+            // A first sign-in creates the account, so it accepts the terms the
+            // way the email sign-up does: the app shows "By continuing, you
+            // agree to the Terms and Privacy Policy" above its Google button
+            // and sends accept_terms with the token. Without it the answer is
+            // 422 terms_required. A returning account is never asked again.
+            // Marketing stays off; it can be turned on in Settings.
             $result = self::register([
                 'name'           => $claims['name'] ?? ($extra['name'] ?? 'Zusty User'),
                 'email'          => $claims['email'],
@@ -325,6 +337,7 @@ final class AuthService
                 'auth_provider'  => $claims['provider'],
                 'email_verified' => $claims['email_verified'],
                 'phone_verified' => $claims['phone'] !== null,
+                'terms_accepted' => !empty($extra['accept_terms']),
             ], $device);
 
             return ['user' => $result['user'], 'tokens' => $result['tokens'], 'is_new' => true];
@@ -725,7 +738,19 @@ final class AuthService
             throw HttpException::forbidden('New ' . $accountType . ' registrations are paused. Please try again later.');
         }
 
+        // Becoming a real account is a sign-up like any other: the terms are
+        // accepted and the account has an email address, as in register().
+        self::assertTermsAccepted(!empty($input['accept_terms']));
+
+        // Said before any code is spent: a Google identity brings its own
+        // address, every other way needs one typed.
+        if (empty($input['id_token'])) {
+            self::assertEmailPresent(trim((string) ($input['email'] ?? '')));
+        }
+
         $identity = self::resolveUpgradeIdentity($input, $device);
+
+        self::assertEmailPresent($identity['email']);
 
         // If the identity already belongs to someone else, do NOT merge. A
         // merge would have to rewrite every foreign key in the schema, and
@@ -748,14 +773,17 @@ final class AuthService
             //
             // Filtering nulls across both left guests permanently expiring.
             $changes = [
-                'account_type'      => $accountType,
-                'name'              => $displayName,
-                'auth_providers'    => (string) json_encode($identity['providers']),
-                'guest_expires_at'  => null,
-                'converted_at'      => $now,
-                'updated_at'        => $now,
-                'email_verified_at' => $identity['email_verified'] ? $now : null,
-                'phone_verified_at' => $identity['phone_verified'] ? $now : null,
+                'account_type'       => $accountType,
+                'name'               => $displayName,
+                'auth_providers'     => (string) json_encode($identity['providers']),
+                'guest_expires_at'   => null,
+                'converted_at'       => $now,
+                'updated_at'         => $now,
+                'email_verified_at'  => $identity['email_verified'] ? $now : null,
+                'phone_verified_at'  => $identity['phone_verified'] ? $now : null,
+                // A guest row never had preferences; it gets a new account's.
+                'notification_prefs' => self::signupPreferences(!empty($input['marketing_opt_in'])),
+                'terms_accepted_at'  => $now,
             ];
 
             foreach ([
@@ -884,6 +912,10 @@ final class AuthService
             $identity['phone_verified'] = true;
             $identity['providers']      = ['phone'];
             $identity['audit_method']   = 'phone_otp';
+
+            if (!empty($input['email'])) {
+                $identity['email'] = strtolower(trim((string) $input['email']));
+            }
 
             if (!empty($input['password'])) {
                 $identity['password_hash'] = Crypto::hashPassword((string) $input['password']);
@@ -1765,15 +1797,63 @@ final class AuthService
             ? (string) $user['phone_country_code'] . (string) $user['phone']
             : null;
         $user['auth_providers']    = json_decode((string) ($user['auth_providers'] ?? '[]'), true) ?: [];
-        $user['notification_prefs'] = json_decode((string) ($user['notification_prefs'] ?? '{}'), true) ?: [
-            'push' => true, 'email' => true, 'sms' => false, 'marketing' => true,
-        ];
+        // Every key, so the app never has to guess one: a key the account has
+        // never set reads as its default, and marketing's default is off.
+        $storedPrefs                = json_decode((string) ($user['notification_prefs'] ?? '{}'), true);
+        $user['notification_prefs'] = array_merge(
+            NotificationService::DEFAULT_PREFERENCES,
+            is_array($storedPrefs) ? $storedPrefs : []
+        );
         // Whether the blue tick freezes the public name. It is here, not only
         // on GET/PUT /me, because the app restores its user from /auth/me at
         // startup and must show the name read-only from the first frame.
         $user['identity_locked']    = IdentityLockService::isLocked($user['id']);
 
         return $user;
+    }
+
+    /**
+     * A new account's notification_prefs JSON: the defaults, with marketing on
+     * only when the person ticked the opt-in.
+     */
+    private static function signupPreferences(bool $marketingOptIn): string
+    {
+        return (string) json_encode(
+            array_merge(NotificationService::DEFAULT_PREFERENCES, ['marketing' => $marketingOptIn]),
+            JSON_UNESCAPED_UNICODE
+        );
+    }
+
+    /**
+     * Refuse to create an account whose Terms and Privacy Policy acceptance
+     * is missing. Google Play's user-generated content policy needs it on
+     * every way an account is made, a Google sign-up included.
+     */
+    private static function assertTermsAccepted(bool $accepted): void
+    {
+        if ($accepted) {
+            return;
+        }
+
+        $message = 'Accept the Terms & Conditions and Privacy Policy to create your account.';
+
+        throw new HttpException($message, 422, 'terms_required', ['accept_terms' => [$message]]);
+    }
+
+    /**
+     * Refuse to create an account without an email address. SMS is off, so a
+     * number could never be verified, and the email is how the account is
+     * reached, recovered and signed in to with a code.
+     */
+    private static function assertEmailPresent(?string $email): void
+    {
+        if ($email !== null && $email !== '') {
+            return;
+        }
+
+        $message = 'Enter your email address. Every Zusty account is created with one.';
+
+        throw new HttpException($message, 422, 'email_required', ['email' => [$message]]);
     }
 
     private static function assertIdentifiersAvailable(?string $email, string $countryCode, ?string $phone): void

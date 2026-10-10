@@ -176,6 +176,12 @@ class FeatureFlags {
   bool get brandSignupEnabled => isOn('brand_signup_enabled', fallback: true);
   bool get realtimeChatEnabled => isOn('chat_realtime', fallback: true);
 
+  /// Whether a text message can go out at all (Settings → SMS). Defaults to
+  /// **off**, unlike the switches above: SMS is off on the platform, and a
+  /// build that has not heard otherwise must not offer an SMS switch that
+  /// would never deliver anything.
+  bool get smsEnabled => isOn('sms_enabled');
+
   /// Flags with no compiled consumer yet default to **off** — an experiment an
   /// operator switches on must not change a build that cannot render it.
   bool get couponsAtCheckout => isOn('coupons_at_checkout');
@@ -232,6 +238,31 @@ class AiFeatures {
   }
 
   static const off = AiFeatures();
+}
+
+/// `/app/config` → `wallet`: what the app may offer around the wallet, as
+/// switched in Admin → Settings → Wallet.
+///
+/// Brands pay each booking at checkout and do not load money into the wallet
+/// in advance, so [topupEnabled] defaults to **off**: a build that has not
+/// heard from the server, or talks to an older backend, must not offer an
+/// "Add money" the server refuses. [walletPayment] defaults to on — the
+/// checkout only ever offers the wallet when its balance covers the total.
+class WalletOptions {
+  const WalletOptions({this.topupEnabled = false, this.walletPayment = true});
+
+  /// Whether "Add money" (and every preset or prompt for it) may be shown.
+  final bool topupEnabled;
+
+  /// Whether a balance already in the wallet may pay for a booking.
+  final bool walletPayment;
+
+  factory WalletOptions.fromJson(Map<String, dynamic> json) => WalletOptions(
+        topupEnabled: Json.boolean(json['topup_enabled']),
+        walletPayment: Json.boolean(json['wallet_payment'], true),
+      );
+
+  static const empty = WalletOptions();
 }
 
 /// One admin-authored popup from `/app/config` → `popups`.
@@ -423,6 +454,7 @@ class RemoteAppConfig {
     this.popups = const [],
     this.social = SocialLinks.empty,
     this.legal = LegalLinks.empty,
+    this.wallet = WalletOptions.empty,
   });
 
   final AppIdentity identity;
@@ -434,6 +466,7 @@ class RemoteAppConfig {
   final List<AppPopup> popups;
   final SocialLinks social;
   final LegalLinks legal;
+  final WalletOptions wallet;
 
   factory RemoteAppConfig.fromJson(Map<String, dynamic> json) =>
       RemoteAppConfig(
@@ -446,6 +479,7 @@ class RemoteAppConfig {
         popups: Json.list(json['popups'], AppPopup.fromJson),
         social: SocialLinks.fromJson(Json.map(json['social'])),
         legal: LegalLinks.fromJson(Json.map(json['legal'])),
+        wallet: WalletOptions.fromJson(Json.map(json['wallet'])),
       );
 
   static const empty = RemoteAppConfig();

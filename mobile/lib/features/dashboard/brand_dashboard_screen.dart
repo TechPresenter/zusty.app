@@ -332,8 +332,7 @@ class _SpendCard extends StatelessWidget {
                           Expanded(
                             child: _HeroStat(
                               label: 'Lifetime spend',
-                              value:
-                                  Formatters.currency(wallet.lifetimeEarnings),
+                              value: Formatters.currency(wallet.totalSpent),
                               color: foreground,
                             ),
                           ),

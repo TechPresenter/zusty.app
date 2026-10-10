@@ -82,6 +82,13 @@ final class CreatorService
         $bindings = [];
         $joins    = '';
 
+        // A block either way keeps the two out of each other's search, and so
+        // out of every rail, recommendation and AI match built on it.
+        if ($viewerId !== null && $viewerId > 0) {
+            $clauses[]                = BlockService::notBlockedSql('c.`user_id`');
+            $bindings['block_viewer'] = $viewerId;
+        }
+
         $term = trim((string) ($filters['q'] ?? ''));
         if ($term !== '') {
             $clauses[] = "(c.`display_name` LIKE :term ESCAPE '\\\\'
@@ -301,6 +308,19 @@ final class CreatorService
             throw HttpException::notFound('Creator not found.');
         }
 
+        // A creator who blocked the viewer is not there for them, exactly as
+        // in search. One the viewer blocked still opens, flagged, so the app
+        // can offer to unblock instead of Message and Book.
+        $blockedByViewer = false;
+
+        if (!$isOwner && $viewerId !== null && $viewerId > 0) {
+            if (BlockService::hasBlocked((int) $creator['user_id'], $viewerId)) {
+                throw HttpException::notFound('Creator not found.');
+            }
+
+            $blockedByViewer = BlockService::hasBlocked($viewerId, (int) $creator['user_id']);
+        }
+
         $creatorId = (int) $creator['id'];
 
         $creator['categories'] = Database::select(
@@ -353,8 +373,11 @@ final class CreatorService
             }
 
             // A custom link carries the name the creator gave it ("My
-            // Substack"); a real network takes its name from the taxonomy.
-            $account['platform_label'] = (string) ($account['label'] ?: ($term['label'] ?? $account['platform']));
+            // Substack"); a real network takes its name from the taxonomy,
+            // whatever an older row's label says, so no Instagram row can
+            // be shown to brands under a name its creator typed.
+            $ownLabel                  = ($meta['custom_label'] ?? false) === true ? (string) ($account['label'] ?? '') : '';
+            $account['platform_label'] = (string) ($ownLabel ?: ($term['label'] ?? $account['platform']));
             $account['icon']           = (string) ($term['icon'] ?? 'link');
             // TaxonomyService normalises `color_hex` to `color` on the way out.
             $account['color']          = (string) ($term['color'] ?? '#64748B');
@@ -402,15 +425,26 @@ final class CreatorService
             ['id' => $creatorId]
         );
 
+        // A visitor does not see reviews by someone they have a block with; the
+        // creator previewing their own page sees every review, to reply to or
+        // report it. The rating still counts them all.
+        $reviewBindings = ['id' => $creatorId];
+        $reviewFilter   = '';
+
+        if (!$isOwner && $viewerId !== null && $viewerId > 0) {
+            $reviewFilter                   = ' AND ' . BlockService::notBlockedSql('r.`reviewer_id`');
+            $reviewBindings['block_viewer'] = $viewerId;
+        }
+
         $creator['reviews'] = Database::select(
             "SELECT r.`id`, r.`rating`, r.`title`, r.`comment`, r.`created_at`, r.`reply`, r.`replied_at`,
                     u.`name` AS `reviewer_name`, u.`avatar_url` AS `reviewer_avatar`
              FROM `reviews` r
              INNER JOIN `users` u ON u.`id` = r.`reviewer_id`
              WHERE r.`creator_id` = :id AND r.`is_published` = 1 AND r.`deleted_at` IS NULL
-               AND r.`direction` = 'brand_to_creator'
+               AND r.`direction` = 'brand_to_creator'" . $reviewFilter . "
              ORDER BY r.`id` DESC LIMIT 10",
-            ['id' => $creatorId]
+            $reviewBindings
         );
 
         $creator['rating_breakdown'] = self::ratingBreakdown($creatorId);
@@ -432,6 +466,8 @@ final class CreatorService
             $creator['is_following'] = false;
             $creator['is_owner']     = false;
         }
+
+        $creator['is_blocked'] = $blockedByViewer;
 
         $creator['languages']       = json_decode((string) ($creator['languages'] ?? '[]'), true) ?: [];
         $creator['price_formatted'] = Money::formatRange(
@@ -761,9 +797,15 @@ final class CreatorService
             return false;
         }
 
-        if (!Database::exists('creators', ['id' => $creatorId])) {
+        $ownerId = Database::scalar('SELECT `user_id` FROM `creators` WHERE `id` = :id', ['id' => $creatorId]);
+
+        if ($ownerId === null) {
             throw HttpException::notFound('Creator not found.');
         }
+
+        // Removing a saved creator always works; saving one across a block
+        // does not (blocking removed it already).
+        BlockService::assertNotBlocked($userId, (int) $ownerId);
 
         Database::insertIgnore('favorites', [
             'user_id'    => $userId,
@@ -781,6 +823,14 @@ final class CreatorService
             'SELECT 1 FROM `follows` WHERE `follower_id` = :user_id AND `creator_id` = :creator_id',
             ['user_id' => $userId, 'creator_id' => $creatorId]
         );
+
+        // Unfollowing always works; following across a block does not.
+        if ($exists === null) {
+            BlockService::assertNotBlocked(
+                $userId,
+                (int) (Database::scalar('SELECT `user_id` FROM `creators` WHERE `id` = :id', ['id' => $creatorId]) ?? 0)
+            );
+        }
 
         return Database::transaction(static function () use ($exists, $userId, $creatorId): bool {
             if ($exists !== null) {
@@ -850,6 +900,13 @@ final class CreatorService
     /**
      * Recompute derived statistics. Run nightly and after review changes.
      *
+     * The price range comes from LIVE packages only and falls to 0 when none
+     * is left. It used to fall back to the old value, so a creator who hid or
+     * deleted their only package kept a "Starting at" no package offered.
+     * Nothing else writes these columns (the profile form does not take a
+     * price), and 0 is what the profile, the cards and the price filters read
+     * as "no price".
+     *
      * @return int Number of creators refreshed.
      */
     public static function refreshStatistics(?int $creatorId = null): int
@@ -881,11 +938,11 @@ final class CreatorService
                  c.`price_min` = COALESCE((
                     SELECT MIN(p.`price`) FROM `creator_packages` p
                     WHERE p.`creator_id` = c.`id` AND p.`is_active` = 1 AND p.`deleted_at` IS NULL
-                 ), c.`price_min`),
+                 ), 0),
                  c.`price_max` = COALESCE((
                     SELECT MAX(p.`price`) FROM `creator_packages` p
                     WHERE p.`creator_id` = c.`id` AND p.`is_active` = 1 AND p.`deleted_at` IS NULL
-                 ), c.`price_max`)' . $where,
+                 ), 0)' . $where,
             $bindings
         );
 

@@ -33,24 +33,52 @@ final class AuthController extends BaseApiController
      */
     private const PUBLIC_OTP_PURPOSES = ['register', 'login', 'verify_phone', 'verify_email'];
 
-    /** POST /auth/register */
+    /**
+     * The channels each public purpose has a use for. A code nothing redeems
+     * is refused rather than sent: sign-up takes no code (`register` is only
+     * the guest upgrade's phone code), and a verification code goes to the
+     * kind of address it verifies.
+     */
+    private const OTP_PURPOSE_CHANNELS = [
+        'login'        => ['email', 'sms'],
+        'register'     => ['sms'],
+        'verify_email' => ['email'],
+        'verify_phone' => ['sms'],
+    ];
+
+    /**
+     * POST /auth/register
+     *
+     * Email sign-up. `email` is required (no phone-only accounts), as is
+     * `accept_terms`; `marketing_opt_in` is the unticked "product updates and
+     * offers" box, and marketing stays off without it.
+     */
     public function register(Request $request): never
     {
         $data = $this->validate($request, [
-            'name'          => 'required|string|min:2|max:120',
-            'email'         => 'nullable|email|max:191',
-            'phone'         => 'nullable|phone',
-            'password'      => 'required|string|password|max:128',
-            'account_type'  => 'nullable|in:brand,creator',
-            'referral_code' => 'nullable|string|max:16',
-            'accept_terms'  => 'required|boolean',
+            'name'             => 'required|string|min:2|max:120',
+            'email'            => 'required|email|max:191',
+            'phone'            => 'nullable|phone',
+            'password'         => 'required|string|password|max:128',
+            'account_type'     => 'nullable|in:brand,creator',
+            'referral_code'    => 'nullable|string|max:16',
+            'accept_terms'     => 'required|boolean',
+            'marketing_opt_in' => 'nullable|boolean',
         ], [
+            'email.required'        => 'Enter your email address. Every Zusty account is created with one.',
             'accept_terms.required' => 'You must accept the Terms & Conditions and Privacy Policy.',
         ]);
 
         if (empty($data['accept_terms'])) {
-            throw HttpException::unprocessable('You must accept the Terms & Conditions to create an account.');
+            throw new HttpException(
+                'You must accept the Terms & Conditions to create an account.',
+                422,
+                'terms_required',
+                ['accept_terms' => ['You must accept the Terms & Conditions and Privacy Policy.']]
+            );
         }
+
+        $data['terms_accepted'] = true;
 
         $result = AuthService::register($data, $this->deviceContext($request));
 
@@ -89,6 +117,10 @@ final class AuthController extends BaseApiController
      *
      * Handles Google, Apple and phone-OTP sign-in. The client completes the
      * flow with the Firebase SDK and posts the resulting ID token here.
+     *
+     * A first sign-in creates the account, and needs `accept_terms: true`
+     * exactly as POST /auth/register does (422 `terms_required` without it).
+     * An existing account signs in whatever it sends. Marketing starts off.
      */
     public function firebase(Request $request): never
     {
@@ -97,6 +129,7 @@ final class AuthController extends BaseApiController
             'account_type'  => 'nullable|in:brand,creator',
             'name'          => 'nullable|string|max:120',
             'referral_code' => 'nullable|string|max:16',
+            'accept_terms'  => 'nullable|boolean',
         ]);
 
         $result = AuthService::loginWithFirebase(
@@ -140,15 +173,19 @@ final class AuthController extends BaseApiController
     public function upgradeGuest(Request $request): never
     {
         $data = $this->validate($request, [
-            'account_type'  => 'nullable|in:brand,creator',
-            'name'          => 'nullable|string|max:120',
-            'email'         => 'nullable|email|max:191',
-            'phone'         => 'nullable|string|max:20',
-            'password'      => 'nullable|string|max:191',
-            'id_token'      => 'nullable|string',
-            'destination'   => 'nullable|string|max:191',
-            'code'          => 'nullable|string|max:10',
-            'referral_code' => 'nullable|string|max:16',
+            'account_type'     => 'nullable|in:brand,creator',
+            'name'             => 'nullable|string|max:120',
+            'email'            => 'nullable|email|max:191',
+            'phone'            => 'nullable|string|max:20',
+            'password'         => 'nullable|string|max:191',
+            'id_token'         => 'nullable|string',
+            'destination'      => 'nullable|string|max:191',
+            'code'             => 'nullable|string|max:10',
+            'referral_code'    => 'nullable|string|max:16',
+            // As on POST /auth/register: becoming a real account accepts the
+            // terms, and marketing stays off unless this is ticked.
+            'accept_terms'     => 'nullable|boolean',
+            'marketing_opt_in' => 'nullable|boolean',
         ]);
 
         $result = AuthService::upgradeGuest(
@@ -295,6 +332,20 @@ final class AuthController extends BaseApiController
 
         $channel = (string) $data['channel'];
         $purpose = (string) $data['purpose'];
+
+        // Before any limit is spent or a row written: a code nothing would
+        // ever redeem (a sign-up code by email, an email code to "verify a
+        // phone") is not sent at all.
+        if (!in_array($channel, self::OTP_PURPOSE_CHANNELS[$purpose] ?? [], true)) {
+            throw new HttpException(
+                $purpose === 'register'
+                    ? "Signing up doesn't use a code. Create your account with your email address and a password, or with Google."
+                    : "A code for this can't be sent that way.",
+                422,
+                'invalid_purpose',
+                ['purpose' => ['No code is sent for this purpose on this channel.']]
+            );
+        }
 
         // The operator decides which channels can sign somebody up or in
         // (auth.otp_channels, never SMS while SMS delivery is off); the app

@@ -67,6 +67,15 @@ for support, force a password reset, and export.
 **Suspension is immediate.** The user's tokens are revoked, so open apps are signed out
 on their next request.
 
+**Safety** (on the user page) lists the accounts this user blocked and the accounts
+that blocked them, with dates, and links to every report about them. Blocks are made by
+users in the app and cannot be made or lifted from the panel. While a block stands the
+two accounts cannot message each other or start a booking, an offer, a campaign
+invitation or an application with each other, and they drop out of each other's search;
+a booking already paid for between them can still be delivered, approved or disputed,
+and you resolve its disputes as usual. An account that many people block is worth a
+look even before anyone reports it. Erasing an account removes its blocks both ways.
+
 **Erase account erases.** The Danger zone's **Erase account** (`users.delete`) runs the
 same erasure as the user deleting their account in the app: personal data removed,
 the row left as an anonymous "Deleted user" for the records the law keeps, and the
@@ -170,6 +179,37 @@ search; rejecting requires a reason, which the creator sees.
 Also here: featured flags, search boost, category assignment, package and portfolio
 review, and per-creator earnings.
 
+Creators manage their own **packages, portfolio and social accounts** in the app
+(Profile → For creators). What that means for you:
+
+- **Portfolio moderation.** With the creator setting *Moderate gallery uploads* on
+  (the default), every new portfolio item arrives *pending* and stays off the
+  public profile until approved under **Profile changes**. The creator sees it as
+  *In review*; a rejected item shows them the reason's **label** — never your
+  free-text note.
+- **Portfolio size.** The creator setting *Maximum portfolio items*
+  (`creator.max_portfolio_items`, migration 057, default 100; items in review
+  count, 0 = no limit) caps each creator's portfolio, and adding is limited to 30
+  uploads per 10 minutes per account. Like the other `creator` settings it has no
+  tab under Settings yet; it is a row in the `settings` table.
+- **Package prices** must sit between Bookings → minimum and maximum booking
+  amount, because a package's price becomes the booking amount. Raising the
+  minimum does not touch existing packages, but a package now priced outside the
+  bounds cannot be booked (the brand is told why) until its creator raises it.
+- **Starting price.** A creator's "Starting at" / "From" price is their cheapest
+  live package. With no live package left it is cleared, so the profile and the
+  search cards show no price rather than an old one.
+- **Social figures are self-reported.** Followers and engagement are what the
+  creator typed; the app labels them so on the creator's profile and in search,
+  and the date shown is when the creator entered them. A network reporting figures
+  holds one account per creator, and the name shown is always the network's (only
+  a custom link carries the creator's own name). When a creator changes the handle
+  or link of an account you marked verified, the mark is cleared until you check it
+  again.
+- **Section locks** (a creator's page → *Profile section locks*: pricing,
+  portfolio, social) refuse the creator's changes with your reason, and the app
+  shows the section as locked.
+
 ### Categories
 
 The taxonomy behind search and browsing. Drag to reorder — that order is what the app
@@ -217,6 +257,46 @@ raw payload is retained for investigation.
 
 Refunds are initiated here and reconcile against the wallet ledger.
 
+**Where a refund goes.** Brands pay each booking at checkout and cannot top their
+wallet up (Settings → Wallet → Wallet top-up is off), so refunds default to the
+**original payment method** — on the booking screen, the payments screen, and when
+resolving a dispute ("Refund goes to"). A Cashfree refund shows `processing` until
+Cashfree confirms it by webhook; that is normal, not a rejection. Pick **Zusty wallet**
+only when there is a reason to; it is credited at once. Two cases go to the wallet
+whatever you pick: a booking that was paid from the wallet, and a payment that cannot
+be reversed automatically (no refund API for its gateway, or no gateway id on the
+row — the refund's notes say so). A refund the
+gateway refuses is recorded `failed` on the original method and is never moved to the
+wallet automatically: read the reason under Finance → Refunds and re-issue it,
+choosing the wallet if the original method cannot take it.
+
+**A refund on its way back is not refundable again.** While a refund is `processing`
+(or parked for approval), its amount is taken off what the booking and payments screens
+offer, and the server refuses a second refund beyond what is left ("There is nothing
+left to refund on this payment"). The Refunded column on Finance → Payments shows the
+amount still in progress. If Cashfree later reports the refund failed, the amount
+becomes refundable again.
+
+**Resolving a dispute.** The resolution (dispute status, booking status, creator
+payout) is saved first, and the brand's refund is sent only after that. The message
+says what happened to the refund: credited to the wallet, sent to the original method
+and waiting for the gateway, or **failed**, with the gateway's reason. A failed refund
+leaves the dispute resolved and the payment still refundable: issue the refund again
+from the booking (Admin actions → Issue refund) or Finance → Payments, to the wallet if
+the original method keeps refusing. If the booking has moved on since the dispute was
+raised (cancelled, say), the resolution is refused before any refund is recorded.
+
+**Small refunds to the wallet.** A brand's wallet only receives refunds, and Wallet →
+Minimum withdrawal applies to brands too: a brand holding less can spend it on a booking
+the balance covers in full, but cannot withdraw it from the app (the app tells them to
+ask support). So prefer the original payment method for a small refund; the refund and
+dispute forms show the minimum next to the wallet option. If a brand asks for a small
+balance to be paid out, pay it to their bank account or UPI ID and record it with a
+wallet adjustment (debit) on the user's page.
+
+If you ran promotions about adding money to the wallet (banners, popups, FAQs),
+switch them off: the app no longer offers it.
+
 ### Wallets
 
 Balance and locked (escrow) balance per user, with the full append-only ledger.
@@ -252,11 +332,27 @@ Banners, Home Sections, FAQs, Testimonials, Redirects, Menus, Sitemap, Media**.
   Switching a page off takes it off the web too. `/account-deletion`, also linked
   from the Play listing, is generated from the same "what we delete / what we keep"
   copy as the app's deletion screen.
+
+  The Privacy Policy is what Google compares with the app's Data safety form, so keep
+  the two in step: a new kind of data, a new service provider (today Cashfree,
+  Firebase and Hostinger) or a new permission needs a sentence in the policy before
+  the build that uses it is released. Some pages quote settings as numbers, written in
+  when migration 053 ran; edit the copy if you change the setting:
+  `booking.auto_complete_days` (terms section 6, the refund policy's Escrow section and
+  the "Is my payment secure?" FAQ), the KYC `retention_days_*` and
+  `purge_superseded_after_days` settings and `BACKUP_RETENTION_DAYS` (privacy policy
+  section 5). Copy must stay truthful: no ratings, user counts or guarantees, no phone
+  number (support is `support@zusty.app` only) and no SMS. The policy also says that
+  accounts created before sign-up asked for marketing consent had product updates on
+  by default, because migration 055 kept that stored choice; if those accounts are
+  ever switched off, delete that sentence (the `17_public_pages` suite checks it only
+  while such accounts exist).
 - **Blog** — posts with categories, cover images, scheduling and view counts.
 - **Banners** — app and web placements with date windows and click tracking.
 - **Home Sections** — what appears on the app home screen, and in what order.
 - **FAQs** — grouped, orderable, with helpful-vote counts from the app.
-- **Testimonials** — quotes with an approve step.
+- **Testimonials** — quotes with an approve step. Publish only quotes a real customer
+  gave you and agreed to share: the four seeded ones are samples and ship switched off.
 - **Redirects** — old URL → new URL, 301 or 302. Useful after a slug change.
 - **Menus** — app drawer and footer navigation, built as a nested tree.
 - **Sitemap** — regenerate `sitemap.xml` and ping search engines.
@@ -273,7 +369,14 @@ sitemap and the public pages both use.
 
 - **Campaigns** — email and push campaigns: audience segment, content, schedule, then
   open and click statistics. Sending goes through the queue, so `queue:dispatch` must
-  be running.
+  be running. An account is in an audience only if it opted in to product updates and
+  offers (marketing is off by default); one with no stored choice is left out. The
+  choice is read again before every batch, so someone who switches it off after the
+  campaign was queued gets none of the rest: their row ends as failed, "Not sent: the
+  account has not opted in to marketing." Campaigns queued before migration 055 are
+  held to the same rule. The **Subscribers** audience is the exception — there the
+  newsletter subscription is the consent — and any email address that unsubscribed or
+  bounced after queueing is skipped ("Not sent: the address unsubscribed…").
 - **Subscribers** — the marketing list, with source, status and export.
 - **Coupons** — percentage or fixed discounts with usage limits, validity windows,
   minimum booking amount and per-user caps. Redemption history per coupon.
@@ -286,11 +389,50 @@ sitemap and the public pages both use.
 
 - **Notifications** — send to a segment or an individual across push, email and SMS;
   edit the seeded templates; review delivery history. Templates use placeholders that
-  are substituted per recipient.
+  are substituted per recipient. A broadcast is promotional: everyone gets it in the
+  app's notification centre, but push and email go only to accounts that opted in to
+  product updates and offers. The same goes for any template whose category is
+  **promo** or **marketing** (today `referral.rewarded`): in-app for everyone, push,
+  email and SMS only for accounts that opted in. File a transactional template under
+  another category.
 - **Support** — the ticket queue. Assign, reply, change priority and status, and close.
   The badge counts open tickets.
-- **Reports** — user reports on creators, bookings, reviews and messages. Investigate,
-  action and resolve. The badge counts open reports.
+- **Reports** (Abuse reports) — what users report from the app's menus: profiles,
+  messages, reviews, bookings, portfolio items and campaign briefs. Each row shows the
+  reporter, what was reported with a copy of it as it read when the report was filed
+  (a message or a brief may since have changed or gone) and any photo or link, the
+  reason, the reporter's note, and the **reported account** with how many reports about
+  it are still open and how many people have blocked it. A review's link opens that one
+  review on the Reviews screen (a reported review is also marked **Flagged** there;
+  **Keep** clears the flag and leaves it published). Messages and briefs have no
+  screen of their own in the panel, so their link opens the account that posted them.
+  Filter by status, subject, reason, or search the copy, notes and names; "N open
+  reports" on a row lists every report about that account. **Investigate**, then
+  **Resolve** (say what you did) or **Dismiss** (say why); both notes go to the audit
+  trail.
+
+  **Taking content down.** An open report on content has a red button that removes it
+  and resolves every open report on the same thing in one step, with your note in the
+  audit trail (`report.take_down`):
+
+  | Reported | Button | What happens |
+  |---|---|---|
+  | Message | **Remove message** | Gone from the chat for both people; the inbox preview stops quoting it. The report keeps its copy |
+  | Campaign brief | **Take down brief** | Cancelled and made private, so it leaves every creator's board; creators who applied are told it closed. Bookings already made from it carry on and are handled on their own pages |
+  | Review | **Hide review** | Hidden and no longer counted in the rating (Reviews → Publish brings it back) |
+  | Portfolio item | **Remove item** | Refused, so it leaves the public profile; it shows as rejected in Creator changes → Items |
+
+  The person who posted it gets an in-app notice that it was removed for breaking the
+  community guidelines, with support@zusty.app for an appeal; they are never told who
+  reported it. A profile, an account or a booking has no take-down: suspend the account
+  from its user page (a suspended brand's briefs leave the board with it), and cancel
+  or refund a booking from the booking. Red reasons (child safety,
+  self-harm, violence, hate speech, sexual content, fraud, harassment, impersonation)
+  come first in any day's work; for child safety, act on the account at once and escalate
+  as the law requires. One person can have one open report on the same thing; once
+  you close it, they can report it again. The reporter is never told the outcome by
+  the panel, and the reported person is never told who reported them. The badge counts
+  open reports.
 - **Contact Inbox** — submissions from the public contact form. The badge counts unread.
 
 ---
@@ -414,12 +556,38 @@ Diagnostics. Restricted to the `developer.*` permissions, which only **Super Adm
 **Login Methods** (`/admin/login-methods`) — every way into the platform, on one
 screen: Email & Password, One-time code (OTP), Google, Apple, Facebook and Guest access.
 
+The apps offer three ways in: email and password, a one-time code by email, and Google.
+**Sign in with Apple is switched off** (migration 055); its stored credentials are kept,
+and the API refuses Apple tokens while it is off.
+
 **One-time codes** go to the account's email address. The **Firebase & flow** tab
 sets which channels may carry a sign-in code (Email, SMS), whether a code alone signs
 an existing account in (it never creates one), and the button label the apps show
-("Log in with email code"). SMS is offered only while it is ticked there **and**
-switched on under Settings → SMS; with SMS unticked there is no phone sign-in at all,
-Firebase phone sign-in included.
+("Log in with email code"). At least one channel that can deliver must be ticked: a
+save with none, or with SMS alone while SMS delivery is off, is refused and changes
+nothing (to stop code sign-in, switch "A code alone can sign someone in" off, or the
+method itself). If SMS is later switched off while it is the only channel ticked, the
+page warns you and the apps hide code sign-in until Email is ticked again. SMS is
+offered only while it is ticked there
+**and** switched on under Settings → SMS; with SMS unticked there is no phone sign-in
+at all, Firebase phone sign-in included. Settings → SMS is the switch that counts: off
+there means off, whatever `SMS_ENABLED` says in `.env`, and the SMS queue then sends
+nothing (anything waiting is closed as not sent, rather than going out late). While SMS
+is off and contact verification codes are on, nobody can add or change a mobile number
+in the app (a new number is proved by text): **Email & mobile** shows no mobile change
+or "Add another number" and says why, the API refuses such a request with
+`sms_unavailable`, and the user's contact page in the panel shows "Mobile changes
+allowed" as off. Brands without a number give one at checkout instead.
+
+**Sign-up.** Every new account has an email address: there are no phone-only accounts,
+since a number cannot be verified without SMS. **Sign-in identifier** only decides what
+the apps' sign-in field asks for (Email, or Email or a number an older account already
+has). Accepting the Terms and Privacy Policy is required on every sign-up, Google
+included, and is no longer a switch; the app shows "By continuing, you agree to the
+Terms and Privacy Policy" above the Google button, and each account records when it
+accepted (`users.terms_accepted_at`). **Product updates and offers** are opt-in: an
+unticked box at sign-up, off for a Google sign-up, and a switch in the app's
+Settings → Notifications.
 
 ### Switching a method off is real
 
@@ -572,11 +740,15 @@ The ones that change behaviour most:
 | Setting | Effect |
 |---|---|
 | General → Maintenance mode | API returns `503`; the panel stays usable |
+| General → Support phone | **Empty by default, and should stay empty**: Zusty publishes no phone number. While it is empty the app's Help & Support screen shows no call option; support is `support@zusty.app` |
 | Fees & tax → Commission rate | Applied to every new booking quote |
 | Fees & tax → GST | Applied on top of the platform fee |
 | Bookings → Auto-expire hours | How long a creator has to respond |
 | Bookings → Escrow release days | When `escrow:release` matures a hold |
-| Wallet → Minimum withdrawal | Floor on payout requests |
+| Bookings → Minimum / maximum booking amount | Also the range every creator package price must fall in |
+| Wallet → Minimum withdrawal | Floor on payout requests, for brands (whose wallets hold only refunds) as for creators |
+| Wallet → Wallet top-up ("Add money") | **Off by default.** Off: brands pay each booking at checkout, the app shows no "Add money" and `POST /wallet/topup` is refused. Switching it on lets brands preload money, which makes the wallet a prepaid payment instrument under RBI rules — take advice before you do |
+| Payments → Allow wallet payment | Lets a brand pay a booking from balance already in the wallet; the checkout offers it only when the balance covers the whole total |
 | Security → Max login attempts, lockout minutes | Sign-in lockout |
 | Security → Slow query threshold | What Developer → Query Monitor records |
 | App releases → Minimum version | Forces an app update |

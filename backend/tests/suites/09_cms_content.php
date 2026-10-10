@@ -21,9 +21,9 @@ declare(strict_types=1);
  *    as clients pinned to stale config, so the ETag round trip is exercised
  *    both ways: matching validator -> 304, stale validator -> 200.
  *
- * Fixtures: this suite inserts its own `it-` prefixed pages, blogs and popups
- * so that "hidden rows stay hidden" can be asserted against rows it controls,
- * and removes them again at the end. Seeded demo rows are read, never written;
+ * Fixtures: this suite inserts its own `it-` prefixed pages, blogs, popups and
+ * an "IT " testimonial, so that "hidden rows stay hidden" can be asserted
+ * against rows it controls, and removes them again at the end. Seeded demo rows are read, never written;
  * the one counter it does bump (FAQ helpfulness) is restored to its original
  * value.
  */
@@ -50,6 +50,7 @@ $cmsCleanup = static function (): void {
         Database::execute("DELETE FROM `blogs` WHERE `slug` LIKE 'it-%'");
         Database::execute("DELETE FROM `popups` WHERE `name` LIKE 'IT %'");
         Database::execute("DELETE FROM `contact_messages` WHERE `email` LIKE 'it-%@zuste.test'");
+        Database::execute("DELETE FROM `testimonials` WHERE `author_name` LIKE 'IT %'");
     } catch (\Throwable) {
         // Reported by the checks that depend on the fixture, not swallowed here.
     }
@@ -81,6 +82,13 @@ try {
             '<p>draft body</p>', 'IT Author', '[]', 3, 0, 'draft', 0, NULL),
            (1, 'it-blog-embargoed', 'IT Embargoed Article', 'Not due yet.',
             '<p>embargoed body</p>', 'IT Author', '[]', 3, 0, 'published', 0, DATE_ADD(NOW(), INTERVAL 7 DAY))"
+    );
+
+    // The seeded quotes ship switched off (migration 053: they were never
+    // said by a customer), so the testimonial checks read one of their own.
+    Database::execute(
+        "INSERT INTO `testimonials` (`author_name`, `author_role`, `content`, `rating`, `is_featured`, `is_active`, `sort_order`)
+         VALUES ('IT Fixture Author', 'Fixture', 'IT fixture quote for the testimonials endpoint.', 4, 0, 1, 99)"
     );
 } catch (\Throwable $e) {
     $cmsFixturesReady = false;
@@ -1389,12 +1397,13 @@ Suite::group('CMS — cleanup');
 $cmsCleanup();
 
 Suite::equals(
-    'every fixture page, article, popup and contact message is removed',
+    'every fixture page, article, popup, contact message and testimonial is removed',
     [
-        'pages'    => (int) (Database::scalar("SELECT COUNT(*) FROM `pages` WHERE `slug` LIKE 'it-%'") ?? -1),
-        'blogs'    => (int) (Database::scalar("SELECT COUNT(*) FROM `blogs` WHERE `slug` LIKE 'it-%'") ?? -1),
-        'popups'   => (int) (Database::scalar("SELECT COUNT(*) FROM `popups` WHERE `name` LIKE 'IT %'") ?? -1),
-        'contacts' => (int) (Database::scalar("SELECT COUNT(*) FROM `contact_messages` WHERE `email` LIKE 'it-%@zuste.test'") ?? -1),
+        'pages'        => (int) (Database::scalar("SELECT COUNT(*) FROM `pages` WHERE `slug` LIKE 'it-%'") ?? -1),
+        'blogs'        => (int) (Database::scalar("SELECT COUNT(*) FROM `blogs` WHERE `slug` LIKE 'it-%'") ?? -1),
+        'popups'       => (int) (Database::scalar("SELECT COUNT(*) FROM `popups` WHERE `name` LIKE 'IT %'") ?? -1),
+        'contacts'     => (int) (Database::scalar("SELECT COUNT(*) FROM `contact_messages` WHERE `email` LIKE 'it-%@zuste.test'") ?? -1),
+        'testimonials' => (int) (Database::scalar("SELECT COUNT(*) FROM `testimonials` WHERE `author_name` LIKE 'IT %'") ?? -1),
     ],
-    ['pages' => 0, 'blogs' => 0, 'popups' => 0, 'contacts' => 0]
+    ['pages' => 0, 'blogs' => 0, 'popups' => 0, 'contacts' => 0, 'testimonials' => 0]
 );

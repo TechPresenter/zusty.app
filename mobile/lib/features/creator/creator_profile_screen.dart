@@ -12,14 +12,18 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/creator.dart';
 import '../../models/creator_fields.dart';
+import '../../models/safety.dart';
 import '../../providers/core_providers.dart';
 import '../../providers/discovery_provider.dart';
+import '../../providers/safety_provider.dart';
 import '../../router/routes.dart';
 import '../../shared/motion/motion.dart';
 import '../../shared/widgets/states.dart';
 import '../../shared/widgets/z_button.dart';
 import '../../shared/widgets/z_image.dart';
 import '../../shared/widgets/z_scaffold.dart';
+import '../safety/block_dialogs.dart';
+import '../safety/safety_menu.dart';
 import 'widgets/profile_about.dart';
 import 'widgets/profile_header.dart';
 import 'widgets/profile_insights.dart';
@@ -298,12 +302,21 @@ class _ProfileViewState extends ConsumerState<_ProfileView>
   void _openCategory(String slug) =>
       context.push('${Routes.searchResults}?category=$slug');
 
+  /// Lifts the viewer's block on this creator; the profile reloads with
+  /// Message and Book back.
+  Future<void> _unblock() => confirmUnblock(
+    context,
+    ref,
+    userId: _creator.userId,
+    name: _creator.displayName,
+  );
+
   bool get _canBook =>
       !_profile.isOwner && _creator.availability != Availability.unavailable;
 
   // -- Build -----------------------------------------------------------------
 
-  Widget _body(_ProfileTab tab) {
+  Widget _body(_ProfileTab tab, {required bool blocked}) {
     final profile = _profile;
 
     return switch (tab) {
@@ -314,7 +327,7 @@ class _ProfileViewState extends ConsumerState<_ProfileView>
       ),
       _ProfileTab.packages => ProfilePackagesTab(
         profile: profile,
-        onBook: _canBook ? _bookPackage : null,
+        onBook: _canBook && !blocked ? _bookPackage : null,
       ),
       _ProfileTab.insights => ProfileInsightsTab(
         profile: profile,
@@ -328,6 +341,13 @@ class _ProfileViewState extends ConsumerState<_ProfileView>
   Widget build(BuildContext context) {
     final profile = _profile;
     final top = MediaQuery.paddingOf(context).top;
+
+    // The server's flag, or a block made on another screen this session
+    // before the profile has been fetched again.
+    final blocked =
+        !profile.isOwner &&
+        (profile.isBlocked ||
+            ref.watch(isBlockedProvider(profile.creator.userId)));
 
     final tabBar = TabBar(
       key: _tabBarKey,
@@ -355,6 +375,8 @@ class _ProfileViewState extends ConsumerState<_ProfileView>
         profile: profile,
         onBook: _book,
         onShare: () => _shareProfile(context, ref, profile),
+        blocked: blocked,
+        onUnblock: _unblock,
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
@@ -378,6 +400,20 @@ class _ProfileViewState extends ConsumerState<_ProfileView>
                   // builds them from the creator's handle and the configured
                   // public path.
                   onShare: () => _shareProfile(context, ref, profile),
+                  blocked: blocked,
+                  // Report and block, for everyone but the creator.
+                  overflow: profile.isOwner
+                      ? null
+                      : SafetyMenuButton(
+                          target: ReportTarget.creator,
+                          targetId: profile.creator.id,
+                          name: profile.creator.displayName,
+                          userId: profile.creator.userId > 0
+                              ? profile.creator.userId
+                              : null,
+                          blocked: blocked,
+                          onCover: true,
+                        ),
                 ),
                 SliverToBoxAdapter(
                   child: ProfileIdentity(
@@ -386,6 +422,8 @@ class _ProfileViewState extends ConsumerState<_ProfileView>
                     onMessage: _message,
                     onSocialTap: _openSocial,
                     onCategoryTap: _openCategory,
+                    blocked: blocked,
+                    onUnblock: _unblock,
                   ),
                 ),
                 SliverPersistentHeader(
@@ -411,7 +449,7 @@ class _ProfileViewState extends ConsumerState<_ProfileView>
                         ),
                         child: KeyedSubtree(
                           key: ValueKey(_shown),
-                          child: _body(_shown),
+                          child: _body(_shown, blocked: blocked),
                         ),
                       ),
                     ),
@@ -483,11 +521,17 @@ class _ActionBar extends StatelessWidget {
     required this.profile,
     required this.onBook,
     required this.onShare,
+    this.blocked = false,
+    this.onUnblock,
   });
 
   final CreatorProfile profile;
   final VoidCallback onBook;
   final VoidCallback onShare;
+
+  /// The viewer blocked this creator: booking gives way to Unblock.
+  final bool blocked;
+  final VoidCallback? onUnblock;
 
   @override
   Widget build(BuildContext context) {
@@ -522,6 +566,12 @@ class _ActionBar extends StatelessWidget {
             ),
           ),
         ],
+      );
+    } else if (blocked) {
+      content = ZButton.outlined(
+        label: 'Unblock to book',
+        icon: Icons.lock_open_rounded,
+        onPressed: onUnblock,
       );
     } else {
       content = Row(

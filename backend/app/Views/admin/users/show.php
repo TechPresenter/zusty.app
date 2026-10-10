@@ -14,6 +14,8 @@ declare(strict_types=1);
  * @var list<array<string,mixed>> $kyc
  * @var list<array<string,mixed>> $devices
  * @var list<array<string,mixed>> $activity
+ * @var array{blocked:list<array<string,mixed>>,blocked_by:list<array<string,mixed>>,blocked_count:int,blocked_by_count:int} $blocks
+ * @var array{open:int,total:int}|null $reportCounts  Null without reports.view
  */
 
 $this->extend('admin.layouts.app');
@@ -346,6 +348,52 @@ $isErased = is_array($erasure);
       </div>
     </div>
     <?php endif; ?>
+
+    <!-- Safety: blocks both ways, and the reports about this account -->
+    <?php
+      $blocks       = $blocks ?? ['blocked' => [], 'blocked_by' => [], 'blocked_count' => 0, 'blocked_by_count' => 0];
+      $reportCounts = $reportCounts ?? null;
+    ?>
+    <div class="card">
+      <div class="card__head"><h3 class="h3">Safety</h3></div>
+      <div class="card__body col gap-3">
+        <?php if (is_array($reportCounts)): ?>
+          <div class="row row--between gap-2">
+            <div class="small">Reports about this account</div>
+            <a class="small" href="/admin/reports?<?= $this->e(http_build_query(['reported_user_id' => (int) $user['id'], 'status' => 'all'])) ?>">
+              <?= (int) $reportCounts['open'] ?> open · <?= (int) $reportCounts['total'] ?> in all
+            </a>
+          </div>
+        <?php endif; ?>
+
+        <?php foreach ([
+            ['Blocked by this account', $blocks['blocked'], (int) $blocks['blocked_count']],
+            ['Accounts that blocked this one', $blocks['blocked_by'], (int) $blocks['blocked_by_count']],
+        ] as [$label, $rows, $count]): ?>
+          <div>
+            <div class="label mb-1"><?= $this->e($label) ?> (<?= $count ?>)</div>
+            <?php if ($rows === []): ?>
+              <div class="tiny muted">None.</div>
+            <?php else: ?>
+              <?php foreach ($rows as $row): ?>
+                <div class="row row--between gap-2">
+                  <a class="small truncate" href="/admin/users/<?= (int) $row['user_id'] ?>"><?= $this->e($row['name']) ?></a>
+                  <span class="tiny faint" style="white-space:nowrap"><?= $this->date($row['created_at']) ?></span>
+                </div>
+              <?php endforeach; ?>
+              <?php if ($count > count($rows)): ?>
+                <div class="tiny muted">and <?= $count - count($rows) ?> more</div>
+              <?php endif; ?>
+            <?php endif; ?>
+          </div>
+        <?php endforeach; ?>
+
+        <p class="tiny muted mb-0">
+          Blocks are made by users in the app and work both ways. Bookings already paid for between
+          two blocked accounts can still be completed or disputed.
+        </p>
+      </div>
+    </div>
 
     <!-- Danger zone. A brand or creator that staff soft-deleted before Delete
          became an erasure still holds its personal data, so it is offered too. -->

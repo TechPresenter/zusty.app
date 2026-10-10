@@ -382,17 +382,16 @@ final class EngagementController extends BaseAdminController
             // Email goes through the queue so a large blast does not block here.
             if (in_array('email', $channels, true)) {
                 // A broadcast is promotional traffic, so the email switch and
-                // the marketing opt-out both have to be honoured here — this
-                // arm never went through NotificationService.
+                // the marketing choice both have to be honoured here — this
+                // arm never went through NotificationService. Marketing is
+                // opt-in: no stored choice means no email.
                 $emails = Database::select(
                     'SELECT `id`, `name`, `email` FROM `users`
                      WHERE `id` IN (' . implode(',', array_map('intval', $recipients)) . ')
                        AND `email` IS NOT NULL AND `email` <> "" AND `status` = "active"
-                       AND (`notification_prefs` IS NULL
-                            OR `notification_prefs` = ""
-                            OR JSON_VALID(`notification_prefs`) = 0
-                            OR (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(`notification_prefs`, "$.email")), "true") NOT IN ("false","0")
-                                AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(`notification_prefs`, "$.marketing")), "true") NOT IN ("false","0")))'
+                       AND JSON_VALID(`notification_prefs`) = 1
+                       AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(`notification_prefs`, "$.email")), "true") NOT IN ("false","0")
+                       AND JSON_UNQUOTE(JSON_EXTRACT(`notification_prefs`, "$.marketing")) IN ("true","1")'
                 );
 
                 foreach ($emails as $recipient) {

@@ -152,17 +152,21 @@ class AppConfigRepository {
 
   /// Email and password only — the one method that needs no provider
   /// configuration and therefore cannot be broken by a missing credential.
+  ///
+  /// The field asks for an email, as the server does by default
+  /// (`auth.identifier_mode` = `email`). An older phone-only account can
+  /// still type its number: the login screen accepts one either way.
   static const _fallback = AuthConfig(
     methods: [
       AuthMethod(
         key: 'email_password',
         enabled: true,
-        label: 'Email or phone',
+        label: 'Email',
         order: 10,
         raw: {
           'key': 'email_password',
           'enabled': true,
-          'identifier_mode': 'email_or_phone',
+          'identifier_mode': 'email',
           'password_min_length': 8,
           'forgot_password_enabled': true,
         },

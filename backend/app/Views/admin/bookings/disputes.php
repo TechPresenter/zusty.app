@@ -33,9 +33,9 @@ $status = (string) ($filters['status'] ?? 'open');
   <div class="card__body row gap-3" style="padding:14px 18px">
     <span style="color:var(--warning)"><?= $this->icon('alert') ?></span>
     <p class="small" style="color:var(--warning)">
-      Resolving a dispute moves real money. The refund goes to the brand's wallet and the payout to the
-      creator's — they must together not exceed what is held in escrow. Both amounts are recorded with
-      your resolution note.
+      Resolving a dispute moves real money. The refund goes back to the brand's original payment method
+      unless you choose the wallet, and the payout goes to the creator's wallet — they must together not
+      exceed what is held in escrow. Both amounts are recorded with your resolution note.
     </p>
   </div>
 </div>
@@ -126,6 +126,15 @@ $status = (string) ($filters['status'] ?? 'open');
                          max="<?= $this->e($dispute['total_amount']) ?>"
                          name="refund_amount" id="refund_<?= (int) $dispute['id'] ?>" value="0">
                   <p class="field__hint">Max <?= $this->money($dispute['total_amount'], (string) $dispute['currency']) ?></p>
+                </div>
+
+                <div class="field">
+                  <label class="field__label" for="refund_destination_<?= (int) $dispute['id'] ?>">Refund goes to</label>
+                  <select class="select" name="refund_destination" id="refund_destination_<?= (int) $dispute['id'] ?>">
+                    <option value="source">Original payment method (5–7 days)</option>
+                    <option value="wallet">Zusty wallet (instant)</option>
+                  </select>
+                  <p class="field__hint">A wallet payment is always refunded to the wallet. The refund is sent once the resolution is saved; if the gateway refuses it, you are told, and the payment stays refundable from the booking. A brand can withdraw its wallet only from <?= $this->money(\Zuste\Core\Config::settingFloat('wallet', 'min_withdrawal', 1000), (string) $dispute['currency']) ?>: less can only pay for a booking it covers, or be paid out by support.</p>
                 </div>
 
                 <div class="field">

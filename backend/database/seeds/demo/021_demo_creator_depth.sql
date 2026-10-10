@@ -430,8 +430,8 @@ FROM (
 
       /* ---------------- LIFE ---------------- */
       SELECT 'LIFE' AS pack, 0 AS slot, 'reel' AS media_kind,
-        'Sunday Reset with Bloom Skincare' AS title,
-        'My whole Sunday reset in thirty seconds. The Bloom Skincare night oil is the one step I never skip, even at 1am after a shoot.' AS caption,
+        'Sunday Reset with Velvetfern Skincare' AS title,
+        'My whole Sunday reset in thirty seconds. The Velvetfern Skincare night oil is the one step I never skip, even at 1am after a shoot.' AS caption,
         'instagram' AS source_platform, '9:16' AS aspect_ratio, 32 AS duration_secs,
         '1080/1920' AS media_dims, '540/960' AS thumb_dims,
         1.35 AS view_ratio, 0.062 AS like_ratio
@@ -477,7 +477,7 @@ FROM (
         'Five days, one oversized blazer, zero repeats. Proof that a single well-structured piece does most of the work for you.',
         'instagram','9:16',30,'1080/1920','540/960',0.74,0.061
       UNION ALL SELECT 'STYLE',6,'post','Skin Prep Before the Base',
-        'The ten minutes before makeup matter more than the makeup. My full prep routine with the Bloom Skincare serum layered under everything.',
+        'The ten minutes before makeup matter more than the makeup. My full prep routine with the Velvetfern Skincare serum layered under everything.',
         'instagram','1:1',NULL,'1080/1080','540/540',0.38,0.072
       UNION ALL SELECT 'STYLE',7,'video','Six Months With the Same Five Products',
         'No new launches and nothing gifted. Just what genuinely survived six months in my routine and what quietly got shelved.',

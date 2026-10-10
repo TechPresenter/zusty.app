@@ -136,6 +136,26 @@ class MenuScreen extends ConsumerWidget {
                   title: 'My applications',
                   onTap: () => context.push(Routes.applications),
                 ),
+                // What a brand books, what it looks at first, and where it
+                // checks the creator's reach.
+                ZMenuTile(
+                  icon: Icons.inventory_2_outlined,
+                  title: 'My packages',
+                  subtitle: 'Fixed-price offers brands can pick',
+                  onTap: () => context.push(Routes.myPackages),
+                ),
+                ZMenuTile(
+                  icon: Icons.photo_library_outlined,
+                  title: 'Portfolio',
+                  subtitle: 'Your best work, shown on your profile',
+                  onTap: () => context.push(Routes.myPortfolio),
+                ),
+                ZMenuTile(
+                  icon: Icons.alternate_email_rounded,
+                  title: 'Social accounts',
+                  subtitle: 'Instagram, YouTube and other links',
+                  onTap: () => context.push(Routes.socialAccounts),
+                ),
                 // Creators control which dates brands can book them on.
                 ZMenuTile(
                   icon: Icons.event_available_outlined,

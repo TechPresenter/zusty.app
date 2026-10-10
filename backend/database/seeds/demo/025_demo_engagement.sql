@@ -507,8 +507,8 @@ JOIN (
     /* ---- script 4 : food / restaurant tasting --------------------------- */
     UNION ALL SELECT 4,  1, 'b', 'text', 'Namaste {creator}, this is the team at {brand}. We are opening our second outlet in {city} and we want a food creator to cover the tasting.'
     UNION ALL SELECT 4,  2, 'c', 'text', 'Hi, congratulations on the new outlet. I do covered tastings, usually one reel plus a story set on the day itself.'
-    UNION ALL SELECT 4,  3, 'b', 'text', 'That is exactly what we need. A reel of 45 to 60 seconds, five stories, and a Google review would be a bonus.'
-    UNION ALL SELECT 4,  4, 'c', 'text', 'I do not charge for the Google review, and I only leave one if the food genuinely deserves it. My rate for the reel and stories is INR {amt}.'
+    UNION ALL SELECT 4,  3, 'b', 'text', 'That is exactly what we need. A reel of 45 to 60 seconds and five stories, all posted on the day.'
+    UNION ALL SELECT 4,  4, 'c', 'text', 'Works for me. My rate for the reel and stories is INR {amt}, and everything carries the paid partnership tag.'
     UNION ALL SELECT 4,  5, 'b', 'text', 'That works for us. The tasting is on the 14th at 1 pm and we will hold a table for two.'
     UNION ALL SELECT 4,  6, 'c', 'text', 'Perfect, I will bring my camera person. Could you share the menu in advance so I can plan the shots?'
     UNION ALL SELECT 4,  7, 'b', 'image', 'Here is the tasting menu, eight courses with two desserts.'
@@ -525,7 +525,7 @@ JOIN (
     UNION ALL SELECT 4, 18, 'c', 'text', 'Of course, redoing the voiceover today. Small thing, but worth getting right.'
     UNION ALL SELECT 4, 19, 'c', 'text', 'New audio is in, sending version two.'
     UNION ALL SELECT 4, 20, 'b', 'text', 'Approved. Please publish on Saturday at 12 noon.'
-    UNION ALL SELECT 4, 21, 'c', 'text', 'Live. The Google review is up too, five stars and I mentioned the kebabs by name.'
+    UNION ALL SELECT 4, 21, 'c', 'text', 'Live, with the paid partnership tag on the reel and the stories.'
     UNION ALL SELECT 4, 22, 'b', 'text', 'Thank you. We did 40 covers on Sunday and at least a dozen guests mentioned the reel.'
     UNION ALL SELECT 4, 23, 'b', 'text', 'One thought for next time, could you do a follow up story when our weekend brunch launches?'
     UNION ALL SELECT 4, 24, 'c', 'text', 'Happy to. Send me the dates and we will work out a small add on.'
@@ -789,9 +789,9 @@ FROM (
     UNION ALL SELECT 2193, 1012, 2022, 'payment.refunded', 'payment', 'refresh', 'wallet', '1781', 'Refund processed', 'A partial refund of INR 12,000 has been credited for the deliverable that was dropped from scope.', 1, 28
     UNION ALL SELECT 2194, 1013, 2043, 'payment.success', 'payment', 'check_circle', 'payment', '560', 'Payment successful', 'Payment successful. Your booking is confirmed.', 1, 77
     UNION ALL SELECT 2195, 1014, 2010, 'wallet.debited', 'wallet', 'arrow_upward', 'wallet', '1788', 'Wallet debited', 'INR 35,400 was debited from your wallet balance towards the booking with {who}.', 1, 80
-    UNION ALL SELECT 2196, 1015, 2026, 'wallet.credited', 'wallet', 'arrow_downward', 'wallet', '1793', 'Money added', 'INR 50,000 has been added to your Zusty wallet. Use it for faster checkout on your next booking.', 1, 44
+    UNION ALL SELECT 2196, 1015, 2026, 'wallet.credited', 'wallet', 'arrow_downward', 'wallet', '1793', 'Refund credited', 'INR 50,000 from a cancelled booking has been refunded to your Zusty wallet.', 1, 44
     UNION ALL SELECT 2197, 1016, 2015, 'payment.success', 'payment', 'check_circle', 'payment', '566', 'Payment successful', 'Payment captured for the UGC bundle.', 1, 35
-    UNION ALL SELECT 2198, 1017, 2020, 'wallet.credited', 'wallet', 'arrow_downward', 'wallet', '1801', 'Money added', 'Wallet topped up successfully. Your available balance has been updated.', 1, 23
+    UNION ALL SELECT 2198, 1017, 2020, 'wallet.credited', 'wallet', 'arrow_downward', 'wallet', '1801', 'Refund credited', 'A refund has been credited to your wallet. Your available balance has been updated.', 1, 23
     UNION ALL SELECT 2199, 1018, 2033, 'payment.success', 'payment', 'check_circle', 'payment', '571', 'Payment successful', 'Payment complete. The creator has been notified and can start production.', 0, 7
     UNION ALL SELECT 2200, 1019, 2041, 'payment.failed', 'payment', 'error', 'payment', '575', 'Payment failed', 'Payment could not be completed because the daily UPI limit was exceeded. Try a card or netbanking instead.', 0, 2
     UNION ALL SELECT 2201, 2003, 1001, 'wallet.credited', 'wallet', 'arrow_downward', 'wallet', '1712', 'Money added', 'INR 38,250 has been credited to your wallet after 15 percent platform commission and applicable GST.', 1, 62

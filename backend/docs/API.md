@@ -80,12 +80,25 @@ Access tokens last 1 hour, refresh tokens 30 days (both configurable).
 
 ```http
 POST /api/v1/auth/register
-{ "name": "Asha Rao", "email": "asha@example.com", "phone": "+919876543210",
-  "password": "…", "account_type": "brand", "accept_terms": true }
+{ "name": "Asha Rao", "email": "asha@example.com", "password": "…",
+  "account_type": "brand", "accept_terms": true, "marketing_opt_in": false }
 ```
 
-`account_type` is `brand` or `creator`. `accept_terms` is required while
-**Authentication → Sign-up → Require accepting the terms** is on.
+`account_type` is `brand` or `creator`. Every sign-up needs:
+
+- `email`. There are no phone-only accounts (SMS is off, so a number could never be
+  verified): without one the answer is `422` with `errors.email`. `phone` is still
+  accepted as an optional extra.
+- `accept_terms: true`, always (Google Play policy); `422` `terms_required` without it.
+  The time is stored on the account as `terms_accepted_at`.
+
+`marketing_opt_in` is the unticked "Send me product updates and offers" box. Product
+updates and offers are off unless it is `true`; the account can change this later with
+`PUT /me/notification-preferences` (`marketing`). With `marketing` off, nothing
+promotional goes out by push, email or SMS: admin broadcasts filed as promotional,
+notification templates in the `promo`/`marketing` category (their in-app row is still
+written) and marketing campaigns, which read the choice again when each batch sends,
+so switching it off also stops a campaign already queued.
 
 ### Sign in
 
@@ -94,7 +107,10 @@ POST /api/v1/auth/login
 { "identifier": "asha@example.com", "password": "…" }
 ```
 
-`identifier` accepts an email or a phone number.
+`identifier` is the account's email address. A phone number is still accepted, so an
+older account that has one can sign in with it; `GET /app/config` →
+`auth.methods[email_password].identifier_mode` (`email`, or `email_or_phone`) says what
+the field should ask for.
 
 Returns:
 
@@ -122,7 +138,7 @@ All under `/api/v1/auth`.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/auth/firebase` | Exchange a Firebase ID token (Google, Apple, phone) for platform tokens |
+| `POST` | `/auth/firebase` | Exchange a Firebase ID token (Google today; Apple and phone are switched off) for platform tokens. A first sign-in, which creates the account, needs `accept_terms: true` (below) |
 | `POST` | `/auth/otp/send` · `/auth/otp/verify` | Codes for `register`, `login`, `verify_phone` and `verify_email` only (below) |
 | `POST` | `/auth/forgot-password` · `/auth/reset-password` | Password recovery |
 | `GET` | `/auth/me` | Current user, including `has_password` |
@@ -133,7 +149,11 @@ All under `/api/v1/auth`.
 
 **One-time codes.** `POST /auth/otp/send` takes `destination`, `channel` (`email` \|
 `sms`) and `purpose`; any other purpose is a `422` on `errors.purpose` (the codes that
-confirm privacy actions come from `/me/privacy/verification-code`). It answers
+confirm privacy actions come from `/me/privacy/verification-code`). A code nothing would
+redeem is not sent either: `422` `invalid_purpose` for `register` by email (sign-up takes
+no code; `register` is only the guest upgrade's SMS code), `verify_phone` by email and
+`verify_email` by SMS. Each network may ask for 20 codes and check 10 in ten minutes,
+in separate allowances; each address keeps its own cooldown and ceiling. It answers
 `{expires_in, length, channel, resend_in}`; wait `resend_in` seconds before offering
 "Send again". Refusals: `429` `otp_cooldown` (a code for this address and purpose was
 sent moments ago) and `429` `otp_send_limit` (too many in the window), both with
@@ -144,7 +164,9 @@ when the mail or SMS provider failed — nothing was sent and an earlier code st
 works. Which channels sign-in codes may use is `auth.methods[mobile_otp].channels` in
 `GET /app/config`; today that is `["email"]` (the code goes to the account's email
 address, and the destination is that address). The send answers the same whether or
-not an account uses the address.
+not an account uses the address. `auth.methods[mobile_otp].login_enabled` is `false`
+whenever that list is empty (for example SMS alone stored while SMS delivery is off),
+so an app never offers a code sign-in no channel can deliver.
 
 **Signing in with a code.** `POST /auth/otp/verify` with `purpose: login` and the same
 `destination` answers `200 {user, tokens}` like `/auth/login`. It is `403`
@@ -156,6 +178,14 @@ The other purposes answer `{verified: true}`. For any purpose, a code that is wr
 old, was never sent or was already used is `422` `otp_invalid`, `otp_expired`,
 `otp_not_found` or `otp_used`, and too many wrong tries of one code is `429`
 `otp_attempts_exceeded`.
+
+**Google sign-up accepts the terms.** A first Google sign-in creates the account, so
+`POST /auth/firebase` then needs `accept_terms: true`, as `POST /auth/register` does:
+without it the answer is `422` `terms_required` (on `errors.accept_terms`) and no account
+is made. The app shows "By continuing, you agree to the Terms and Privacy Policy",
+both linked, directly above its Google button and sends `accept_terms` from there. An
+existing account signs in whatever it sends, and `is_new_account` says which happened.
+A new Google account starts with marketing off.
 
 **Google, Apple or phone sign-in for an existing account.** When the sign-in sent to
 `POST /auth/firebase` matches an existing account by its email address or mobile
@@ -204,7 +234,7 @@ No token required.
 | Method | Path | Notes |
 |---|---|---|
 | `GET` | `/health` | Liveness check. Stays up during maintenance mode. |
-| `GET` | `/app/config` | Feature flags, minimum app version, public keys |
+| `GET` | `/app/config` | Feature flags (`features.sms_enabled`: whether a text message can go out at all), minimum app version, public keys, sign-in methods (`auth`), wallet options (`wallet.topup_enabled`, `wallet.wallet_payment`). `app.support_email` is the one public contact; `app.support_phone` is `""` (no phone number is published, so the app shows no call option) |
 | `GET` | `/home` | Home feed: categories, featured and trending creators, banners |
 | `GET` | `/explore` | Discovery feed |
 | `GET` | `/categories` | All active categories |
@@ -215,7 +245,7 @@ No token required.
 | `GET` | `/pages` · `/pages/{slug}` | Legal and informational pages |
 | `GET` | `/faqs` · `POST /faqs/{id}/helpful` | FAQs and voting |
 | `GET` | `/blogs` · `/blogs/{slug}` | Blog |
-| `GET` | `/testimonials` | |
+| `GET` | `/testimonials` | Active testimonials only. The seeded sample quotes ship switched off, so the list is empty until an operator publishes real ones |
 | `POST` | `/contact` | Contact form (rate limited) |
 
 ### Creator search
@@ -285,9 +315,9 @@ after any action.
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/wallet` | Balance and locked (escrow) balance |
+| `GET` | `/wallet` | Balance and locked (escrow) balance; `topup_enabled` |
 | `GET` | `/wallet/transactions` | Ledger, paginated |
-| `POST` | `/wallet/topup` | Add funds |
+| `POST` | `/wallet/topup` | Add funds — **off by default**, see below |
 | `POST` | `/wallet/withdraw` | Request a payout |
 | `GET` | `/wallet/withdrawals` · `POST /wallet/withdrawals/{id}/cancel` | |
 | `GET`/`POST` | `/wallet/bank-accounts` · `DELETE /wallet/bank-accounts/{id}` | |
@@ -297,6 +327,75 @@ after any action.
 
 **All amounts are INR, as numbers, not strings, and never in paise.** Format for
 display client-side with Indian digit grouping.
+
+### Bookings are paid at checkout; the wallet is not topped up (migration 056)
+
+Brands pay each booking through the gateway's hosted checkout (Cashfree):
+`POST /payments/booking/{id}` with `gateway: "cashfree"`. Loading money into the
+wallet in advance is switched off (Admin → Settings → Wallet → Wallet top-up), so the
+wallet only holds what the platform put there: creator earnings, and refunds that
+could not go back to their original method or that an admin sent there.
+
+- `GET /app/config` → `wallet`: `{ "topup_enabled": false, "wallet_payment": true }`.
+  While `topup_enabled` is false the app shows no "Add money", top-up preset or prompt.
+  `GET /wallet` carries the same `topup_enabled`.
+- `POST /wallet/topup` answers **403 `topup_disabled`** while the switch is off,
+  whatever the body (the switch is checked before validation). With it on, the
+  minimum/maximum (`wallet.min_topup` / `max_topup`) apply as before.
+- `GET /payments/methods` lists the `wallet` gateway only while the caller's wallet
+  holds a spendable balance (and is not frozen), with that balance in
+  `wallet_balance`. Offer it at checkout only when `wallet_balance` covers the
+  booking's `total_amount`: a booking is never split across two methods.
+  `gateway: "wallet"` with a balance short of the total is refused with
+  **422 `insufficient_balance`**. A card gateway's `methods` never lists `wallet`.
+
+### A mobile number for Cashfree, without SMS (migration 055)
+
+Cashfree needs a mobile number on every order. Sign-up is email-only and SMS is off,
+so a new account (email or Google) usually has no phone, and none can be verified.
+`POST /payments/booking/{id}` therefore takes an optional **`customer_phone`**:
+
+- The account's own `users.phone` always wins. `customer_phone` is used only when the
+  account has none, for that one Cashfree order. It is **never written to the
+  account** and never counts as verified (it cannot be used to sign in).
+- Accepted forms: `9876543210`, `09876543210`, `+91 98765 43210` (an Indian mobile,
+  first digit 6–9). It is sent to Cashfree as the ten digits.
+- With no phone on the account and no `customer_phone`: **422 `phone_required`**, with
+  `errors.customer_phone`. Nothing is written; no payment row is created. The app
+  answers by asking for the number in a sheet and repeating the request with it.
+- A `customer_phone` that is not an Indian mobile: **422 `phone_invalid`**, with
+  `errors.customer_phone`.
+- Other gateways and `gateway: "wallet"` ignore the field.
+
+### Refunds go back to the original payment method
+
+A refund (cancellation, admin refund, dispute) goes back to the method the booking
+was paid with: for Cashfree it is sent to Cashfree, recorded `processing`, and
+completed by the `REFUND_STATUS_WEBHOOK`. It goes to the wallet only when the
+booking was paid from the wallet, when an admin picks the wallet, or when the payment
+cannot be reversed automatically (a gateway with no refund API, or a payment row
+without the gateway id the refund needs) — the refund's `notes` then say so. A gateway
+that refuses a refund leaves it `failed` on the original method for finance to
+re-issue; it is never moved to the wallet automatically. The brand's
+`payment.refunded` notification names where the money went.
+
+What is still refundable on a payment is its amount, less `amount_refunded`, less every
+refund on it that is still `pending` (recorded, or parked for approval) or `processing`
+(accepted by the gateway, not yet confirmed). A Cashfree refund stays `processing` for
+days, and counting it only once it completed let a second refund — to the wallet, which
+is instant — pay the same money back twice. A refund beyond that balance is cut to it;
+with nothing left it is refused with **422** "There is nothing left to refund on this
+payment." A refund the gateway reports `failed` frees its amount again.
+
+A dispute's refund is recorded with the resolution and sent to the gateway only once
+the resolution is saved, so a resolution that is refused (the booking has moved on) never
+leaves a refund at the gateway without a record.
+
+A brand's wallet only receives refunds, and `wallet.min_withdrawal` (`GET /wallet` →
+`limits.min_withdrawal`) applies to brands as to creators: a refunded balance below it
+can pay for a booking it covers, but cannot be withdrawn from the app. The app says so
+on the wallet screen ("ask support to pay out a smaller balance") instead of promising
+a withdrawal, and the admin refund and dispute forms warn before the wallet is chosen.
 
 Payment webhooks (`/webhooks/razorpay`, `/webhooks/stripe`) are called by the gateway,
 never by a client. Signatures are verified before anything is acted on.
@@ -321,19 +420,120 @@ never by a client. Signatures are verified before anything is acted on.
 There is no websocket. Poll `/conversations/{id}/messages` while a thread is open —
 every 3–5 seconds is reasonable — and back off when the app is backgrounded.
 
+Each inbox row and each `GET /conversations/{id}/messages` carries `can_message`. It is
+`false` while a block stands between the two people in the thread: the history stays
+readable, and `POST /conversations/{id}/messages` answers `403` with `code: "blocked"`.
+Show a notice in place of the composer. A thread with someone the caller blocked is
+left out of the caller's inbox; it still opens from its booking
+(`POST /conversations/start {booking_id}`).
+
+`GET /conversations/{id}/messages` also carries `conversation`: the thread as its inbox
+row reads, so a chat opened from a booking, or one the user just blocked from, keeps
+its header and menu. Its `participant.is_blocked` is `true` when the caller blocked the
+other person (offer Unblock); the inbox never has such a row. Across a block either
+way `participant.is_online` is always `false`, so nobody can watch for someone who
+blocked them coming online.
+
+---
+
+## Reports and blocking
+
+Google Play asks an app with user content to let people report it and block the
+people behind it (migration 054).
+
+### `POST /reports`
+
+```json
+{ "reportable_type": "message", "reportable_id": 812, "reason": "abuse",
+  "note": "Keeps messaging after I said no" }
+```
+
+| Field | Values |
+|---|---|
+| `reportable_type` | `user`, `creator` (a creator profile), `message`, `review`, `booking`, `portfolio`, `campaign` (`brief` is accepted for `campaign`) |
+| `reason` | `spam`, `fraud`, `payment_issue`, `abuse`, `hate_speech`, `sexual_content`, `violence`, `self_harm`, `child_safety`, `impersonation`, `inappropriate`, `copyright`, `other` |
+| `note` | Optional, up to 2,000 characters. `description` is accepted for older builds |
+
+`201` with `data.report` (`id`, `reportable_type`, `reportable_id`, `reason`, `status`,
+`created_at`) and the message to show.
+
+- Only something the reporter can see can be reported: a message by a participant in
+  its conversation, a booking by one of its two parties, a hidden review by the person
+  it is about, a draft or closed brief by the creators it was sent to, a creator
+  profile or portfolio item only while it is approved and public (and live, for an
+  item) and its owner has not blocked the reporter. Anything else answers `404`,
+  exactly like an id that does not exist.
+- A reported review is also flagged (`reviews.is_flagged`), so it shows under the
+  admin panel's Reviews → Flagged.
+- Reporting yourself or something you posted is `422`, as is a platform message in a
+  booking thread.
+- One open report per reporter and target: a second while the first is still open or
+  under investigation is `409` with `code: "already_reported"` and a message worth
+  showing as a confirmation. Once the first is resolved or dismissed, the same thing
+  can be reported again.
+- Throttled to 10 reports an hour per account.
+
+The server records the account behind the content and a copy of what was reported as
+it read at the time (a message or a brief can change before a moderator looks), with
+any photo or link as evidence. Neither is ever returned to the reporter.
+
+What a moderator can do about it (admin panel, Abuse reports): take a reported message
+out of the thread for both people, cancel a brief and take it off the board, hide a
+review, or refuse a portfolio item so it leaves the profile. The person who posted it
+gets an in-app notice that it was removed, never who reported it. An account is
+suspended from its user page; a suspended brand's briefs leave the board and answer
+`404` on `GET /campaigns/{id}` and `POST /campaigns/{id}/apply`.
+
+### Blocking
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/me/blocks` | Paginated (`per_page` up to 200), newest first: `user_id`, `name`, `avatar_url`, `account_type`, `handle` (creators), `blocked_at`. An account can block up to 1,000, so read every page (`meta.pagination.has_more`) |
+| `POST` | `/me/blocks` | `{ "user_id": 42 }`. `201` with `data.block`; `200` if already blocked. Not yourself (`422`), not a guest or a deleted account (`404`) |
+| `DELETE` | `/me/blocks/{userId}` | Idempotent `200` |
+
+Both writes share a throttle of 60 an hour. A block is one person's decision but works
+both ways. While it stands, anything new between the two is refused with `403` and
+`code: "blocked"`:
+
+- messages in any conversation they share, and starting a direct conversation;
+- `POST /bookings` (a request), accepting a pending request, counter offers and
+  accepting one;
+- campaign invitations, applications, and shortlisting or hiring (declining is
+  allowed);
+- following and saving the creator. Blocking removes existing follows and saved
+  creators both ways; they do not come back on an unblock.
+
+It also hides: neither side appears in the other's creator search, suggestions, home
+and explore rails or AI matches, and a brief from a brand with a block between it and
+a creator is not on that creator's board. A creator who blocked the viewer answers
+`404` on `GET /creators/{handle}`; one the viewer blocked opens with `is_blocked: true`
+so the app can offer to unblock. Reviews by someone the viewer has a block with are
+left out of a creator's reviews for that viewer (not for the creator themselves, and
+the rating still counts them). Notifications one causes the other are not sent.
+
+The escrow rule: a block never strands money. A booking that already exists can still
+be paid once accepted, delivered, sent back for changes, approved, disputed, rejected,
+cancelled and reviewed, and the platform's booking notices still reach both sides.
+The error message tells the person who made the block how to undo it; the other side
+is told only that the account is not accepting messages or requests from them.
+
 ---
 
 ## Profile and creator self-service
 
 | Method | Path | Notes |
 |---|---|---|
-| `PUT` | `/notification-preferences` | Per-channel toggles |
+| `PUT` | `/notification-preferences` | Per-channel toggles: `push`, `email`, `sms`, `marketing`. Unsent keys keep their value; a key never set reads as its default, and `marketing` (product updates and offers) defaults to off. Offer `sms` only while `/app/config` → `features.sms_enabled` is true |
 | `POST` | `/devices` | Register an FCM token |
 | `POST` | `/upload` | Multipart. Validated by real MIME type, not filename |
 | `GET` | `/favorites` · `/referrals` · `/reviews` | |
 | `POST` | `/reviews/{id}/reply` | Reply to a review you received |
-| `POST` | `/reports` | Report a user, booking, review or message |
-| `POST` | `/creators/{id}/favorite` · `/follow` | Toggles |
+| `POST` | `/reports` | Report a profile, message, review, booking, portfolio item or campaign brief. See [Reports and blocking](#reports-and-blocking) |
+| `GET` | `/me/blocks` | The accounts you blocked |
+| `POST` | `/me/blocks` | Block an account: `{ "user_id": 42 }` |
+| `DELETE` | `/me/blocks/{userId}` | Unblock |
+| `POST` | `/creators/{id}/favorite` · `/follow` | Toggles. Saving or following across a block is refused (`403 blocked`) |
 | `DELETE` | `/search/history` | |
 
 ### KYC
@@ -373,10 +573,41 @@ needed / Approved / Rejected / Suspended / Expired), `resubmit_slots`,
 `resubmit_requested`; per document `status`, `rejection_reason`, `is_current`,
 `preview_url`. The blue tick is granted by an administrator after KYC approval
 and is never implied by approval itself.
+
+### Creator self-management
+
+Creator accounts only (`403` for anyone else). Every write is refused with `403`
+and the administrator's reason while that section is locked (`pricing`,
+`portfolio`, `social`); each list says `locked` so the app can say so first. A
+row that is not the caller's answers `404`, never someone else's data.
+
+| Method | Path | Notes |
+|---|---|---|
 | `GET`/`PUT` | `/creator` | Own creator profile |
 | `GET` | `/creator/analytics` | Views, conversion, earnings |
-| `POST`/`PUT`/`DELETE` | `/creator/packages`, `/creator/portfolio` | |
-| `PUT` | `/creator/social` · `/creator/availability` | |
+| `GET` | `/creator/packages` | `packages` (hidden ones too, each with `is_active`), `locked`, `limits {min_price, max_price, max_includes, include_max_length}` |
+| `POST` | `/creator/packages` | `title` (3–150), `description?` (≤ 1000), `platform` (`platform` taxonomy), `deliverable_type` (`deliverable_type` taxonomy), `quantity?` (1–100, default 1), `price` (within `booking.min_booking_amount`…`max_booking_amount`), `turnaround_days?` (1–180, default 7), `revisions?` (0–10, default 1), `includes?` (≤ 10 lines of ≤ 120 characters). `201 {package}` |
+| `PUT` | `/creator/packages/{id}` | Any of the above, plus `is_active`. An explicit `null` description or `[]` includes clears it |
+| `DELETE` | `/creator/packages/{id}` | Soft delete; bookings keep their package |
+| `GET` | `/creator/portfolio` | Paginated (`per_page` ≤ 60), newest first, every review state: `moderation_status` (`pending` \| `approved` \| `rejected`), `reason_label` when rejected, `is_active`. `meta.locked`, `meta.max_items` (`creator.max_portfolio_items`, 0 = no ceiling) |
+| `POST` | `/creator/portfolio` | Multipart `media` (an image, or a video for `reel`/`video`) **or** `media_url` (http(s)); `media_kind` (`portfolio_kind` taxonomy), `title?` (≤ 191), `caption?` (≤ 1000), `external_url?` (http(s)), `thumbnail_url?`. An uploaded image's `aspect_ratio` is filled in. `201 {item}`, `pending` while `creator.moderate_gallery_uploads` is on. Throttled to 30 per 10 minutes (bucket `portfolio`); at the ceiling `422 portfolio_full` |
+| `DELETE` | `/creator/portfolio/{id}` | |
+| `GET` | `/creator/social` | `social_accounts` in display order (with `platform_label`, `has_metrics`, `is_custom`), `locked`, `max_accounts` (0 = no ceiling) |
+| `PUT` | `/creator/social` | Link or, with `id`, edit: `platform` (`social_platform` taxonomy, not `upload`), `handle` (≤ 120, `@` stripped), `profile_url` (http(s)), `label` (required for a custom-link term, ignored for any other network), `followers?`, `engagement_rate?` (0–100; stored as 0 on a link-only network). One account per network that reports figures: linking one already linked, without `id`, is `422 errors.platform` ("edit it instead"); the same handle twice is `422 errors.handle`; an edit cannot change the network (`422 errors.platform`); a changed handle or link clears `is_verified` |
+| `DELETE` | `/creator/social/{id}` | Answers with the remaining list |
+| `PUT` | `/creator/social/order` | `ids` in display order; ids that are not the caller's are skipped |
+| `PUT` | `/creator/availability` | |
+
+`followers` and `engagement_rate` are what the creator enters; nothing fetches
+them from the networks, and `last_synced_at` is when the creator last saved
+them, not a sync. Every social write answers with the whole
+`social_accounts` list.
+
+The creator's `price_min` / `price_max` (the profile's "Starting at" and the
+search cards' "From") are recomputed from live packages after every package
+write, and fall to `0` when no live package is left. A booking that names a
+`package_id` is checked against `booking.min_booking_amount` /
+`max_booking_amount` at the package's price, not the `amount` sent.
 
 ---
 
@@ -451,6 +682,14 @@ and no usable Google or Apple sign-in — is refused with `409`
 is applied the old address is told. `PUT /me` no longer changes the email or phone: a new value there is `422`
 `contact_change_required` (on `errors.email` or `errors.phone`); sending the stored
 values back unchanged is still accepted.
+
+A new mobile number is proved by a code sent by text message. While SMS is off and
+proof is on (`creator.otp_verification_enabled`), `GET /me/contacts` → `policy` reports
+`allow_mobile_change: false` and `mobile_codes_available: false`, and the app offers no
+mobile change and no additional number; a phone change (`POST /me/contacts/change`),
+an additional number or a re-verification of one is refused with `422`
+`sms_unavailable` before anything is opened. Email changes are unaffected. A brand
+without a number gives one at checkout instead (`customer_phone`, above).
 
 **The export** is built while the request waits. It is a ZIP of JSON files (account,
 security — devices, sessions and sign-in history — creator profile, campaigns,
@@ -580,6 +819,7 @@ a distinct state in the client.
 - [ ] Handle `401` by refreshing once, then signing out if the refresh fails
 - [ ] On `401` with `code: "account_deleted"`, end the session and clear the device without refreshing
 - [ ] Read `code` on `503`: only `maintenance` is maintenance; `otp_delivery_failed` is retryable
+- [ ] On `403` with `code: "blocked"`, show the server's message and close the action; read `can_message` before showing a composer
 - [ ] Store the newest refresh token; never retry with an old one
 - [ ] Read `errors` on `422` and attach messages to fields
 - [ ] Handle `409` on bookings by re-reading the booking

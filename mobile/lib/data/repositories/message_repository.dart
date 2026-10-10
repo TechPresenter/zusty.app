@@ -4,6 +4,16 @@ import '../../core/network/api_endpoints.dart';
 import '../../models/message.dart';
 import 'base_repository.dart';
 
+/// One read of a thread: its messages, whether anyone else in it is typing,
+/// whether the caller may still post in it, and who it is with (the same
+/// shape as the inbox row, null from a server that predates it).
+typedef ThreadSnapshot = ({
+  List<Message> messages,
+  bool othersTyping,
+  bool canMessage,
+  Conversation? conversation,
+});
+
 /// Real-time chat between a brand and a creator (`/conversations/*`).
 class MessageRepository extends BaseRepository {
   MessageRepository(super.client);
@@ -39,32 +49,46 @@ class MessageRepository extends BaseRepository {
   Future<List<Message>> messages(int conversationId, {int? viewerId}) async =>
       (await thread(conversationId, viewerId: viewerId)).messages;
 
-  /// The thread, plus whether anyone else in it is typing. Both arrive on the
-  /// same response, so the typing indicator costs no extra request.
-  Future<({List<Message> messages, bool othersTyping})> thread(
-    int conversationId, {
-    int? viewerId,
-  }) => readThrough(
-    () async {
-      final response = await client.get(ApiEndpoints.messages(conversationId));
-      final rows = response.listAt('messages').isNotEmpty
-          ? response.listAt('messages')
-          : response.dataList;
-      return (
-        messages: rows
-            .map((row) => Message.fromJson(row, viewerId: viewerId))
-            .toList(),
-        othersTyping: response.listAt('typing').isNotEmpty,
+  /// The thread, whether anyone else in it is typing, whether the caller may
+  /// still post in it, and who it is with. All of it arrives on the same
+  /// response, so the typing indicator, the blocked notice and the chat
+  /// header cost no extra request.
+  ///
+  /// `canMessage` is false once a block stands between the two people in
+  /// the thread; a server that predates blocking sends nothing, read as true.
+  /// `conversation` keeps the chat's header and menu for a thread the inbox
+  /// leaves out, such as one with someone the user blocked.
+  Future<ThreadSnapshot> thread(int conversationId, {int? viewerId}) =>
+      readThrough(
+        () async {
+          final response = await client.get(
+            ApiEndpoints.messages(conversationId),
+          );
+          final rows = response.listAt('messages').isNotEmpty
+              ? response.listAt('messages')
+              : response.dataList;
+          final conversation = response.maybeMapAt('conversation');
+          return (
+            messages: rows
+                .map((row) => Message.fromJson(row, viewerId: viewerId))
+                .toList(),
+            othersTyping: response.listAt('typing').isNotEmpty,
+            canMessage: response.dataMap['can_message'] != false,
+            conversation: conversation == null
+                ? null
+                : Conversation.fromJson(conversation),
+          );
+        },
+        'messages:$conversationId',
+        (json) => (
+          messages: asRows(
+            json,
+          ).map((row) => Message.fromJson(row, viewerId: viewerId)).toList(),
+          othersTyping: false,
+          canMessage: true,
+          conversation: null,
+        ),
       );
-    },
-    'messages:$conversationId',
-    (json) => (
-      messages: asRows(
-        json,
-      ).map((row) => Message.fromJson(row, viewerId: viewerId)).toList(),
-      othersTyping: false,
-    ),
-  );
 
   Future<Message> send(
     int conversationId, {
@@ -150,33 +174,6 @@ class MessageRepository extends BaseRepository {
     'noop',
     (_) {},
   );
-
-  /// Reports the other participant to the moderation queue (`POST /reports`).
-  ///
-  /// Returns the server's own acknowledgement, which is what the chat shows.
-  /// A repeat report while the first is still open comes back as a 409 with
-  /// its own explanation, and that surfaces to the caller as an ApiFailure.
-  /// Deliberately not routed through a fixture: a report that only pretended
-  /// to be filed would tell someone help was coming when it was not.
-  Future<String> reportUser({
-    required int userId,
-    required String reason,
-    String? description,
-  }) async {
-    final response = await client.post(
-      ApiEndpoints.reports,
-      body: {
-        'reportable_type': 'user',
-        'reportable_id': userId,
-        'reason': reason,
-        if (description != null && description.trim().isNotEmpty)
-          'description': description.trim(),
-      },
-    );
-    return response.message.isNotEmpty
-        ? response.message
-        : 'Thank you. Our moderation team will review this report.';
-  }
 
   /// Opens (or reuses) a thread with a creator, optionally scoped to a booking.
   Future<int> start({required int creatorId, int? bookingId}) => writeThrough(

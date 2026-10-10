@@ -285,7 +285,8 @@ $statusOptions = [
           <div>
             <strong>Always excluded, whatever you pick:</strong>
             banned and deleted accounts, suspended accounts unless you ask for them by status below,
-            anyone who turned marketing off in their notification settings,
+            anyone who has not opted in to product updates and offers (marketing is off until
+            the person ticks it at sign-up or turns it on in their notification settings),
             and — for email — any address on the newsletter list marked unsubscribed or bounced.
             Duplicate destinations are collapsed to one.
           </div>

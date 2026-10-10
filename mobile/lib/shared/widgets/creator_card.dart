@@ -690,17 +690,23 @@ class _ReachRow extends StatelessWidget {
       ),
     );
 
+    // Both figures are the creator's own; nothing fetches them from the
+    // networks. The card has no room to print that, so it is said to screen
+    // readers and on a long press, and in full on the profile.
     final items = <Widget>[
-      metric(
-        Icons.people_alt_rounded,
-        creator.followersLabel,
-        '${creator.followersLabel} followers',
+      Tooltip(
+        message: 'Followers, as self-reported by the creator',
+        child: metric(
+          Icons.people_alt_rounded,
+          creator.followersLabel,
+          '${creator.followersLabel} followers, self-reported',
+        ),
       ),
       if (creator.engagementRate > 0)
         metric(
           Icons.insights_rounded,
           Formatters.percent(creator.engagementRate),
-          '${Formatters.percent(creator.engagementRate)} engagement',
+          '${Formatters.percent(creator.engagementRate)} engagement, self-reported',
         ),
       if (creator.ratingCount > 0)
         RatingStars(rating: creator.rating, size: dense ? 11 : 12)

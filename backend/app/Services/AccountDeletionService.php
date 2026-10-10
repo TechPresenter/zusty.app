@@ -90,9 +90,9 @@ final class AccountDeletionService
         ['key' => 'campaigns', 'title' => 'Your campaigns',
          'detail' => 'Open and draft campaigns are closed and removed. Creators who applied or were invited get a notification that the campaign has closed.'],
         ['key' => 'activity', 'title' => 'Saved items and activity',
-         'detail' => 'Saved creators, follows, search history, the profiles you viewed, notifications, and our copies of the emails, texts and push messages sent to you.'],
+         'detail' => 'Saved creators, follows, the accounts you blocked, search history, the profiles you viewed, notifications, and our copies of the emails and push notifications sent to you.'],
         ['key' => 'signin',   'title' => 'Sign-in and devices',
-         'detail' => 'Your password, linked Google or Apple sign-in, and every session and device. You are signed out everywhere.'],
+         'detail' => 'Your password, linked Google sign-in, and every session and device. You are signed out everywhere.'],
         ['key' => 'payouts',  'title' => 'Payout details',
          'detail' => 'Saved bank accounts and UPI IDs. Past payouts keep only what is listed under What we keep.'],
         ['key' => 'files',    'title' => 'Files you uploaded',
@@ -877,6 +877,13 @@ final class AccountDeletionService
             foreach ($tables as $table => $column) {
                 $erased[$table] = Database::execute("DELETE FROM `{$table}` WHERE `{$column}` = :id", $p);
             }
+
+            // Blocks both ways: the ones they made are their data, and one made
+            // against them would only leave "Deleted user" on someone's list.
+            $erased['user_blocks'] = Database::execute(
+                'DELETE FROM `user_blocks` WHERE `blocker_id` = :id OR `blocked_id` = :id',
+                $p
+            );
 
             // ---- Our copies of what was sent to them, whatever its status ----
 

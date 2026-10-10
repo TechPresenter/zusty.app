@@ -26,6 +26,13 @@ use Zuste\Helpers\Str;
  */
 final class PaymentService
 {
+    /**
+     * Booking statuses in which a paid booking's money is still in escrow.
+     * Every other status a paid booking can reach is finished: completed,
+     * cancelled or refunded.
+     */
+    private const ESCROW_HELD_STATUSES = ['confirmed', 'in_progress', 'delivered', 'disputed'];
+
     // -----------------------------------------------------------------
     // Order creation
     // -----------------------------------------------------------------
@@ -33,13 +40,19 @@ final class PaymentService
     /**
      * Create a gateway order for a booking.
      *
+     * [$customerPhone] is the mobile number the payer typed at checkout. It
+     * is only used for a Cashfree order on an account with no phone (every
+     * email or Google sign-up), is never written to the account and is
+     * never treated as verified — see cashfreeCustomer().
+     *
      * @return array<string,mixed> Checkout payload for the Flutter client.
      */
     public static function createBookingOrder(
         int $bookingId,
         int $userId,
         string $gateway,
-        ?string $couponCode = null
+        ?string $couponCode = null,
+        ?string $customerPhone = null
     ): array {
         // Applying the coupon before the booking is read means everything
         // below — the amount charged, the order created at the gateway, the
@@ -80,14 +93,22 @@ final class PaymentService
             'wallet'   => self::payFromWallet($booking, $userId),
             'stripe'   => self::createStripeIntent($userId, $amount, 'booking', $bookingId, (string) $booking['code']),
             'razorpay' => self::createRazorpayOrder($userId, $amount, 'booking', $bookingId, (string) $booking['code']),
-            'cashfree' => self::createCashfreeOrder($userId, $amount, 'booking', $bookingId, (string) $booking['code']),
+            'cashfree' => self::createCashfreeOrder($userId, $amount, 'booking', $bookingId, (string) $booking['code'], $customerPhone),
             default    => throw HttpException::unprocessable('Unsupported payment gateway.'),
         };
     }
 
-    /** Create a gateway order for a wallet top-up. */
+    /**
+     * Create a gateway order for a wallet top-up.
+     *
+     * Refused with 403 `topup_disabled` unless wallet.topup_enabled is on —
+     * checked here as well as in the controller, so no other caller can
+     * load a wallet while an admin has top-ups switched off.
+     */
     public static function createTopupOrder(int $userId, float $amount, string $gateway): array
     {
+        WalletService::assertTopupEnabled();
+
         $amount  = Money::round($amount);
         $minimum = Config::settingFloat('wallet', 'min_topup', 500);
         $maximum = Config::settingFloat('wallet', 'max_topup', 500000);
@@ -108,7 +129,14 @@ final class PaymentService
         };
     }
 
-    /** Settle a booking straight from wallet balance — no gateway involved. */
+    /**
+     * Settle a booking straight from wallet balance — no gateway involved.
+     *
+     * Only for money already in the wallet (a refund, say): the wallet cannot
+     * be topped up to make up a shortfall, so a balance that does not cover
+     * the whole total is refused up front with a pointer to the gateway. The
+     * debit below re-checks under the wallet lock either way.
+     */
     private static function payFromWallet(array $booking, int $userId): array
     {
         if (!Config::settingBool('payment', 'allow_wallet_payment', true)) {
@@ -116,6 +144,14 @@ final class PaymentService
         }
 
         $amount = Money::round((float) $booking['total_amount']);
+
+        if (WalletService::balance($userId)['balance'] < $amount) {
+            throw new HttpException(
+                'Your wallet balance does not cover this booking. Pay with UPI, card or net banking instead.',
+                422,
+                'insufficient_balance'
+            );
+        }
 
         return Database::transaction(static function () use ($booking, $userId, $amount): array {
             WalletService::debit($userId, $amount, [
@@ -428,11 +464,12 @@ final class PaymentService
         float $amount,
         string $purpose,
         ?int $bookingId,
-        string $reference
+        string $reference,
+        ?string $customerPhone = null
     ): array {
         [$appId, $secretKey] = self::cashfreeCredentials();
 
-        $customer = self::cashfreeCustomer($userId);
+        $customer = self::cashfreeCustomer($userId, $customerPhone);
 
         $paymentId = self::recordPayment([
             'booking_id' => $bookingId,
@@ -878,9 +915,16 @@ final class PaymentService
     /**
      * Refund a booking, back to the original method or to the wallet.
      *
+     * The original method is the default and the wallet only an exception —
+     * see {@see refundDestination()} for when it applies.
+     *
      * `$paymentId` pins the refund to one payment; leave it null to take the
      * booking's most recent refundable one, which is what every existing
      * caller wants.
+     *
+     * The payment row is locked before the refundable balance is read, so two
+     * refunds raised at once cannot both pass the check — see
+     * {@see refundableBalance()} for what that balance leaves out.
      */
     public static function refundBooking(
         int $bookingId,
@@ -891,13 +935,13 @@ final class PaymentService
         string $destination = 'source',
         ?int $paymentId = null
     ): array {
-        $payment     = self::refundablePayment($bookingId, $paymentId);
-        $amount      = self::refundableAmount($payment, $amount);
-        $destination = self::refundDestination($payment, $destination);
+        return Database::transaction(static function () use ($bookingId, $amount, $reason, $initiatedByType, $initiatedById, $destination, $paymentId): array {
+            [$payment, $amount, $destination, $note] = self::prepareRefund($bookingId, $paymentId, $amount, $destination);
 
-        return Database::transaction(static fn (): array => self::settleRefund(
-            self::openRefundRecord($payment, $bookingId, $amount, $reason, $initiatedByType, $initiatedById, $destination)
-        ));
+            return self::settleRefund(
+                self::openRefundRecord($payment, $bookingId, $amount, $reason, $initiatedByType, $initiatedById, $destination, $note)
+            );
+        });
     }
 
     /**
@@ -909,6 +953,11 @@ final class PaymentService
      * here in the `pending` state, and only {@see settleParkedRefund()} — run
      * once the approvers are done — actually pays it out.
      * {@see abandonParkedRefund()} closes it out when they refuse.
+     *
+     * The same split serves a caller that must not call a gateway inside its
+     * own transaction (a dispute resolution, say): record the refund here as
+     * part of that transaction, commit, then settle it. A parked refund
+     * already counts against the payment's refundable balance.
      *
      * @return array<string,mixed> The `pending` refunds row.
      */
@@ -922,11 +971,11 @@ final class PaymentService
         ?int $paymentId = null,
         string $notes = ''
     ): array {
-        $payment     = self::refundablePayment($bookingId, $paymentId);
-        $amount      = self::refundableAmount($payment, $amount);
-        $destination = self::refundDestination($payment, $destination);
+        return Database::transaction(static function () use ($bookingId, $amount, $reason, $initiatedByType, $initiatedById, $destination, $paymentId, $notes): array {
+            [$payment, $amount, $destination, $note] = self::prepareRefund($bookingId, $paymentId, $amount, $destination);
 
-        return Database::transaction(static function () use ($payment, $bookingId, $amount, $reason, $initiatedByType, $initiatedById, $destination, $notes): array {
+            $notes = trim($notes . ' ' . $note);
+
             $refundId = self::openRefundRecord(
                 $payment,
                 $bookingId,
@@ -934,12 +983,9 @@ final class PaymentService
                 $reason,
                 $initiatedByType,
                 $initiatedById,
-                $destination
+                $destination,
+                $notes
             );
-
-            if ($notes !== '') {
-                Database::update('refunds', ['notes' => mb_substr($notes, 0, 1000)], ['id' => $refundId]);
-            }
 
             $refund = Database::selectOne('SELECT * FROM `refunds` WHERE `id` = :id', ['id' => $refundId]);
 
@@ -1000,6 +1046,10 @@ final class PaymentService
      * the controller allowed it, this lookup could never find the row again,
      * and the remaining balance was unreachable from the panel.
      *
+     * Locks the row (FOR UPDATE): the caller holds the transaction, and the
+     * lock is what keeps a second refund from reading the balance before the
+     * first one's row exists.
+     *
      * @return array<string,mixed>
      */
     private static function refundablePayment(int $bookingId, ?int $paymentId = null): array
@@ -1016,7 +1066,7 @@ final class PaymentService
             "SELECT * FROM `payments`
              WHERE `booking_id` = :booking_id AND `status` IN ('captured', 'partially_refunded')"
             . ($paymentId === null ? '' : ' AND `id` = :payment_id')
-            . ' ORDER BY `id` DESC LIMIT 1',
+            . ' ORDER BY `id` DESC LIMIT 1 FOR UPDATE',
             $bindings
         );
 
@@ -1027,11 +1077,27 @@ final class PaymentService
         return $payment;
     }
 
+    /**
+     * Everything a new refund needs before its row is written: the locked
+     * payment, the amount clamped to what is left, and where it goes.
+     * Assumes the caller holds the transaction.
+     *
+     * @return array{0:array<string,mixed>,1:float,2:string,3:string}
+     */
+    private static function prepareRefund(int $bookingId, ?int $paymentId, float $amount, string $destination): array
+    {
+        $payment = self::refundablePayment($bookingId, $paymentId);
+        $amount  = self::refundableAmount($payment, $amount);
+
+        [$destination, $note] = self::refundDestination($payment, $destination);
+
+        return [$payment, $amount, $destination, $note];
+    }
+
     /** @param array<string,mixed> $payment */
     private static function refundableAmount(array $payment, float $amount): float
     {
-        $refundable = Money::subtract((float) $payment['amount'], (float) $payment['amount_refunded']);
-        $amount     = Money::clamp($amount, 0.0, $refundable);
+        $amount = Money::clamp($amount, 0.0, self::refundableBalance($payment));
 
         if ($amount <= 0) {
             throw HttpException::unprocessable('There is nothing left to refund on this payment.');
@@ -1041,13 +1107,104 @@ final class PaymentService
     }
 
     /**
-     * A wallet payment can only ever be refunded to the wallet.
+     * What can still be refunded on a payment: its amount, less what has been
+     * refunded, less what is already on its way back.
+     *
+     * `amount_refunded` only moves when a refund completes, and Cashfree
+     * confirms a refund days after accepting it. Without the refunds still
+     * `pending` (parked for approval, or recorded and not yet sent) or
+     * `processing` (accepted by the gateway, not yet confirmed), the full
+     * amount stayed refundable meanwhile — and a second refund to the wallet,
+     * which is instant, paid the same money back twice once the first one
+     * completed. The admin booking and payments screens read the same figure.
+     *
+     * @param array<string,mixed> $payment A payments row.
+     */
+    public static function refundableBalance(array $payment): float
+    {
+        $inFlight = (float) (Database::scalar(
+            "SELECT COALESCE(SUM(`amount`), 0) FROM `refunds`
+              WHERE `payment_id` = :id AND `status` IN ('pending', 'processing')",
+            ['id' => (int) $payment['id']]
+        ) ?? 0);
+
+        return Money::max(
+            0.0,
+            Money::subtract(
+                Money::subtract((float) $payment['amount'], (float) $payment['amount_refunded']),
+                $inFlight
+            )
+        );
+    }
+
+    /**
+     * Where a refund goes: back to the original payment method, unless an
+     * admin chose the wallet or the original method cannot take it.
+     *
+     * Brands pay each booking at the gateway and cannot top the wallet up
+     * (wallet.topup_enabled, migration 056), so a refund parked in the wallet
+     * is money the brand never chose to leave with us. The wallet is only:
+     *
+     *  - the destination of a wallet payment, whose original method IS the
+     *    wallet;
+     *  - an admin's explicit choice (`wallet`);
+     *  - the fallback when the money cannot go back automatically: a gateway
+     *    this class has no refund call for, or a payment row without the id
+     *    that call needs. A deleted account's closed wallet is never a
+     *    fallback — that refund stays on the source and fails for finance.
+     *
+     * A gateway that refuses a refund, or whose credentials are missing, is
+     * not a fallback either: the refund is recorded `failed` and finance
+     * re-issues it, to the wallet if need be. Falling back on an error could
+     * pay twice when the gateway took the refund but the reply was lost, and
+     * would quietly hide a misconfigured gateway.
+     *
+     * @param  array<string,mixed> $payment
+     * @param  string $requested `source` (the default) or `wallet`.
+     * @return array{0:string,1:string} The destination, and a note for the
+     *         refund row when it is not the one requested.
+     */
+    private static function refundDestination(array $payment, string $requested): array
+    {
+        if ($payment['gateway'] === 'wallet' || $requested === 'wallet') {
+            return ['wallet', ''];
+        }
+
+        if (self::refundableAtSource($payment)) {
+            return ['source', ''];
+        }
+
+        $wallet  = WalletService::existing((int) $payment['user_id']);
+        $deleted = Database::scalar(
+            'SELECT 1 FROM `users` WHERE `id` = :id AND `deleted_at` IS NOT NULL',
+            ['id' => (int) $payment['user_id']]
+        ) !== null;
+
+        if ($deleted || !empty($wallet['closed_at'])) {
+            return ['source', ''];
+        }
+
+        return [
+            'wallet',
+            'The original payment (' . (string) $payment['gateway'] . ') cannot be refunded automatically, so this refund went to the Zusty wallet.',
+        ];
+    }
+
+    /**
+     * Whether the gateway can take this payment back automatically: it is one
+     * {@see refundAtGateway()} has a refund call for, and the row carries the
+     * id that call needs. Credentials are deliberately not consulted — see
+     * {@see refundDestination()}.
      *
      * @param array<string,mixed> $payment
      */
-    private static function refundDestination(array $payment, string $destination): string
+    private static function refundableAtSource(array $payment): bool
     {
-        return $payment['gateway'] === 'wallet' ? 'wallet' : $destination;
+        return match ((string) $payment['gateway']) {
+            'razorpay', 'stripe' => (string) ($payment['gateway_payment_id'] ?? '') !== '',
+            'cashfree'           => (string) ($payment['gateway_order_id'] ?? '') !== '',
+            default              => false,
+        };
     }
 
     /**
@@ -1064,7 +1221,8 @@ final class PaymentService
         string $reason,
         string $initiatedByType,
         ?int $initiatedById,
-        string $destination
+        string $destination,
+        string $notes = ''
     ): int {
         $refundId = Database::insert('refunds', [
             'reference'         => 'PENDING',
@@ -1075,6 +1233,7 @@ final class PaymentService
             'currency'          => (string) $payment['currency'],
             'destination'       => $destination,
             'reason'            => $reason,
+            'notes'             => $notes === '' ? null : mb_substr($notes, 0, 1000),
             'status'            => 'pending',
             'initiated_by_type' => $initiatedByType,
             'initiated_by_id'   => $initiatedById,
@@ -1259,14 +1418,32 @@ final class PaymentService
                 (float) $payment['amount'] > 0.0 ? $totalRefunded / (float) $payment['amount'] : 1.0
             );
 
-            Database::update('bookings', [
-                'payment_status' => $isFull ? 'refunded' : 'partially_refunded',
-                // Only a full refund empties the escrow. A partial one leaves
-                // the rest of the money held, and marking that booking
-                // `refunded` told every escrow-release and payout-maturation
-                // path that there was nothing left to release.
-                'escrow_status'  => $isFull ? 'refunded' : 'held',
-            ], ['id' => (int) $refund['booking_id']]);
+            $columns = ['payment_status' => $isFull ? 'refunded' : 'partially_refunded'];
+
+            // Only a full refund empties the escrow. A partial one leaves the
+            // rest of the money held, and marking that booking `refunded` told
+            // every escrow-release and payout-maturation path that there was
+            // nothing left to release.
+            //
+            // "Held" is only true while the booking is still running, though.
+            // A gateway refund completes days after it was raised (Cashfree's
+            // webhook), by which time a dispute resolution or a cancellation
+            // has already closed the booking and settled its escrow. Writing
+            // `held` onto that finished booking counted its money as escrow on
+            // the dashboard and in the app, so a finished booking keeps the
+            // escrow status it was closed with.
+            $bookingStatus = (string) (Database::scalar(
+                'SELECT `status` FROM `bookings` WHERE `id` = :id',
+                ['id' => (int) $refund['booking_id']]
+            ) ?? '');
+
+            if ($isFull) {
+                $columns['escrow_status'] = 'refunded';
+            } elseif (in_array($bookingStatus, self::ESCROW_HELD_STATUSES, true)) {
+                $columns['escrow_status'] = 'held';
+            }
+
+            Database::update('bookings', $columns, ['id' => (int) $refund['booking_id']]);
         }
 
         NotificationService::send((int) $payment['user_id'], 'payment.refunded', [
@@ -1739,9 +1916,16 @@ final class PaymentService
      * with something the user can act on rather than letting the gateway
      * return an opaque validation error at checkout.
      *
+     * The account's own number wins. An account without one — every email
+     * or Google sign-up, since sign-up is email-only and SMS is off, so a
+     * number cannot be verified — may give one at checkout as
+     * [$checkoutPhone]: an Indian mobile, used for this order only. It is
+     * never written to the account and never counts as verified, so it
+     * cannot be used to sign in or to claim someone else's number.
+     *
      * @return array<string,string>
      */
-    private static function cashfreeCustomer(int $userId): array
+    private static function cashfreeCustomer(int $userId, ?string $checkoutPhone = null): array
     {
         $user = Database::selectOne(
             'SELECT `uuid`, `name`, `email`, `phone`, `phone_country_code`
@@ -1755,11 +1939,14 @@ final class PaymentService
 
         $phone = preg_replace('/\D+/', '', (string) ($user['phone'] ?? '')) ?? '';
 
+        if ($phone === '' && $checkoutPhone !== null && trim($checkoutPhone) !== '') {
+            $phone = self::checkoutMobile($checkoutPhone);
+        }
+
         if ($phone === '') {
-            throw HttpException::unprocessable(
-                'Add a mobile number to your profile before paying with Cashfree.',
-                'phone_required'
-            );
+            $message = 'Enter a mobile number for this payment. Our payment partner needs one on every order.';
+
+            throw new HttpException($message, 422, 'phone_required', ['customer_phone' => [$message]]);
         }
 
         $customer = [
@@ -1773,6 +1960,31 @@ final class PaymentService
         }
 
         return $customer;
+    }
+
+    /**
+     * A checkout mobile number as Cashfree takes it: ten digits, Indian
+     * mobile range (6–9 first). "+91 98765 43210", "09876543210" and
+     * "9876543210" all come out as 9876543210; anything else is a 422 on
+     * `customer_phone`.
+     */
+    private static function checkoutMobile(string $raw): string
+    {
+        $digits = preg_replace('/\D+/', '', $raw) ?? '';
+
+        if (strlen($digits) === 12 && str_starts_with($digits, '91')) {
+            $digits = substr($digits, 2);
+        } elseif (strlen($digits) === 11 && str_starts_with($digits, '0')) {
+            $digits = substr($digits, 1);
+        }
+
+        if (preg_match('/^[6-9]\d{9}$/', $digits) !== 1) {
+            $message = 'Enter a valid 10-digit Indian mobile number.';
+
+            throw new HttpException($message, 422, 'phone_invalid', ['customer_phone' => [$message]]);
+        }
+
+        return $digits;
     }
 
     /** @param array<string,mixed> $data */
@@ -1886,11 +2098,19 @@ final class PaymentService
     {
         $gateways = [];
 
+        // `allowed_methods` has always listed `wallet` too. Under a card
+        // gateway it read as "pay with your Zusty wallet here", which is not
+        // something the gateway's page offers — the wallet is its own row.
+        $instruments = static fn (array $default): array => array_values(array_diff(
+            Config::settingArray('payment', 'allowed_methods', $default),
+            ['wallet']
+        ));
+
         if (Config::settingBool('payment', 'razorpay_enabled', false)) {
             $gateways[] = [
                 'id'      => 'razorpay',
                 'label'   => 'Card / UPI / Net Banking',
-                'methods' => Config::settingArray('payment', 'allowed_methods', ['card', 'upi', 'netbanking']),
+                'methods' => $instruments(['card', 'upi', 'netbanking']),
                 'key_id'  => Config::settingString('payment', 'razorpay_key_id'),
             ];
         }
@@ -1899,7 +2119,7 @@ final class PaymentService
             $gateways[] = [
                 'id'      => 'cashfree',
                 'label'   => 'UPI / Card / Net Banking',
-                'methods' => Config::settingArray('payment', 'allowed_methods', ['upi', 'card', 'netbanking']),
+                'methods' => $instruments(['upi', 'card', 'netbanking']),
                 'app_id'  => self::cashfreeSetting('app_id'),
                 'mode'    => self::cashfreeMode(),
             ];

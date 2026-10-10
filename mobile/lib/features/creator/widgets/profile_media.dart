@@ -54,10 +54,17 @@ class ProfileMediaTab extends ConsumerWidget {
           EmptyState(
             title: 'No portfolio yet',
             message: profile.isOwner
-                ? 'Add your best work so brands can see what you make.'
+                ? 'Add your best work so brands can see what you make. Our '
+                      'team may review new items before they show here. You '
+                      'can also manage your portfolio from the Profile tab, '
+                      'under For creators.'
                 : '${firstNameOf(creator.displayName)} has not published '
                       'any work here yet.',
             icon: Icons.photo_library_outlined,
+            actionLabel: profile.isOwner ? 'Manage portfolio' : null,
+            onAction: profile.isOwner
+                ? () => context.push(Routes.myPortfolio)
+                : null,
             compact: true,
           ),
         ],

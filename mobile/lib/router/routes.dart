@@ -135,6 +135,15 @@ abstract final class Routes {
   static const editProfile = '/profile/edit';
   static const contacts = '/profile/contacts';
   static const creatorFields = '/profile/details';
+
+  /// The creator's own packages, portfolio and linked accounts.
+  static const myPackages = '/profile/packages';
+  static const newPackage = '/profile/packages/new';
+  static String editPackage(int id) => '$myPackages/$id';
+  static const myPortfolio = '/profile/portfolio';
+  static const newPortfolioItem = '/profile/portfolio/new';
+  static const socialAccounts = '/profile/social';
+
   static const kyc = '/profile/kyc';
   static const kycDetails = '/profile/kyc/details';
   static const settings = '/settings';
@@ -143,6 +152,9 @@ abstract final class Routes {
   static const privacy = '/settings/privacy';
   static const privacyExport = '/settings/privacy/export';
   static const deleteAccount = '/settings/privacy/delete';
+
+  /// The accounts the user blocked, with Unblock.
+  static const blockedUsers = '/settings/privacy/blocked';
 
   /// The goodbye screen after an account is deleted. Reachable signed out,
   /// because by the time it shows, the session is gone.
@@ -188,6 +200,7 @@ abstract final class Routes {
     privacy,
     privacyExport,
     deleteAccount,
+    blockedUsers,
     availability,
     dashboard,
     creatorCampaigns,
@@ -205,6 +218,9 @@ abstract final class Routes {
     editProfile,
     contacts,
     creatorFields,
+    myPackages,
+    myPortfolio,
+    socialAccounts,
     kyc,
     kycDetails,
     invite,

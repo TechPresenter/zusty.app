@@ -65,8 +65,13 @@ final class FinanceController extends BaseAdminController
 
         $total = (int) Database::scalar('SELECT COUNT(*) FROM `payments` p' . $joins . $where, $bindings);
 
+        // `refund_in_flight`: refunds recorded or accepted by the gateway but
+        // not yet completed. They are not in `amount_refunded` yet, but they
+        // are no longer refundable either (PaymentService::refundableBalance).
         $listSql = 'SELECT p.*, u.`name` AS `user_name`, u.`email` AS `user_email`,
-                    b.`code` AS `booking_code`, b.`title` AS `booking_title`
+                    b.`code` AS `booking_code`, b.`title` AS `booking_title`,
+                    (SELECT COALESCE(SUM(r.`amount`), 0) FROM `refunds` r
+                      WHERE r.`payment_id` = p.`id` AND r.`status` IN (\'pending\', \'processing\')) AS `refund_in_flight`
              FROM `payments` p' . $joins . $where . '
              ORDER BY p.`' . $params['sort_by'] . '` ' . $params['sort_dir'];
 
@@ -138,13 +143,6 @@ final class FinanceController extends BaseAdminController
         $adminId   = $this->adminId($request);
         $reason    = (string) $data['reason'];
 
-        // The amount that will actually move, so the approval threshold is
-        // tested against the real figure rather than whatever was typed.
-        $amount = min(
-            (float) $data['amount'],
-            Money::subtract((float) $payment['amount'], (float) $payment['amount_refunded'])
-        );
-
         // Segregation of duties — the same rule approveWithdrawal enforces on
         // payouts. The seeded "Large refund" workflow, its threshold and its
         // step were configurable in the admin panel and consulted by no code
@@ -156,6 +154,22 @@ final class FinanceController extends BaseAdminController
             // Returns only when the parked refund is dead and a fresh one may
             // be raised; otherwise it responds and never comes back.
             $this->resumeParkedRefund($request, $paymentId, $parked);
+        }
+
+        // The amount that will actually move, so the approval threshold is
+        // tested against the real figure rather than whatever was typed. Net
+        // of refunds still on their way back (a Cashfree refund stays
+        // `processing` for days), which can no longer be refunded again.
+        $amount = min((float) $data['amount'], PaymentService::refundableBalance($payment));
+
+        if ($amount <= 0) {
+            $nothingLeft = 'There is nothing left to refund on this payment: the rest is already refunded or on its way back.';
+
+            if ($request->expectsJson()) {
+                throw HttpException::unprocessable($nothingLeft);
+            }
+
+            $this->back('error', $nothingLeft);
         }
 
         if (ApprovalService::workflowFor('refund', $amount) !== null) {

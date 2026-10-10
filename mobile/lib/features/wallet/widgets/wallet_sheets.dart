@@ -48,6 +48,10 @@ const topUpPaymentNote =
     'The money is added once the payment is confirmed.';
 
 /// Wallet top-up (`POST /wallet/topup`).
+///
+/// Only opened while `walletTopupEnabledProvider` is on — off by default,
+/// because brands pay each booking at checkout. The server refuses a top-up
+/// with 403 `topup_disabled` otherwise, which this sheet shows as an error.
 class TopUpSheet extends ConsumerStatefulWidget {
   const TopUpSheet({super.key});
 
@@ -172,18 +176,47 @@ class WithdrawSheet extends ConsumerStatefulWidget {
 
   final Wallet wallet;
 
-  static Future<void> show(BuildContext context, {required Wallet wallet}) =>
+  /// [title] names what is being withdrawn: a creator's earnings, or the
+  /// refunded balance a brand holds.
+  static Future<void> show(
+    BuildContext context, {
+    required Wallet wallet,
+    String title = 'Withdraw earnings',
+  }) =>
       showZSheet<void>(
         context,
-        title: 'Withdraw earnings',
-        subtitle:
-            'Available ${wallet.balanceLabel} · minimum '
-            '${Formatters.currency(wallet.minWithdrawal)}',
+        title: title,
+        subtitle: withdrawSubtitle(wallet),
         builder: (_) => WithdrawSheet(wallet: wallet),
       );
 
+  /// A brand holding less than the usual minimum may withdraw all of it, so
+  /// the server sends that balance as its minimum. "Minimum ₹400" next to
+  /// "Available ₹400" reads as a riddle; say what it means instead.
+  static String withdrawSubtitle(Wallet wallet) {
+    final whole =
+        wallet.balance > 0 &&
+        (wallet.minWithdrawal * 100).round() == (wallet.balance * 100).round();
+
+    return whole
+        ? 'Available ${wallet.balanceLabel} · withdraw the full amount'
+        : 'Available ${wallet.balanceLabel} · minimum '
+              '${Formatters.currency(wallet.minWithdrawal)}';
+  }
+
   @override
   ConsumerState<WithdrawSheet> createState() => _WithdrawSheetState();
+}
+
+/// The whole balance as the amount field shows it: rupees, plus paise only
+/// when there are any. Rounding to rupees asked for more than the wallet
+/// holds (₹400.50 became 401) or less than a brand's whole-balance minimum.
+@visibleForTesting
+String wholeAmountText(double balance) {
+  final paise = (balance * 100).round();
+  return paise % 100 == 0
+      ? (paise ~/ 100).toString()
+      : (paise / 100).toStringAsFixed(2);
 }
 
 class _WithdrawSheetState extends ConsumerState<WithdrawSheet> {
@@ -252,10 +285,14 @@ class _WithdrawSheetState extends ConsumerState<WithdrawSheet> {
         ZTextField(
           label: 'Amount',
           controller: _amount,
-          keyboardType: TextInputType.number,
+          // Paise allowed: a refunded balance is rarely whole rupees, and a
+          // brand may have to withdraw exactly all of it.
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
           prefixIcon: Icons.currency_rupee_rounded,
           autofocus: true,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+          ],
           errorText: _amountError,
           onChanged: (_) => setState(() => _amountError = null),
         ),
@@ -263,7 +300,7 @@ class _WithdrawSheetState extends ConsumerState<WithdrawSheet> {
           alignment: Alignment.centerRight,
           child: TextButton(
             onPressed: () => setState(() {
-              _amount.text = widget.wallet.balance.toStringAsFixed(0);
+              _amount.text = wholeAmountText(widget.wallet.balance);
               _amountError = null;
             }),
             style: TextButton.styleFrom(
@@ -734,7 +771,7 @@ class PaymentMethodsSheet extends ConsumerWidget {
   static Future<void> show(BuildContext context) => showZSheet<void>(
     context,
     title: 'Ways to pay',
-    subtitle: 'Available at checkout and for wallet top-ups.',
+    subtitle: 'What you can pay for a booking with at checkout.',
     builder: (_) => const PaymentMethodsSheet(),
   );
 

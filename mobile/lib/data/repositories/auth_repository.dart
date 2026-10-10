@@ -43,14 +43,16 @@ class AuthRepository extends BaseRepository {
         return _parse(response.dataMap);
       });
 
+  /// Email sign-up. Every account is made with an email address; there are
+  /// no phone-only accounts.
   Future<AuthResult> register({
     required String name,
     required String email,
     required String password,
     required UserRole role,
-    String? phone,
     String? referralCode,
     bool acceptTerms = true,
+    bool marketingOptIn = false,
   }) =>
       _authenticate(() async {
         final response = await client.post(
@@ -63,11 +65,12 @@ class AuthRepository extends BaseRepository {
             // dropped silently by the validator, so sending `role` meant every
             // sign-up was created as the default brand.
             'account_type': role.name,
-            // Required by the server whenever the operator has "require
-            // accepting the terms" on, which is the default. Omitting it 422'd
+            // Required by the server on every sign-up. Omitting it 422'd
             // every registration.
             'accept_terms': acceptTerms,
-            if (phone != null && phone.isNotEmpty) 'phone': phone,
+            // The unticked "product updates and offers" box. Marketing stays
+            // off unless it was ticked.
+            'marketing_opt_in': marketingOptIn,
             if (referralCode != null && referralCode.isNotEmpty)
               'referral_code': referralCode,
           },
@@ -77,13 +80,23 @@ class AuthRepository extends BaseRepository {
       });
 
   /// Exchanges a Firebase ID token (Google / Apple / phone) for Zusty JWTs.
-  Future<AuthResult> signInWithFirebase(String idToken, {UserRole? role}) =>
+  ///
+  /// A first sign-in creates the account, and the server then needs
+  /// [acceptTerms] (422 `terms_required` without it). Send it only from
+  /// beside the "By continuing, you agree to the Terms and Privacy Policy"
+  /// notice. An existing account signs in either way.
+  Future<AuthResult> signInWithFirebase(
+    String idToken, {
+    UserRole? role,
+    bool acceptTerms = false,
+  }) =>
       _authenticate(() async {
         final response = await client.post(
           ApiEndpoints.firebaseSignIn,
           body: {
             'id_token': idToken,
             if (role != null) 'account_type': role.name,
+            if (acceptTerms) 'accept_terms': true,
           },
           skipAuth: true,
         );
@@ -123,6 +136,10 @@ class AuthRepository extends BaseRepository {
       });
 
   /// Turns the current guest session into a real account, in place.
+  ///
+  /// A sign-up like any other: the terms are accepted, an email address is
+  /// given (or comes with the Google sign-in), and marketing stays off unless
+  /// [marketingOptIn].
   Future<AuthResult> upgradeGuest({
     required UserRole role,
     String? name,
@@ -133,12 +150,16 @@ class AuthRepository extends BaseRepository {
     String? destination,
     String? code,
     String? referralCode,
+    bool acceptTerms = true,
+    bool marketingOptIn = false,
   }) =>
       _authenticate(() async {
         final response = await client.post(
           ApiEndpoints.guestUpgrade,
           body: {
             'account_type': role.name,
+            'accept_terms': acceptTerms,
+            'marketing_opt_in': marketingOptIn,
             if (name != null && name.isNotEmpty) 'name': name,
             if (email != null && email.isNotEmpty) 'email': email,
             if (phone != null && phone.isNotEmpty) 'phone': phone,

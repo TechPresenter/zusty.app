@@ -124,7 +124,7 @@ VALUES
    'INR',
    'https://cdn.zustee.com/briefs/ZC100303-cloud-kitchen-bengaluru.pdf',
    '["https://picsum.photos/seed/zc-cloud-kitchen-bengaluru-mood-1/1080/1350","https://picsum.photos/seed/zc-cloud-kitchen-bengaluru-mood-2/1080/1350","https://picsum.photos/seed/zc-cloud-kitchen-bengaluru-mood-3/1080/1080","https://cdn.zustee.com/briefs/ZC100303-cloud-kitchen-bengaluru.pdf"]',
-   CONCAT('{"min_followers":15000,"max_followers":150000,"min_engagement_rate":3.4,"cities":["Bengaluru"],"categories":[4,1],"gender":"any","age_range":"21-40","languages":["English","Kannada","Hindi"],"deliverables":["1 Instagram Reel (25-40s) - order to first bite","2 Stories with the discount code","1 Google review after delivery"],"cover_image":"https://picsum.photos/seed/zc-cloud-kitchen-bengaluru-cover/1200/675","thumbnail_image":"https://picsum.photos/seed/zc-cloud-kitchen-bengaluru-cover/600/400","usage_rights_days":60,"exclusivity_days":15,"barter_only":false,"commission_pct":15,"gst_pct":18,"application_deadline":"', DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 31 DAY), '%Y-%m-%d'), '","published_at":', CONCAT('"', DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 1245 HOUR), '%Y-%m-%d %H:%i:%s'), '"'), '}'),
+   CONCAT('{"min_followers":15000,"max_followers":150000,"min_engagement_rate":3.4,"cities":["Bengaluru"],"categories":[4,1],"gender":"any","age_range":"21-40","languages":["English","Kannada","Hindi"],"deliverables":["1 Instagram Reel (25-40s) - order to first bite","2 Stories with the discount code","1 Story recap the next day"],"cover_image":"https://picsum.photos/seed/zc-cloud-kitchen-bengaluru-cover/1200/675","thumbnail_image":"https://picsum.photos/seed/zc-cloud-kitchen-bengaluru-cover/600/400","usage_rights_days":60,"exclusivity_days":15,"barter_only":false,"commission_pct":15,"gst_pct":18,"application_deadline":"', DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 31 DAY), '%Y-%m-%d'), '","published_at":', CONCAT('"', DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 1245 HOUR), '%Y-%m-%d %H:%i:%s'), '"'), '}'),
    DATE_SUB(CURDATE(), INTERVAL 24 DAY),
    DATE_ADD(CURDATE(), INTERVAL 9 DAY),
    41,
@@ -957,7 +957,7 @@ VALUES
    'email',
    'You are invited: Cloud Kitchen Launch - Bengaluru Food Reels',
    'Budget Rs 12,000 - Rs 38,000 | Bengaluru | Apply on Zusty',
-   '<h2>Cloud Kitchen Launch - Bengaluru Food Reels</h2><p>Hi {{creator_name}}, a brand on Zusty has shortlisted your profile for this campaign.</p><ul><li>Budget: Rs 12,000 - Rs 38,000 per creator</li><li>Platform: Instagram / reel x 1</li><li>Cities: Bengaluru</li><li>Minimum followers: 15,000</li></ul><p><strong>Deliverables</strong></p><ul><li>1 Instagram Reel (25-40s) - order to first bite</li><li>2 Stories with the discount code</li><li>1 Google review after delivery</li></ul><p><a href="https://app.zustee.com/campaigns/303">View the full brief and apply</a></p><p style="font-size:12px;color:#888">You are receiving this because your Zusty profile matches the brief. <a href="https://app.zustee.com/settings/notifications">Manage invite preferences</a>.</p>',
+   '<h2>Cloud Kitchen Launch - Bengaluru Food Reels</h2><p>Hi {{creator_name}}, a brand on Zusty has shortlisted your profile for this campaign.</p><ul><li>Budget: Rs 12,000 - Rs 38,000 per creator</li><li>Platform: Instagram / reel x 1</li><li>Cities: Bengaluru</li><li>Minimum followers: 15,000</li></ul><p><strong>Deliverables</strong></p><ul><li>1 Instagram Reel (25-40s) - order to first bite</li><li>2 Stories with the discount code</li><li>1 Story recap the next day</li></ul><p><a href="https://app.zustee.com/campaigns/303">View the full brief and apply</a></p><p style="font-size:12px;color:#888">You are receiving this because your Zusty profile matches the brief. <a href="https://app.zustee.com/settings/notifications">Manage invite preferences</a>.</p>',
    'creators',
    '{"campaign_id":303,"campaign_code":"ZC100303","categories":[4,1],"cities":["Bengaluru"],"min_followers":15000,"max_followers":150000,"kyc_verified":true}',
    'sent',
@@ -2524,6 +2524,41 @@ FROM (
   SELECT 30315 AS `id`, 330 AS `campaign_id`, 2015 AS `uid`, 'pending' AS `status`, '4d4f47aec6dcd17972536402814bc070' AS `token`, NULL AS `sent_at`, NULL AS `opened_at`, NULL AS `clicked_at`, NULL AS `error_message`
 ) AS r
 JOIN `users` u ON u.`id` = r.`uid` AND u.`email` IS NOT NULL;
+
+-- ---------------------------------------------------------------------
+-- 4. Keep the live briefs live
+--
+-- The INSERTs above never touch a row that exists, so on an install seeded
+-- weeks ago the "open" briefs have dates in the past, and the opportunities
+-- board shows "Ended 27 Sep" on a brief that is still taking applications.
+-- Every run moves an open brief whose deadline or end date has gone (or is
+-- under a week away) forward as a whole: deadline, start and end keep their
+-- spacing, and the deadline lands 14-20 days from today. A brief in progress
+-- whose end date has passed gets a new end date 5-14 days out. A second run
+-- the same day finds nothing to move.
+-- ---------------------------------------------------------------------
+-- `requirements` is assigned last: the two date columns before it read the
+-- old deadline (SET assigns left to right).
+UPDATE `campaigns`
+   SET `starts_on`    = DATE_ADD(`starts_on`, INTERVAL DATEDIFF(DATE_ADD(CURDATE(), INTERVAL 14 + (`id` % 7) DAY),
+                            CAST(JSON_UNQUOTE(JSON_EXTRACT(`requirements`, '$.application_deadline')) AS DATE)) DAY),
+       `ends_on`      = DATE_ADD(`ends_on`, INTERVAL DATEDIFF(DATE_ADD(CURDATE(), INTERVAL 14 + (`id` % 7) DAY),
+                            CAST(JSON_UNQUOTE(JSON_EXTRACT(`requirements`, '$.application_deadline')) AS DATE)) DAY),
+       `requirements` = JSON_SET(`requirements`, '$.application_deadline',
+                            DATE_FORMAT(DATE_ADD(CURDATE(), INTERVAL 14 + (`id` % 7) DAY), '%Y-%m-%d'))
+ WHERE `id` BETWEEN 301 AND 330
+   AND `status` = 'open'
+   AND `starts_on` IS NOT NULL
+   AND `ends_on` IS NOT NULL
+   AND JSON_UNQUOTE(JSON_EXTRACT(`requirements`, '$.application_deadline')) REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+   AND (`ends_on` < DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+        OR CAST(JSON_UNQUOTE(JSON_EXTRACT(`requirements`, '$.application_deadline')) AS DATE) < CURDATE());
+
+UPDATE `campaigns`
+   SET `ends_on` = DATE_ADD(CURDATE(), INTERVAL 5 + (`id` % 10) DAY)
+ WHERE `id` BETWEEN 301 AND 330
+   AND `status` = 'in_progress'
+   AND `ends_on` < CURDATE();
 
 
 -- =====================================================================

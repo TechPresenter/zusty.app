@@ -36,6 +36,18 @@ $canModerate = $this->can('reviews.moderate');
   <?php endfor; ?>
 </div>
 
+<?php $onlyReview = (int) ($filters['id'] ?? 0); ?>
+<?php if ($onlyReview > 0): ?>
+  <div class="callout callout--info mb-4">
+    <?= $this->icon('info', 'ic ic--sm') ?>
+    <div class="small">
+      Showing review #<?= $onlyReview ?>, as reported in the
+      <a href="/admin/reports?reportable_type=review&amp;status=all">abuse reports queue</a>.
+      <a href="<?= $this->queryUrl(['id' => null, 'page' => 1]) ?>">Show every review</a>
+    </div>
+  </div>
+<?php endif; ?>
+
 <div class="card">
 
   <?php $this->partial('admin.partials.toolbar', [
@@ -138,6 +150,13 @@ $canModerate = $this->can('reviews.moderate');
                       <?php $this->partial('admin.partials.moderate-button', [
                           'action' => 'publish', 'label' => 'Publish', 'reviewId' => (int) $review['id'],
                           'style' => 'outline', 'confirm' => 'The review becomes visible and counts toward the rating.',
+                      ]); ?>
+                    <?php endif; ?>
+
+                    <?php if (!empty($review['is_flagged']) && (int) $review['is_published'] === 1): ?>
+                      <?php $this->partial('admin.partials.moderate-button', [
+                          'action' => 'unflag', 'label' => 'Keep', 'reviewId' => (int) $review['id'],
+                          'style' => 'outline', 'confirm' => 'The review stays published and the flag is cleared.',
                       ]); ?>
                     <?php endif; ?>
 

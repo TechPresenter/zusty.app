@@ -13,6 +13,7 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/core_providers.dart';
 import '../../../router/routes.dart';
 import '../../../shared/widgets/states.dart';
+import 'legal_links.dart';
 
 /// "OR CONTINUE WITH" rule used between the credential form and social sign-in.
 class OrDivider extends StatelessWidget {
@@ -52,6 +53,10 @@ class OrDivider extends StatelessWidget {
 /// verifies and exchanges for Zusty tokens. The server checks which provider
 /// issued the token, so a disabled method is refused there too — the button
 /// vanishing is convenience, not the control.
+///
+/// The buttons always come with [LegalConsentNotice] directly above them: a
+/// first sign-in creates an account, and the notice is what makes sending
+/// `accept_terms` with the token true. Neither appears without the other.
 class SocialLoginRow extends ConsumerWidget {
   const SocialLoginRow({super.key, this.role});
 
@@ -88,7 +93,14 @@ class SocialLoginRow extends ConsumerWidget {
       );
     }
 
-    return Row(children: buttons);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const LegalConsentNotice(),
+        const SizedBox(height: AppSpacing.sm),
+        Row(children: buttons),
+      ],
+    );
   }
 
   /// Whether any social provider is switched on for this platform, so a
@@ -135,9 +147,11 @@ class SocialLoginRow extends ConsumerWidget {
         ),
       };
 
+      // The terms notice sits directly above this button, so a first
+      // sign-in has agreed to them.
       await ref
           .read(authProvider.notifier)
-          .signInWithProvider(idToken, role: role);
+          .signInWithProvider(idToken, role: role, acceptTerms: true);
 
       if (context.mounted) context.go(Routes.home);
     } on SocialSignInException catch (e) {

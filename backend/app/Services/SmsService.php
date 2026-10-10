@@ -20,12 +20,24 @@ use Zuste\Helpers\Str;
 final class SmsService
 {
     /**
-     * Is SMS delivery switched on? Settings → SMS, or SMS_ENABLED in .env.
-     * Off means no text message leaves the platform for any reason.
+     * Is SMS delivery switched on? Off means no text message leaves the
+     * platform for any reason.
+     *
+     * Settings → SMS decides whenever it holds a value: an operator who
+     * switches SMS off there has switched it off, whatever SMS_ENABLED in
+     * .env says. The .env flag only answers for an install with no such
+     * setting (before the seeds ran). It used to be either one, so a stale
+     * SMS_ENABLED=true kept texting after the panel said off.
      */
     public static function enabled(): bool
     {
-        return Config::settingBool('sms', 'enabled', false) || (bool) Config::get('sms.enabled', false);
+        $setting = Config::setting('sms', 'enabled');
+
+        if ($setting !== null && trim((string) $setting) !== '') {
+            return Config::settingBool('sms', 'enabled', false);
+        }
+
+        return (bool) Config::get('sms.enabled', false);
     }
 
     public static function queue(string $phone, string $message, ?string $templateId = null): int
@@ -73,9 +85,29 @@ final class SmsService
         }
     }
 
-    /** @return array{sent:int,failed:int} */
+    /**
+     * Deliver what is waiting in `sms_queue`.
+     *
+     * Nothing is sent while SMS is switched off, and nothing is kept for
+     * later either: a booking alert or a code written before the switch went
+     * off must not go out days afterwards, the moment someone turns it back
+     * on. Pending rows are closed as failed with the reason, which also
+     * leaves them to the queue's retention prune.
+     *
+     * @return array{sent:int,failed:int}
+     */
     public static function drainQueue(int $limit = 50): array
     {
+        if (!self::enabled()) {
+            $closed = Database::execute(
+                "UPDATE `sms_queue`
+                    SET `status` = 'failed', `last_error` = 'SMS delivery is switched off; not sent.'
+                  WHERE `status` = 'pending'"
+            );
+
+            return ['sent' => 0, 'failed' => $closed];
+        }
+
         $jobs = Database::select(
             "SELECT * FROM `sms_queue`
              WHERE `status` = 'pending' AND `available_at` <= NOW() AND `attempts` < 3

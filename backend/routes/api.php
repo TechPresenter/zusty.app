@@ -18,6 +18,7 @@ declare(strict_types=1);
 use Zuste\Controllers\Api\AccountController;
 use Zuste\Controllers\Api\AiController;
 use Zuste\Controllers\Api\AuthController;
+use Zuste\Controllers\Api\BlockController;
 use Zuste\Controllers\Api\BookingController;
 use Zuste\Controllers\Api\CampaignController;
 use Zuste\Controllers\Api\ContactController;
@@ -28,6 +29,7 @@ use Zuste\Controllers\Api\CreatorProfileFieldController;
 use Zuste\Controllers\Api\KycController;
 use Zuste\Controllers\Api\MessageController;
 use Zuste\Controllers\Api\PrivacyController;
+use Zuste\Controllers\Api\ReportController;
 use Zuste\Controllers\Api\ReviewController;
 use Zuste\Controllers\Api\SystemController;
 use Zuste\Controllers\Api\TaxonomyController;
@@ -91,8 +93,12 @@ return static function (Router $router): void {
             $router->post('/refresh', [AuthController::class, 'refresh'])->middleware('throttle:30,300,refresh');
             $router->post('/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:5,900,password');
             $router->post('/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:5,900,password');
-            $router->post('/otp/send', [AuthController::class, 'sendOtp'])->middleware('throttle:5,600,otp');
-            $router->post('/otp/verify', [AuthController::class, 'verifyOtp'])->middleware('throttle:10,600,otp');
+            // Separate buckets, and a per-IP send allowance that a carrier-grade
+            // NAT (many phones behind one address) does not exhaust. Each
+            // address is still held to its own cooldown and ceiling in
+            // AuthService::sendOtp(), whoever asks.
+            $router->post('/otp/send', [AuthController::class, 'sendOtp'])->middleware('throttle:20,600,otp-send');
+            $router->post('/otp/verify', [AuthController::class, 'verifyOtp'])->middleware('throttle:10,600,otp-verify');
             $router->post('/guest', [AuthController::class, 'guest'])->middleware('throttle:10,300,login');
 
             $router->get('/me', [AuthController::class, 'me'])->middleware('auth');
@@ -243,10 +249,20 @@ return static function (Router $router): void {
             $router->put('/creator', [CreatorController::class, 'updateProfile'])->middleware('creator');
             $router->get('/creator/analytics', [CreatorController::class, 'analytics'])->middleware('creator');
             $router->get('/creator/completion', [CreatorController::class, 'completion'])->middleware('creator');
+            // The editors' own lists: hidden packages, portfolio items still in
+            // review or turned down, and linked accounts in the creator's order —
+            // none of which the public profile payload carries.
+            $router->get('/creator/packages', [CreatorController::class, 'myPackages'])->middleware('creator');
+            $router->get('/creator/portfolio', [CreatorController::class, 'myPortfolio'])->middleware('creator');
+            $router->get('/creator/social', [CreatorController::class, 'mySocialAccounts'])->middleware('creator');
             $router->post('/creator/packages', [CreatorController::class, 'createPackage'])->middleware('creator');
             $router->put('/creator/packages/{id:\d+}', [CreatorController::class, 'updatePackage'])->middleware('creator');
             $router->delete('/creator/packages/{id:\d+}', [CreatorController::class, 'deletePackage'])->middleware('creator');
-            $router->post('/creator/portfolio', [CreatorController::class, 'addPortfolioItem'])->middleware('creator');
+            // Takes a file upload, so it gets an upload-sized budget of its own
+            // (the generic /me throttle alone let storage be filled without
+            // bound); creator.max_portfolio_items caps the total.
+            $router->post('/creator/portfolio', [CreatorController::class, 'addPortfolioItem'])
+                ->middleware('creator', 'throttle:30,600,portfolio');
             $router->delete('/creator/portfolio/{id:\d+}', [CreatorController::class, 'deletePortfolioItem'])->middleware('creator');
             $router->put('/creator/social', [CreatorController::class, 'upsertSocialAccount'])->middleware('creator');
             // The spec's other two social verbs. Neither existed, so a creator
@@ -311,6 +327,14 @@ return static function (Router $router): void {
             // invited to or applied for, with its current status. Reading only;
             // applying stays on POST /campaigns/{id}/apply behind `kyc`.
             $router->get('/applications', [CampaignController::class, 'myApplications'])->middleware('creator');
+
+            // ---- Blocked accounts --------------------------------------
+            // What a block stops, and the escrow rule it never breaks, are on
+            // BlockService. Both writes share one bucket, so blocking and
+            // unblocking someone cannot be cycled without limit.
+            $router->get('/blocks', [BlockController::class, 'index']);
+            $router->post('/blocks', [BlockController::class, 'store'])->middleware('throttle:60,3600,block');
+            $router->delete('/blocks/{userId:\d+}', [BlockController::class, 'destroy'])->middleware('throttle:60,3600,block');
         });
 
         // -------------------------------------------------------------
@@ -408,7 +432,9 @@ return static function (Router $router): void {
 
             // Reviews and reports
             $router->post('/reviews/{id:\d+}/reply', [ReviewController::class, 'reply']);
-            $router->post('/reports', [ReviewController::class, 'report'])->middleware('throttle:10,3600,report');
+            // Profiles, messages, reviews, bookings, portfolio items and
+            // campaign briefs; one open report per reporter and target.
+            $router->post('/reports', [ReportController::class, 'store'])->middleware('throttle:10,3600,report');
 
             // Wallet and payments
             $router->get('/wallet', [WalletController::class, 'show']);

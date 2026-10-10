@@ -52,6 +52,14 @@ final class BrandCampaignService
     /** Matches the `max:500` the campaign's own `brief_url` is held to. */
     private const PORTFOLIO_LINK_MAX_LENGTH = 500;
 
+    /**
+     * A brief is only in front of creators while its brand's account is
+     * active: suspending a brand takes its briefs off the board with it.
+     */
+    private const ACTIVE_BRAND_SQL = "EXISTS (SELECT 1 FROM `users` ab
+                                       WHERE ab.`id` = c.`brand_user_id` AND ab.`status` = 'active'
+                                         AND ab.`deleted_at` IS NULL)";
+
     // -----------------------------------------------------------------
     // Reading
     // -----------------------------------------------------------------
@@ -78,6 +86,14 @@ final class BrandCampaignService
             // A draft is private until published, and `is_public` lets a brand
             // run an invite-only campaign that never appears in the browse list.
             $clauses[] = "c.`status` IN ('open', 'in_progress') AND c.`is_public` = 1";
+
+            // Nor does a brief from a brand with a block between it and the
+            // viewer: neither side could act on it.
+            $clauses[]                = BlockService::notBlockedSql('c.`brand_user_id`');
+            $bindings['block_viewer'] = $viewerId;
+
+            // Nor one from a brand the platform suspended, banned or erased.
+            $clauses[] = self::ACTIVE_BRAND_SQL;
         }
 
         // `all` is what the app's "All" tab (and the brand dashboard) sends,
@@ -207,7 +223,8 @@ final class BrandCampaignService
     {
         $row = Database::selectOne(
             'SELECT c.*, cat.`name` AS `category_name`, u.`name` AS `brand_name`,
-                    u.`company_name` AS `brand_company`, u.`avatar_url` AS `brand_avatar`, u.`has_blue_tick` AS `brand_verified`
+                    u.`company_name` AS `brand_company`, u.`avatar_url` AS `brand_avatar`, u.`has_blue_tick` AS `brand_verified`,
+                    (u.`status` = \'active\' AND u.`deleted_at` IS NULL) AS `brand_active`
                FROM `campaigns` c
                LEFT JOIN `categories` cat ON cat.`id` = c.`category_id`
                INNER JOIN `users` u ON u.`id` = c.`brand_user_id`
@@ -222,8 +239,9 @@ final class BrandCampaignService
         $isOwner = (int) $row['brand_user_id'] === $viewerId;
 
         // A draft is not merely hidden from listings — fetching it directly
-        // must 404 too, or the list filter is decorative.
-        if (!$isOwner && !in_array((string) $row['status'], ['open', 'in_progress'], true)) {
+        // must 404 too, or the list filter is decorative. So is a brief whose
+        // brand the platform suspended, as on the board.
+        if (!$isOwner && (!in_array((string) $row['status'], ['open', 'in_progress'], true) || (int) $row['brand_active'] !== 1)) {
             throw HttpException::notFound('Campaign not found.');
         }
 
@@ -686,6 +704,55 @@ final class BrandCampaignService
         return self::show($campaignId, $brandUserId);
     }
 
+    /**
+     * A moderator takes a reported brief down (ReportService::takeDown).
+     *
+     * A brief still in front of creators (draft, open or in progress) is
+     * cancelled and made private, and the creators waiting on an answer are
+     * told it closed, as when the brand cancels it. Bookings already made from
+     * it are not touched: they carry on, or are cancelled, from their own
+     * pages. A brief that had already finished is only made private.
+     *
+     * @return array<string,mixed>|null The campaign as it was, or null when it
+     *                                  no longer exists.
+     */
+    public static function takeDown(int $campaignId, int $adminId): ?array
+    {
+        $campaign = Database::selectOne(
+            'SELECT * FROM `campaigns` WHERE `id` = :id AND `deleted_at` IS NULL',
+            ['id' => $campaignId]
+        );
+
+        if ($campaign === null) {
+            return null;
+        }
+
+        $from    = (string) $campaign['status'];
+        $closing = in_array($from, ['draft', 'open', 'in_progress'], true);
+
+        Database::update(
+            'campaigns',
+            $closing ? ['status' => 'cancelled', 'is_public' => 0] : ['is_public' => 0],
+            ['id' => $campaignId]
+        );
+
+        ActivityLogger::log(
+            'campaign.taken_down',
+            'campaign',
+            $campaignId,
+            'Campaign brief taken down by a moderator',
+            ['from' => $from, 'to' => $closing ? 'cancelled' : $from],
+            'admin',
+            $adminId
+        );
+
+        if ($closing) {
+            self::notifyApplicants($campaignId, 'cancelled');
+        }
+
+        return $campaign;
+    }
+
     // -----------------------------------------------------------------
     // Applications
     // -----------------------------------------------------------------
@@ -712,6 +779,8 @@ final class BrandCampaignService
         if ($creator === null) {
             throw HttpException::notFound('Creator not found.');
         }
+
+        BlockService::assertNotBlocked($brandUserId, (int) $creator['user_id']);
 
         $existing = Database::selectOne(
             'SELECT `id`, `status` FROM `campaign_applications`
@@ -740,7 +809,7 @@ final class BrandCampaignService
                 'SELECT COALESCE(`company_name`, `name`) FROM `users` WHERE `id` = :id',
                 ['id' => $brandUserId]
             ) ?? 'A brand'),
-        ], ['action_type' => 'url', 'action_value' => self::creatorLink($campaignId)]);
+        ], ['action_type' => 'url', 'action_value' => self::creatorLink($campaignId), 'actor_id' => $brandUserId]);
 
         self::recount($campaignId);
 
@@ -771,8 +840,10 @@ final class BrandCampaignService
             ? null
             : (string) json_encode(array_values($portfolioLinks), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
+        // A suspended brand's brief is not on the board, so it cannot be
+        // applied to either.
         $campaign = Database::selectOne(
-            'SELECT * FROM `campaigns` WHERE `id` = :id AND `deleted_at` IS NULL',
+            'SELECT c.* FROM `campaigns` c WHERE c.`id` = :id AND c.`deleted_at` IS NULL AND ' . self::ACTIVE_BRAND_SQL,
             ['id' => $campaignId]
         );
 
@@ -787,6 +858,8 @@ final class BrandCampaignService
         if ((int) $campaign['brand_user_id'] === $creatorUserId) {
             throw HttpException::forbidden('You cannot apply to your own campaign.');
         }
+
+        BlockService::assertNotBlocked($creatorUserId, (int) $campaign['brand_user_id']);
 
         // A quote wildly outside the advertised budget wastes both parties'
         // time, so it is refused with the actual range rather than silently
@@ -841,7 +914,7 @@ final class BrandCampaignService
                 'SELECT `display_name` FROM `creators` WHERE `id` = :id',
                 ['id' => $creatorId]
             ) ?? 'A creator'),
-        ], ['action_type' => 'url', 'action_value' => '/campaigns/' . $campaignId]);
+        ], ['action_type' => 'url', 'action_value' => '/campaigns/' . $campaignId, 'actor_id' => $creatorUserId]);
 
         self::recount($campaignId);
 
@@ -886,6 +959,12 @@ final class BrandCampaignService
             );
         }
 
+        // Shortlisting and hiring move towards new work, which a block stops;
+        // declining closes the application and is always allowed.
+        if ($status !== 'declined') {
+            BlockService::assertNotBlocked($brandUserId, (int) $application['creator_user_id']);
+        }
+
         Database::update('campaign_applications', [
             'status'         => $status,
             'responded_at'   => date('Y-m-d H:i:s'),
@@ -902,7 +981,7 @@ final class BrandCampaignService
                 ) ?? ''),
                 'reason'   => $reason ?? '',
             ],
-            ['action_type' => 'url', 'action_value' => self::creatorLink($campaignId)]
+            ['action_type' => 'url', 'action_value' => self::creatorLink($campaignId), 'actor_id' => $brandUserId]
         );
 
         self::recount($campaignId);

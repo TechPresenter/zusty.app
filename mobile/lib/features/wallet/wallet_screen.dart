@@ -6,6 +6,7 @@ import '../../core/network/api_failure.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/wallet.dart';
+import '../../providers/app_config_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../router/routes.dart';
@@ -27,6 +28,11 @@ import 'widgets/wallet_sheets.dart';
 /// The balance and what can be done with it first, then the lifetime
 /// figures, payouts in flight, where money comes from and goes to, and the
 /// ledger grouped by day with money-in / money-out filters.
+///
+/// Brands pay each booking at checkout, so "Add money" appears only when an
+/// admin has switched wallet top-ups back on (`/app/config` →
+/// `wallet.topup_enabled`). Without it a brand's wallet holds only money
+/// refunded into it, which can pay a booking it covers or be withdrawn.
 class WalletScreen extends ConsumerWidget {
   const WalletScreen({super.key});
 
@@ -34,6 +40,7 @@ class WalletScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final wallet = ref.watch(walletProvider);
     final isCreator = ref.watch(currentUserProvider)?.role.isCreator ?? false;
+    final topupEnabled = ref.watch(walletTopupEnabledProvider);
     final margin = AppBreakpoints.pageMargin(context);
 
     return ZScaffold(
@@ -77,7 +84,11 @@ class WalletScreen extends ConsumerWidget {
               builder: (data) => Column(
                 children: [
                   Reveal(
-                    child: _BalanceCard(wallet: data, isCreator: isCreator),
+                    child: _BalanceCard(
+                      wallet: data,
+                      isCreator: isCreator,
+                      topupEnabled: topupEnabled,
+                    ),
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   Reveal(
@@ -109,16 +120,38 @@ class ZShimmerCard extends StatelessWidget {
   }
 }
 
+/// What a brand can do with refunded money while top-ups are off. A balance
+/// under the minimum withdrawal cannot be withdrawn from the app, so that is
+/// not promised: it can pay for a booking it covers, or support pays it out.
+@visibleForTesting
+String walletBrandHint(Wallet wallet) {
+  final belowMinimum =
+      wallet.balance > 0 && wallet.balance < wallet.minWithdrawal;
+
+  return belowMinimum
+      ? 'Money refunded here can pay for a booking it covers. Withdrawals '
+            'start at ${Formatters.currency(wallet.minWithdrawal)}; '
+            'ask support to pay out a smaller balance.'
+      : 'Money refunded here can pay for a booking it covers, '
+            'or be withdrawn.';
+}
+
 /// The balance hero: what can be spent or withdrawn now, what is still held,
-/// and the three things to do with money — add, withdraw, manage accounts.
+/// and what to do with money — withdraw it, manage payout accounts, and add
+/// to it only while top-ups are switched on.
 ///
 /// The one place on the money screens that earns a brand gradient: it is the
 /// screen's single focal point.
 class _BalanceCard extends StatelessWidget {
-  const _BalanceCard({required this.wallet, required this.isCreator});
+  const _BalanceCard({
+    required this.wallet,
+    required this.isCreator,
+    required this.topupEnabled,
+  });
 
   final Wallet wallet;
   final bool isCreator;
+  final bool topupEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -202,7 +235,9 @@ class _BalanceCard extends StatelessWidget {
                 : isCreator
                 ? 'Ready to withdraw · minimum '
                       '${Formatters.currency(wallet.minWithdrawal)}'
-                : 'Use it to pay for bookings in one tap.',
+                : topupEnabled
+                ? 'Use it to pay for bookings in one tap.'
+                : walletBrandHint(wallet),
             style: AppTypography.bodySmall.copyWith(
               color: onHero.withValues(alpha: 0.8),
             ),
@@ -243,20 +278,30 @@ class _BalanceCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.md),
           Row(
             children: [
-              Expanded(
-                child: _WalletAction(
-                  label: 'Add money',
-                  icon: Icons.add_rounded,
-                  onTap: () => TopUpSheet.show(context),
+              // Brands pay each booking at checkout; loading the wallet in
+              // advance is an admin's switch, off by default.
+              if (topupEnabled) ...[
+                Expanded(
+                  child: _WalletAction(
+                    label: 'Add money',
+                    icon: Icons.add_rounded,
+                    onTap: () => TopUpSheet.show(context),
+                  ),
                 ),
-              ),
-              const SizedBox(width: AppSpacing.xs),
+                const SizedBox(width: AppSpacing.xs),
+              ],
               Expanded(
                 child: _WalletAction(
                   label: 'Withdraw',
                   icon: Icons.arrow_outward_rounded,
                   onTap: wallet.canWithdraw
-                      ? () => WithdrawSheet.show(context, wallet: wallet)
+                      ? () => WithdrawSheet.show(
+                          context,
+                          wallet: wallet,
+                          title: isCreator
+                              ? 'Withdraw earnings'
+                              : 'Withdraw balance',
+                        )
                       : null,
                 ),
               ),
@@ -633,6 +678,15 @@ class _TransactionsSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final filter = ref.watch(transactionFilterProvider);
     final transactions = ref.watch(transactionsProvider);
+    final isCreator = ref.watch(currentUserProvider)?.role.isCreator ?? false;
+    final topupEnabled = ref.watch(walletTopupEnabledProvider);
+
+    // Names only what can actually reach this wallet.
+    final emptyMessage = isCreator
+        ? 'Earnings, payouts and refunds will show up here.'
+        : topupEnabled
+        ? 'Top-ups, refunds and payouts will show up here.'
+        : 'Refunds and payouts will show up here.';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -664,7 +718,7 @@ class _TransactionsSection extends ConsumerWidget {
                     TransactionFilter.debit => 'No money out yet',
                     TransactionFilter.all => 'No transactions yet',
                   },
-                  message: 'Payouts, top-ups, and refunds will show up here.',
+                  message: emptyMessage,
                   icon: Icons.receipt_long_rounded,
                   compact: true,
                 ),

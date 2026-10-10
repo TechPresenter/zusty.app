@@ -1385,6 +1385,8 @@ abstract final class MockData {
           'description': 'Balance ${_money(48250)}',
           'gateway': 'wallet',
           'is_enabled': true,
+          // What the checkout compares against the booking total.
+          'balance': 48250.0,
         },
       ];
 

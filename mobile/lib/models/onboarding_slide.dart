@@ -52,7 +52,7 @@ class OnboardingSlide {
   static const fallback = OnboardingSlide(
     id: 0,
     title: 'Find the perfect Creator for your brand.',
-    body: 'Connect with verified influencers and grow your brand effortlessly.',
+    body: 'Search creators by city, category and price, and book them in a few taps.',
   );
 
   /// True when the admin has supplied real artwork for this slide.

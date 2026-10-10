@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/network/api_failure.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/formatters.dart';
 import '../../models/booking.dart';
 import '../../models/wallet.dart';
 import '../../providers/booking_provider.dart';
@@ -18,6 +19,7 @@ import '../../shared/widgets/z_feedback.dart';
 import '../../shared/widgets/z_scaffold.dart';
 import '../../shared/widgets/z_text_field.dart';
 import 'widgets/booking_ui.dart';
+import 'widgets/checkout_phone_sheet.dart';
 import 'widgets/gateway_checkout.dart';
 
 /// Screen 15 — Payment Details.
@@ -25,6 +27,11 @@ import 'widgets/gateway_checkout.dart';
 /// Order summary, coupon entry, gateway selection, and the escrow guarantee,
 /// per the payment workflow in `Zuste_Workflow.md` § 6. The total on the Pay
 /// button is always the server's figure, re-read after every coupon change.
+///
+/// A brand pays each booking through the gateway's hosted checkout
+/// (Cashfree), which is chosen from the start. The wallet cannot be topped
+/// up, so it is offered only as a second option, and only while the balance
+/// already in it — a refund, say — covers the whole total.
 class PaymentScreen extends ConsumerStatefulWidget {
   const PaymentScreen({super.key, required this.bookingId});
 
@@ -37,9 +44,16 @@ class PaymentScreen extends ConsumerStatefulWidget {
 class _PaymentScreenState extends ConsumerState<PaymentScreen> {
   final _coupon = TextEditingController();
 
+  /// What the payer picked, if anything. The method actually used is
+  /// [_CheckoutOptions.resolve]d against what is on offer at each build, so a
+  /// wallet choice falls back to the gateway once a coupon change means the
+  /// balance no longer covers the total.
   String? _method;
   bool _paying = false;
   bool _couponBusy = false;
+
+  /// The mobile number typed at checkout for an account that has none.
+  String? _checkoutPhone;
 
   @override
   void dispose() {
@@ -102,8 +116,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     if (picked != null) await _applyCoupon(picked);
   }
 
-  Future<void> _pay() async {
-    if (_method == null) {
+  Future<void> _pay(String? method) async {
+    if (method == null) {
       showZSnack(context, 'Choose a payment method.', isError: true);
       return;
     }
@@ -111,11 +125,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     setState(() => _paying = true);
 
     try {
-      // No coupon is passed here: it is already on the booking, and the
-      // server re-checks it is still valid before charging.
-      final order = await ref
-          .read(walletActionsProvider)
-          .payBooking(widget.bookingId, gateway: _method!);
+      final order = await _startOrder(method);
+      if (order == null) return;
 
       // Wallet settles server-side in one call; a gateway needs the payer to
       // finish on its own checkout page first, confirmed with our backend.
@@ -129,6 +140,43 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     } finally {
       if (mounted) setState(() => _paying = false);
     }
+  }
+
+  /// Creates the order, asking for a mobile number when the gateway needs
+  /// one the account does not have (`phone_required`: every email or Google
+  /// sign-up, as no number can be verified while SMS is off). The number is
+  /// kept on this screen for a retry, never saved to the account. Null when
+  /// the payer closes that sheet.
+  Future<Map<String, dynamic>?> _startOrder(String method) async {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        // No coupon is passed here: it is already on the booking, and the
+        // server re-checks it is still valid before charging.
+        return await ref.read(walletActionsProvider).payBooking(
+              widget.bookingId,
+              gateway: method,
+              customerPhone: _checkoutPhone,
+            );
+      } on ValidationFailure catch (e) {
+        final invalid = e.code == 'phone_invalid';
+        final required = e.code == 'phone_required';
+        // A server that still says "required" after a number was sent
+        // does not take one at checkout; asking again would loop.
+        if (!invalid && (!required || _checkoutPhone != null)) rethrow;
+        if (!mounted) return null;
+
+        final phone = await askCheckoutPhone(
+          context,
+          initial: _checkoutPhone,
+          serverError: invalid
+              ? (e.errorFor('customer_phone') ?? e.message)
+              : null,
+        );
+        if (phone == null) return null;
+        _checkoutPhone = phone;
+      }
+    }
+    return null;
   }
 
   void _onPaid() {
@@ -148,6 +196,14 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
   Widget build(BuildContext context) {
     final detail = ref.watch(bookingDetailProvider(widget.bookingId));
     final methods = ref.watch(paymentMethodsProvider);
+
+    // Worked out on every build: a coupon changes the total, and with it
+    // whether the wallet still covers the bill.
+    final options = _CheckoutOptions.from(
+      methods.valueOrNull ?? const [],
+      detail.valueOrNull?.totalAmount ?? 0,
+    );
+    final selected = options.resolve(_method);
 
     return ZScaffold(
       padded: false,
@@ -170,7 +226,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                   const SizedBox(width: 4),
                   Flexible(
                     child: Text(
-                      _method == null
+                      selected == null
                           ? 'Choose a payment method to continue'
                           : 'Held in escrow until you approve the work',
                       maxLines: 1,
@@ -187,7 +243,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
               label: 'Pay ${data.amounts.total} securely',
               icon: Icons.lock_rounded,
               isLoading: _paying,
-              onPressed: _pay,
+              onPressed: () => _pay(selected),
             ),
           ],
         ),
@@ -197,7 +253,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         value: detail,
         onRetry: () => ref.invalidate(bookingDetailProvider(widget.bookingId)),
         loading: const _PaymentSkeleton(),
-        builder: (data) => _buildBody(data, methods),
+        builder: (data) => _buildBody(data, methods, options, selected),
       ),
     );
   }
@@ -205,6 +261,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
   Widget _buildBody(
     BookingDetail detail,
     AsyncValue<List<PaymentMethod>> methods,
+    _CheckoutOptions options,
+    String? selected,
   ) {
     final margin = AppBreakpoints.pageMargin(context);
     final booking = detail.booking;
@@ -355,12 +413,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         // -- Payment methods -------------------------------------------------
         const PanelHeading('Payment method'),
         methods.when(
-          data: (options) {
-            final enabled = options
-                .where((option) => option.isEnabled)
-                .toList();
-
-            if (enabled.isEmpty) {
+          data: (_) {
+            if (options.isEmpty) {
               return ZCard(
                 child: const EmptyState(
                   compact: true,
@@ -373,17 +427,47 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
               );
             }
 
+            final wallet = options.wallet;
+
             return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (final option in enabled)
+                for (final option in options.gateways)
                   Padding(
                     padding: const EdgeInsets.only(bottom: AppSpacing.xs),
                     child: _MethodTile(
                       method: option,
-                      selected: _method == option.key,
+                      selected: selected == option.key,
                       onTap: () => setState(() => _method = option.key),
                     ),
                   ),
+                // Secondary on purpose: the gateway is how bookings are
+                // paid. This is for a balance the brand already holds.
+                if (wallet != null) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(
+                      left: 4,
+                      top: AppSpacing.xs,
+                      bottom: AppSpacing.xs,
+                    ),
+                    child: Text(
+                      options.gateways.isEmpty
+                          ? 'Pay from your Zusty balance'
+                          : 'Or use your Zusty balance',
+                      style: AppTypography.labelMedium.copyWith(
+                        color: AppColors.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  _MethodTile(
+                    method: wallet,
+                    subtitle:
+                        '${Formatters.currency(wallet.balance ?? 0)} '
+                        'available · covers this booking',
+                    selected: selected == wallet.key,
+                    onTap: () => setState(() => _method = wallet.key),
+                  ),
+                ],
               ],
             );
           },
@@ -432,6 +516,42 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         ),
       ],
     );
+  }
+}
+
+/// The ways this booking can be paid, as the checkout offers them.
+///
+/// Every gateway is a first-class option. The wallet is held apart: it is
+/// offered only when its balance covers [total] in full, because there is no
+/// top-up to make up a shortfall and a booking is never split across two
+/// methods.
+class _CheckoutOptions {
+  const _CheckoutOptions({this.gateways = const [], this.wallet});
+
+  factory _CheckoutOptions.from(List<PaymentMethod> methods, double total) {
+    final enabled = methods.where((m) => m.isEnabled).toList();
+    final wallets = enabled.where((m) => m.isWallet && m.covers(total));
+
+    return _CheckoutOptions(
+      gateways: enabled.where((m) => !m.isWallet).toList(),
+      wallet: wallets.isEmpty ? null : wallets.first,
+    );
+  }
+
+  final List<PaymentMethod> gateways;
+  final PaymentMethod? wallet;
+
+  bool get isEmpty => gateways.isEmpty && wallet == null;
+
+  /// [chosen] while it is still on offer; otherwise the first gateway — the
+  /// checkout every brand pays through — and only failing that the wallet.
+  String? resolve(String? chosen) {
+    final held = wallet;
+    final keys = [for (final m in gateways) m.key, if (held != null) held.key];
+
+    if (chosen != null && keys.contains(chosen)) return chosen;
+
+    return keys.isEmpty ? null : keys.first;
   }
 }
 
@@ -502,14 +622,20 @@ class _MethodTile extends StatelessWidget {
     required this.method,
     required this.selected,
     required this.onTap,
+    this.subtitle,
   });
 
   final PaymentMethod method;
   final bool selected;
   final VoidCallback onTap;
 
+  /// Replaces the method's own description, e.g. the wallet's balance.
+  final String? subtitle;
+
   @override
   Widget build(BuildContext context) {
+    final description = subtitle ?? method.description;
+
     return Semantics(
       inMutuallyExclusiveGroup: true,
       selected: selected,
@@ -546,9 +672,9 @@ class _MethodTile extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  if (method.description.isNotEmpty)
+                  if (description.isNotEmpty)
                     Text(
-                      method.description,
+                      description,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: AppTypography.bodySmall,

@@ -441,8 +441,8 @@ class _HowItWorks extends StatelessWidget {
       (
         'Confirm it\'s you',
         providers.isEmpty
-            ? 'With your password, or a one-time code sent to your email or phone.'
-            : 'With your password, a one-time code sent to your email or phone, '
+            ? 'With your password, or a one-time code sent to your email.'
+            : 'With your password, a one-time code sent to your email, '
                 'or your $signIn sign-in.',
       ),
       ('We prepare your file', 'Straight away. It usually takes a few seconds.'),

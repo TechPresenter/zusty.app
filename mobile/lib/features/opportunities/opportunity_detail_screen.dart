@@ -8,6 +8,7 @@ import '../../core/network/api_failure.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/campaign.dart';
+import '../../models/safety.dart';
 import '../../providers/opportunity_provider.dart';
 import '../../router/routes.dart';
 import '../../shared/motion/motion.dart';
@@ -23,6 +24,7 @@ import '../../shared/widgets/z_image.dart';
 import '../../shared/widgets/z_scaffold.dart';
 import '../../shared/widgets/z_timeline.dart';
 import '../kyc/widgets/kyc_gate.dart';
+import '../safety/safety_menu.dart';
 import 'widgets/opportunity_states.dart';
 
 /// One brief, as a creator weighs it.
@@ -44,7 +46,26 @@ class OpportunityDetailScreen extends ConsumerWidget {
 
     return ZScaffold(
       padded: false,
-      appBar: const ZAppBar(title: 'Opportunity'),
+      appBar: ZAppBar(
+        title: 'Opportunity',
+        // Report the brief, and block the brand behind it.
+        actions: [
+          if (campaign.valueOrNull case final data?)
+            SafetyMenuButton(
+              target: ReportTarget.campaign,
+              targetId: data.id,
+              name: data.brand?.name.isNotEmpty == true
+                  ? data.brand!.name
+                  : 'this brand',
+              userId: (data.brand?.id ?? 0) > 0 ? data.brand!.id : null,
+              // Nothing can be applied for across a block, so the brief
+              // closes with it.
+              onBlocked: () {
+                if (context.canPop()) context.pop();
+              },
+            ),
+        ],
+      ),
       bottomBar: isCreator
           ? campaign.maybeWhen(
               data: (data) => _ActionBar(campaign: data),

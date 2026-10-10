@@ -441,7 +441,8 @@ final class MailService
         string $recipientName = '',
         string $actionType = 'none',
         ?string $actionValue = null,
-        string $afterBodyHtml = ''
+        string $afterBodyHtml = '',
+        ?string $footerReason = null
     ): string {
         $title    = $titleHtml;
         $body     = $bodyHtml;
@@ -453,6 +454,7 @@ final class MailService
         // Operator settings are text too.
         $appNameHtml = Str::e($appName);
         $supportHtml = Str::e($support);
+        $reasonHtml  = Str::e($footerReason ?? 'You are receiving this email because you have an account on ' . $appName . '.');
 
         // Absolute, because a mail client has no base URL. Flattened onto white
         // so a dark-mode client can't lose the navy ".app" against its own
@@ -496,7 +498,7 @@ final class MailService
         </p>
         <p style="margin:12px 0 0;font-size:11px;line-height:16px;color:#8F6F73">
           &copy; {$year} {$appNameHtml}. All rights reserved.<br>
-          You are receiving this email because you have an account on {$appNameHtml}.
+          {$reasonHtml}
         </p>
       </td></tr>
     </table>
@@ -527,14 +529,16 @@ HTML;
 
         // Plain text: the layout escapes it (this used to be pre-escaped and
         // then string-replaced back into the rendered page).
+        // A sign-in code goes to whatever address was typed, account or not
+        // (the send never says which), so its wording holds for both.
         $body = ($login
-                ? 'Use the code below to log in to your Zusty account. '
+                ? 'Use this code to sign in to Zusty. '
                 : 'Use the verification code below to ' . ($stepUp ?? str_replace('_', ' ', $purpose)) . '. ')
               . 'It expires in ' . $validMinutes . ' minutes. '
               . ($stepUp !== null
                   ? 'If you did not ask for this, someone may be signed in to your account: sign out of all devices and change your password.'
                   : ($login
-                      ? 'Never share it: nobody from Zusty will ask for it. If you did not try to log in, you can safely ignore this email.'
+                      ? "Never share it: nobody from Zusty will ask for it. If you don't have an account, or didn't try to sign in, you can ignore this email."
                       : 'If you did not request this, you can safely ignore this email.'));
 
         $codeBlock = '<div style="margin:20px 0;padding:20px;background:#FFF0F1;border-radius:16px;text-align:center">'
@@ -547,7 +551,9 @@ HTML;
             '',
             'none',
             null,
-            $codeBlock
+            $codeBlock,
+            // Only a step-up code is sure to reach an account holder.
+            $stepUp !== null ? null : 'You are receiving this email because this address was entered in Zusty.'
         );
     }
 

@@ -269,7 +269,16 @@ if ($eoActor === null || $eoId <= 0) {
             $eoCode = (string) ($m[1] ?? '');
 
             Suite::check('…carrying the code', $eoCode !== '' && str_contains($eoLetter['html'], $eoCode), mb_substr($eoLetter['plain'], 0, 300));
-            Suite::check('…saying what it is for', str_contains($eoLetter['plain'], 'log in to your Zusty account'), mb_substr($eoLetter['plain'], 0, 300));
+            Suite::check('…saying what it is for', str_contains($eoLetter['plain'], 'Use this code to sign in to Zusty'), mb_substr($eoLetter['plain'], 0, 300));
+            // The same email goes to an address with no account (the send
+            // never says which), so it must not claim there is one.
+            Suite::check(
+                '…in words that hold whether or not there is an account',
+                !str_contains($eoLetter['plain'], 'your Zusty account')
+                    && !str_contains($eoLetter['plain'], 'because you have an account')
+                    && str_contains($eoLetter['plain'], 'have an account, or'),
+                mb_substr($eoLetter['plain'], 0, 600)
+            );
             Suite::check(
                 '…and naming no mailbox but support@zusty.app',
                 str_contains($eoLetter['html'], 'support@zusty.app') && $eoOtherMailboxes($eoLetter['html'] . ' ' . $eoLetter['plain']) === [],
@@ -314,7 +323,6 @@ if ($eoActor === null || $eoId <= 0) {
 
         // An address nobody uses: the send looks exactly the same, so it
         // reveals nothing; only the code's owner learns there is no account.
-        // (The per-IP OTP throttle is shared with the calls above.)
         Suite::clearRateLimits();
         $eoUsersBefore = (int) Database::scalar('SELECT COUNT(*) FROM `users`');
         $eoStranger    = Http::post('/auth/otp/send', ['destination' => $eoNobody, 'channel' => 'email', 'purpose' => 'login']);

@@ -137,6 +137,10 @@ final class MessageService
             throw HttpException::forbidden('This conversation is closed.');
         }
 
+        // Either side's block closes every thread the two share, a booking's
+        // included: the booking itself carries on through its own actions.
+        BlockService::assertCanMessage($conversationId, $senderId);
+
         $uuid = (string) ($payload['uuid'] ?? '');
         if ($uuid !== '') {
             $existing = Database::selectOne('SELECT * FROM `messages` WHERE `uuid` = :uuid', ['uuid' => $uuid]);
@@ -244,6 +248,7 @@ final class MessageService
                 'action_type'  => 'chat',
                 'action_value' => (string) $conversationId,
                 'data'         => ['conversation_id' => (string) $conversationId],
+                'actor_id'     => $senderId,
             ]);
 
             $message = Database::selectOne('SELECT * FROM `messages` WHERE `id` = :id', ['id' => $messageId]);
@@ -317,25 +322,74 @@ final class MessageService
      * Conversation list for the inbox, with the other party's details and
      * the caller's unread count.
      *
+     * A thread with someone the caller blocked is left out: blocking hides
+     * the conversation from the blocker, while the history stays readable
+     * from the booking it belongs to. The other side still sees the thread,
+     * with `other_blocked` set so the app shows it read-only.
+     *
      * @return list<array<string,mixed>>
      */
     public static function inbox(int $userId, int $limit = 50, int $offset = 0): array
     {
-        // `other_verified` is the other party's blue tick: a creator's lives
-        // on `creators.is_verified`, a brand's on `users.has_blue_tick` — both
-        // written only by KycService::grantBadge() / revokeBadge().
         return Database::select(
-            'SELECT c.*, p.`unread_count`, p.`is_muted`, p.`last_read_at`,
+            self::conversationSql() . ' AND c.`is_archived` = 0
+               AND NOT EXISTS (SELECT 1 FROM `user_blocks` mb
+                                WHERE mb.`blocker_id` = :user_id AND mb.`blocked_id` = op.`user_id`)
+             ORDER BY COALESCE(c.`last_message_at`, c.`created_at`) DESC
+             LIMIT ' . max(1, min(100, $limit)) . ' OFFSET ' . max(0, $offset),
+            ['user_id' => $userId]
+        );
+    }
+
+    /**
+     * One thread as its inbox row would read, for the chat screen: the other
+     * person's name and profile, and whether a block closes it. Unlike the
+     * inbox it is also returned for a thread with someone the caller blocked,
+     * which the inbox leaves out but a booking can still open.
+     *
+     * @return array<string,mixed>|null
+     */
+    public static function conversationFor(int $conversationId, int $userId): ?array
+    {
+        return Database::selectOne(
+            self::conversationSql() . ' AND c.`id` = :conversation_id LIMIT 1',
+            ['user_id' => $userId, 'conversation_id' => $conversationId]
+        );
+    }
+
+    /**
+     * The caller's threads with the other party's details, open-ended for
+     * the caller to finish the WHERE clause. Binds `:user_id`.
+     *
+     * `other_verified` is the other party's blue tick: a creator's lives on
+     * `creators.is_verified`, a brand's on `users.has_blue_tick` — both
+     * written only by KycService::grantBadge() / revokeBadge().
+     *
+     * `other_blocked` is set when the other party blocked the caller and
+     * `me_blocked` when the caller blocked them. Across a block either way
+     * the other party's presence is not given out: `other_last_seen` is null,
+     * so nobody watches for someone who blocked them coming online.
+     */
+    private static function conversationSql(): string
+    {
+        return 'SELECT c.*, p.`unread_count`, p.`is_muted`, p.`last_read_at`,
                     other.`id`         AS `other_user_id`,
                     other.`name`       AS `other_name`,
                     other.`avatar_url` AS `other_avatar`,
-                    other.`last_seen_at` AS `other_last_seen`,
                     cr.`display_name`  AS `other_display_name`,
                     cr.`headline`      AS `other_headline`,
                     cr.`handle`        AS `other_handle`,
                     CASE WHEN other.`account_type` = "brand"
                          THEN other.`has_blue_tick`
                          ELSE cr.`is_verified` END AS `other_verified`,
+                    EXISTS(SELECT 1 FROM `user_blocks` ob
+                            WHERE ob.`blocker_id` = op.`user_id` AND ob.`blocked_id` = :user_id) AS `other_blocked`,
+                    EXISTS(SELECT 1 FROM `user_blocks` yb
+                            WHERE yb.`blocker_id` = :user_id AND yb.`blocked_id` = op.`user_id`) AS `me_blocked`,
+                    CASE WHEN EXISTS(SELECT 1 FROM `user_blocks` xb
+                                      WHERE (xb.`blocker_id` = op.`user_id` AND xb.`blocked_id` = :user_id)
+                                         OR (xb.`blocker_id` = :user_id AND xb.`blocked_id` = op.`user_id`))
+                         THEN NULL ELSE other.`last_seen_at` END AS `other_last_seen`,
                     b.`code`           AS `booking_code`,
                     b.`status`         AS `booking_status`
              FROM `conversation_participants` p
@@ -345,11 +399,55 @@ final class MessageService
              LEFT JOIN `users` other ON other.`id` = op.`user_id`
              LEFT JOIN `creators` cr ON cr.`user_id` = other.`id`
              LEFT JOIN `bookings` b ON b.`id` = c.`booking_id`
-             WHERE p.`user_id` = :user_id AND p.`left_at` IS NULL AND c.`is_archived` = 0
-             ORDER BY COALESCE(c.`last_message_at`, c.`created_at`) DESC
-             LIMIT ' . max(1, min(100, $limit)) . ' OFFSET ' . max(0, $offset),
-            ['user_id' => $userId]
-        );
+             WHERE p.`user_id` = :user_id AND p.`left_at` IS NULL';
+    }
+
+    /**
+     * A moderator takes a reported message down: it leaves the thread for
+     * everyone in it, and the inbox preview stops quoting it. The row is
+     * soft-deleted, so the report's copy and the audit trail still say what
+     * it was.
+     *
+     * @return array<string,mixed>|null The message as it was, or null when it
+     *                                  was already gone.
+     */
+    public static function removeByModerator(int $messageId): ?array
+    {
+        return Database::transaction(static function () use ($messageId): ?array {
+            $message = Database::selectOne(
+                'SELECT * FROM `messages` WHERE `id` = :id AND `deleted_at` IS NULL FOR UPDATE',
+                ['id' => $messageId]
+            );
+
+            if ($message === null) {
+                return null;
+            }
+
+            Database::update('messages', ['deleted_at' => date('Y-m-d H:i:s')], ['id' => $messageId]);
+
+            $conversationId = (int) $message['conversation_id'];
+            $latest         = Database::selectOne(
+                'SELECT `id`, `type`, `body`, `created_at` FROM `messages`
+                  WHERE `conversation_id` = :id AND `deleted_at` IS NULL
+                  ORDER BY `id` DESC LIMIT 1',
+                ['id' => $conversationId]
+            );
+
+            $preview = $latest === null ? null : match ((string) $latest['type']) {
+                'image' => '📷 Photo',
+                'file'  => '📎 Attachment',
+                'audio' => '🎤 Voice message',
+                'offer' => '💼 Offer',
+                default => Str::limit((string) $latest['body'], 120, '…'),
+            };
+
+            Database::update('conversations', [
+                'last_message_id'   => $latest === null ? null : (int) $latest['id'],
+                'last_message_text' => $preview === null ? null : mb_substr($preview, 0, 255),
+            ], ['id' => $conversationId]);
+
+            return $message;
+        });
     }
 
     /** Mark everything up to the newest message as read. */
@@ -398,6 +496,11 @@ final class MessageService
     public static function setTyping(int $conversationId, int $userId, bool $isTyping): void
     {
         self::assertParticipant($conversationId, $userId);
+
+        // Nobody can post into a blocked thread, so nobody is shown typing.
+        if ($isTyping && !BlockService::canMessage($conversationId, $userId)) {
+            return;
+        }
 
         Database::execute(
             'UPDATE `conversation_participants`

@@ -242,6 +242,7 @@ class CreatorProfile {
     this.portfolioCounts = const {},
     this.isOnline = false,
     this.isOwner = false,
+    this.isBlocked = false,
     this.responseTime,
     this.joinedAt,
     this.responseTimeHours,
@@ -287,6 +288,10 @@ class CreatorProfile {
 
   final bool isOnline;
   final bool isOwner;
+
+  /// The viewer has blocked this creator (`is_blocked`). The profile still
+  /// opens, so it can be unblocked, but Message and Book are not offered.
+  final bool isBlocked;
 
   /// A ready-made reply-time phrase, when the payload carries one. The live
   /// server sends [responseTimeHours] instead; read [responseTimeLabel].
@@ -355,6 +360,7 @@ class CreatorProfile {
       portfolioCounts: counts,
       isOnline: Json.boolean(json['is_online']),
       isOwner: Json.boolean(json['is_owner']),
+      isBlocked: Json.boolean(json['is_blocked']),
       responseTime: Json.strOrNull(json['response_time']),
       joinedAt: Formatters.parseDate(json['joined_at']),
       responseTimeHours: Json.intOrNull(json['response_time_hours']),
@@ -586,6 +592,7 @@ class SocialAccount {
     this.isVerified = false,
     this.isPrimary = false,
     this.hasMetrics = true,
+    this.isCustom = false,
     this.icon = 'link',
     this.color,
     this.lastSyncedAt,
@@ -617,8 +624,16 @@ class SocialAccount {
   /// engagement figures do not exist and must not be rendered as zeroes.
   final bool hasMetrics;
 
+  /// A custom link, shown under the name the creator gave it. Sent by the
+  /// creator's own editor list (`is_custom`); false elsewhere.
+  final bool isCustom;
+
   final String icon;
   final String? color;
+
+  /// When the creator last entered the figures. Nothing fetches them from
+  /// the network, so this is never a sync time, whatever the column is
+  /// called.
   final DateTime? lastSyncedAt;
 
   factory SocialAccount.fromJson(Map<String, dynamic> json) => SocialAccount(
@@ -638,6 +653,7 @@ class SocialAccount {
     isPrimary: Json.boolean(json['is_primary']),
     // Absent on older payloads, where every account was a real network.
     hasMetrics: Json.boolean(json['has_metrics'], true),
+    isCustom: Json.boolean(json['is_custom']),
     icon: Json.str(json['icon'], 'link'),
     color: Json.strOrNull(json['color']),
     lastSyncedAt: Formatters.parseDate(json['last_synced_at']),
@@ -730,6 +746,14 @@ class CreatorPackage {
   );
 
   String get turnaroundLabel => Formatters.duration(turnaroundDays);
+
+  /// "1 revision", "3 revisions", "No revisions". One place for the plural,
+  /// which three screens used to spell out — and one of them as "1 revisions".
+  String get revisionsLabel => switch (revisions) {
+    <= 0 => 'No revisions',
+    1 => '1 revision',
+    _ => '$revisions revisions',
+  };
 }
 
 /// One piece of portfolio media (`creator_portfolio`).

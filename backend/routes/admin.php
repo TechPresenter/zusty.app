@@ -226,6 +226,7 @@ return static function (Router $router): void {
         $router->post('/reviews/{id:\d+}/moderate', [BookingController::class, 'moderateReview'])->middleware('permission:reviews.moderate');
         $router->get('/reports', [BookingController::class, 'reports'])->middleware('permission:reports.view');
         $router->post('/reports/{id:\d+}/handle', [BookingController::class, 'handleReport'])->middleware('permission:reports.handle');
+        $router->post('/reports/{id:\d+}/take-down', [BookingController::class, 'takeDownReport'])->middleware('permission:reports.handle');
 
         // ---- Finance -----------------------------------------------
         $router->get('/payments', [FinanceController::class, 'payments'])->middleware('permission:payments.view');

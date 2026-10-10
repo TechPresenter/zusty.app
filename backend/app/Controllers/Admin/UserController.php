@@ -12,6 +12,7 @@ use Zuste\Helpers\Money;
 use Zuste\Helpers\Str;
 use Zuste\Services\AccountDeletionService;
 use Zuste\Services\AuthService;
+use Zuste\Services\BlockService;
 use Zuste\Services\CreatorBadgeService;
 use Zuste\Services\KycService;
 use Zuste\Services\CreatorProfileLockService;
@@ -19,6 +20,7 @@ use Zuste\Services\CreatorService;
 use Zuste\Services\ExportService;
 use Zuste\Services\NotificationService;
 use Zuste\Services\PrivacyService;
+use Zuste\Services\ReportService;
 use Zuste\Services\WalletService;
 
 /**
@@ -201,6 +203,10 @@ final class UserController extends BaseAdminController
                  WHERE `actor_type` = 'user' AND `actor_id` = :id ORDER BY `id` DESC LIMIT 20",
                 ['id' => $userId]
             ),
+            // Who this account blocked, who blocked it, and the reports about
+            // it: what a moderator looks at before acting on a report.
+            'blocks'       => BlockService::adminOverview($userId),
+            'reportCounts' => $this->can($request, 'reports.view') ? ReportService::countsAbout($userId) : null,
         ]);
     }
 

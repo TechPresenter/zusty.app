@@ -9,6 +9,7 @@ use Zuste\Core\HttpException;
 use Zuste\Core\Request;
 use Zuste\Core\Response;
 use Zuste\Helpers\Str;
+use Zuste\Services\BlockService;
 use Zuste\Services\MessageService;
 use Zuste\Services\UploadService;
 
@@ -27,40 +28,57 @@ final class MessageController extends BaseApiController
 
         $rows = MessageService::inbox($userId, $pagination['per_page'], $pagination['offset']);
 
-        $items = array_map(static function (array $row): array {
-            $lastSeen = $row['other_last_seen'] ?? null;
-
-            return [
-                'id'              => (int) $row['id'],
-                'uuid'            => (string) $row['uuid'],
-                'type'            => (string) $row['type'],
-                'booking_id'      => $row['booking_id'] === null ? null : (int) $row['booking_id'],
-                'booking_code'    => $row['booking_code'] ?? null,
-                'booking_status'  => $row['booking_status'] ?? null,
-                'participant'     => [
-                    'user_id'     => $row['other_user_id'] === null ? null : (int) $row['other_user_id'],
-                    'name'        => (string) ($row['other_display_name'] ?: $row['other_name'] ?: 'Zusty user'),
-                    'headline'    => $row['other_headline'] ?? null,
-                    // The creator's public handle, so the chat header can open
-                    // their profile. Null when the other party is a brand,
-                    // which has no public profile to open.
-                    'handle'      => $row['other_handle'] ?? null,
-                    'avatar_url'  => $row['other_avatar'] ?? null,
-                    'is_verified' => (bool) ($row['other_verified'] ?? false),
-                    'is_online'   => $lastSeen !== null && strtotime((string) $lastSeen) > time() - 300,
-                ],
-                'last_message'    => $row['last_message_text'],
-                'last_message_at' => $row['last_message_at'],
-                'time_ago'        => Str::timeAgo($row['last_message_at'] ?? $row['created_at']),
-                'unread_count'    => (int) $row['unread_count'],
-                'is_muted'        => (bool) $row['is_muted'],
-                'is_locked'       => (bool) $row['is_locked'],
-            ];
-        }, $rows);
-
-        Response::success(['conversations' => $items], 'OK', 200, [
+        Response::success(['conversations' => array_map(self::presentConversation(...), $rows)], 'OK', 200, [
             'total_unread' => MessageService::totalUnread($userId),
         ]);
+    }
+
+    /**
+     * One inbox row. GET /conversations/{id}/messages returns the same shape
+     * as `conversation`, so the chat keeps its header and menu for a thread
+     * the inbox leaves out (one with someone the caller blocked).
+     *
+     * @param  array<string,mixed> $row from MessageService::inbox()/conversationFor()
+     * @return array<string,mixed>
+     */
+    private static function presentConversation(array $row): array
+    {
+        // Null across a block either way (MessageService::conversationSql).
+        $lastSeen  = $row['other_last_seen'] ?? null;
+        $iBlocked  = (bool) ($row['me_blocked'] ?? false);
+        $theyBlock = (bool) ($row['other_blocked'] ?? false);
+
+        return [
+            'id'              => (int) $row['id'],
+            'uuid'            => (string) $row['uuid'],
+            'type'            => (string) $row['type'],
+            'booking_id'      => $row['booking_id'] === null ? null : (int) $row['booking_id'],
+            'booking_code'    => $row['booking_code'] ?? null,
+            'booking_status'  => $row['booking_status'] ?? null,
+            'participant'     => [
+                'user_id'     => $row['other_user_id'] === null ? null : (int) $row['other_user_id'],
+                'name'        => (string) ($row['other_display_name'] ?: $row['other_name'] ?: 'Zusty user'),
+                'headline'    => $row['other_headline'] ?? null,
+                // The creator's public handle, so the chat header can open
+                // their profile. Null when the other party is a brand,
+                // which has no public profile to open.
+                'handle'      => $row['other_handle'] ?? null,
+                'avatar_url'  => $row['other_avatar'] ?? null,
+                'is_verified' => (bool) ($row['other_verified'] ?? false),
+                'is_online'   => $lastSeen !== null && strtotime((string) $lastSeen) > time() - 300,
+                // The caller blocked this person, so the app offers Unblock.
+                'is_blocked'  => $iBlocked,
+            ],
+            'last_message'    => $row['last_message_text'],
+            'last_message_at' => $row['last_message_at'],
+            'time_ago'        => Str::timeAgo($row['last_message_at'] ?? $row['created_at']),
+            'unread_count'    => (int) $row['unread_count'],
+            'is_muted'        => (bool) $row['is_muted'],
+            'is_locked'       => (bool) $row['is_locked'],
+            // False across a block either way: the thread stays readable, and
+            // the app swaps the composer for a notice.
+            'can_message'     => !$theyBlock && !$iBlocked,
+        ];
     }
 
     /** GET /conversations/{id}/messages */
@@ -100,11 +118,17 @@ final class MessageController extends BaseApiController
         // Opening the thread marks it read.
         MessageService::markRead($conversationId, $userId);
 
+        $conversation = MessageService::conversationFor($conversationId, $userId);
+
         Response::success([
-            'messages'    => $items,
-            'has_more'    => $history['has_more'],
-            'next_cursor' => $history['next_cursor'],
-            'typing'      => MessageService::typingUsers($conversationId, $userId),
+            'messages'     => $items,
+            'has_more'     => $history['has_more'],
+            'next_cursor'  => $history['next_cursor'],
+            'typing'       => MessageService::typingUsers($conversationId, $userId),
+            // A block either way leaves the thread readable but closed.
+            'can_message'  => BlockService::canMessage($conversationId, $userId),
+            // Who the thread is with, as the inbox row would say it.
+            'conversation' => $conversation === null ? null : self::presentConversation($conversation),
         ]);
     }
 
@@ -123,7 +147,9 @@ final class MessageController extends BaseApiController
 
         // Image sharing: accept a direct multipart upload.
         if ($request->hasFile('image')) {
+            // Checked before the upload, so a refused photo is never stored.
             MessageService::assertParticipant($conversationId, $userId);
+            BlockService::assertCanMessage($conversationId, $userId);
 
             $upload = UploadService::store((array) $request->file('image'), 'chat', 'image', 'user', $userId);
 
@@ -257,6 +283,11 @@ final class MessageController extends BaseApiController
         if ($otherUserId === $userId) {
             throw HttpException::unprocessable('You cannot start a conversation with yourself.');
         }
+
+        // A booking's thread above opens whatever the two think of each
+        // other, read-only once one has blocked the other; a new direct
+        // conversation does not.
+        BlockService::assertNotBlocked($userId, $otherUserId);
 
         $conversation = MessageService::ensureDirectConversation($userId, $otherUserId);
 

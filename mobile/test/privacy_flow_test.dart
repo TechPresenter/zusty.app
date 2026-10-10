@@ -384,9 +384,10 @@ class _FakeContacts extends ContactRepository {
   String? lastValue;
   Reauth? lastProof;
   ApiFailure? failNextChange;
+  Map<String, dynamic> book = _contactBook;
 
   @override
-  Future<ContactBook> load() async => ContactBook.fromJson(_contactBook);
+  Future<ContactBook> load() async => ContactBook.fromJson(book);
 
   @override
   Future<ContactBook> requestChange({
@@ -817,6 +818,7 @@ void main() {
       Widget screen, {
       Map<String, dynamic>? overview,
       _FakeAuth? signedIn,
+      Map<String, dynamic>? contactBook,
     }) async {
       tester.view.physicalSize = const Size(1170, 6000);
       tester.view.devicePixelRatio = 3.0;
@@ -825,7 +827,7 @@ void main() {
       fake = _FakePrivacy(client(), overview ?? _overview());
       auth = signedIn ?? _FakeAuth();
       authRepository = _FakeAuthRepository(client(), cache);
-      contacts = _FakeContacts(client());
+      contacts = _FakeContacts(client())..book = contactBook ?? _contactBook;
       tokenRequests = [];
 
       router = GoRouter(
@@ -1999,6 +2001,47 @@ void main() {
       expect(contacts.lastValue, 'new@zuste.test');
       expect(contacts.lastProof?.password, 'pw');
       expect(find.text('Code sent.'), findsOneWidget);
+    });
+
+    testWidgets('a mobile number is offered for change while a code can reach it', (tester) async {
+      await pump(tester, const ContactsScreen());
+
+      expect(find.text('Change email'), findsOneWidget);
+      expect(find.text('Change number'), findsOneWidget);
+      expect(find.text('Add another number'), findsOneWidget);
+      expect(find.textContaining('text messages are switched off'), findsNothing);
+    });
+
+    testWidgets('with SMS off no mobile change or extra number is offered, and the screen says why', (tester) async {
+      await pump(
+        tester,
+        const ContactsScreen(),
+        contactBook: {
+          ..._contactBook,
+          'policy': {
+            'otp_verification': true,
+            'allow_mobile_change': false,
+            'mobile_codes_available': false,
+          },
+        },
+      );
+
+      expect(find.text('Change email'), findsOneWidget, reason: 'email still works');
+      expect(find.text('Add another email'), findsOneWidget);
+      expect(find.text('Change number'), findsNothing);
+      expect(find.text('Add another number'), findsNothing);
+      expect(find.textContaining('text messages are switched off'), findsOneWidget);
+      expect(contacts.changeCalls, 0);
+    });
+
+    test('ContactPolicy reads mobile_codes_available, defaulting to available', () {
+      expect(ContactPolicy.fromJson(const {}).canChange('phone'), isTrue);
+      final off = ContactPolicy.fromJson(const {'mobile_codes_available': false});
+      expect(off.mobileCodesAvailable, isFalse);
+      expect(off.canChange('phone'), isFalse, reason: 'even if the switch reads on');
+      expect(off.canAddAlternate('phone'), isFalse);
+      expect(off.canChange('email'), isTrue);
+      expect(off.canAddAlternate('email'), isTrue);
     });
   });
 }

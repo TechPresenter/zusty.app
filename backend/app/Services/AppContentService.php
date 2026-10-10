@@ -310,6 +310,17 @@ final class AppContentService
                     $bindings
                 );
 
+                // A hand-picked rail still leaves out anyone with a block
+                // between them and the viewer, as search does.
+                if ($userId !== null) {
+                    $blocked = BlockService::relatedIds($userId);
+
+                    $rows = array_values(array_filter(
+                        $rows,
+                        static fn (array $row): bool => !in_array((int) $row['user_id'], $blocked, true)
+                    ));
+                }
+
                 return array_map([CreatorService::class, 'presentCard'], $rows);
         }
 

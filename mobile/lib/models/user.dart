@@ -267,12 +267,15 @@ class User {
 }
 
 /// Per-channel notification opt-ins (`PUT /me/notification-preferences`).
+///
+/// Marketing is opt-in: unless the server says the account turned it on, it
+/// reads as off, the same default the server uses.
 class NotificationPrefs {
   const NotificationPrefs({
     this.push = true,
     this.email = true,
     this.sms = false,
-    this.marketing = true,
+    this.marketing = false,
   });
 
   final bool push;
@@ -285,7 +288,7 @@ class NotificationPrefs {
         push: Json.boolean(json['push'], true),
         email: Json.boolean(json['email'], true),
         sms: Json.boolean(json['sms']),
-        marketing: Json.boolean(json['marketing'], true),
+        marketing: Json.boolean(json['marketing']),
       );
 
   Map<String, dynamic> toJson() => {

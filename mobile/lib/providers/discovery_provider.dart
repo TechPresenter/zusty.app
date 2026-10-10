@@ -10,6 +10,7 @@ import '../models/review.dart';
 import 'auth_provider.dart';
 import 'core_providers.dart';
 import 'location_provider.dart';
+import 'safety_provider.dart';
 
 /// The home feed (`GET /home`).
 final homeFeedProvider = FutureProvider.autoDispose<HomeFeed>((ref) {
@@ -75,9 +76,13 @@ final creatorReviewsProvider =
   return ref.watch(creatorRepositoryProvider).reviews(creatorId);
 });
 
-/// Saved / bookmarked creators (`GET /me/favorites`).
-final favoritesProvider = FutureProvider.autoDispose<List<Creator>>((ref) {
-  return ref.watch(creatorRepositoryProvider).favorites();
+/// Saved / bookmarked creators (`GET /me/favorites`). Blocking someone
+/// removes them from the list on the server; the filter covers a cached copy.
+final favoritesProvider =
+    FutureProvider.autoDispose<List<Creator>>((ref) async {
+  final blocked = ref.watch(blockedIdsProvider);
+  final creators = await ref.watch(creatorRepositoryProvider).favorites();
+  return creators.where((creator) => !blocked.contains(creator.userId)).toList();
 });
 
 /// The active filter set shared by Search, Search Results, and Explore.
@@ -151,17 +156,24 @@ final effectiveFiltersProvider = Provider.autoDispose<CreatorFilters>((ref) {
 });
 
 /// Paginated search results for the current filter set.
+///
+/// The server leaves out anyone with a block between them and the viewer;
+/// the filter here also covers a page replayed from the offline cache.
 final searchResultsProvider =
-    FutureProvider.autoDispose<Paginated<Creator>>((ref) {
+    FutureProvider.autoDispose<Paginated<Creator>>((ref) async {
   final filters = ref.watch(effectiveFiltersProvider);
-  return ref.watch(creatorRepositoryProvider).search(filters);
+  final blocked = ref.watch(blockedIdsProvider);
+  final page = await ref.watch(creatorRepositoryProvider).search(filters);
+  return page.removeWhere((creator) => blocked.contains(creator.userId));
 });
 
 /// A one-off search that ignores the shared filter state — used by the
 /// category drill-down and "view all" rails.
 final creatorSearchProvider = FutureProvider.autoDispose
-    .family<Paginated<Creator>, CreatorFilters>((ref, filters) {
-  return ref.watch(creatorRepositoryProvider).search(filters);
+    .family<Paginated<Creator>, CreatorFilters>((ref, filters) async {
+  final blocked = ref.watch(blockedIdsProvider);
+  final page = await ref.watch(creatorRepositoryProvider).search(filters);
+  return page.removeWhere((creator) => blocked.contains(creator.userId));
 });
 
 /// Type-ahead suggestions for the search field.

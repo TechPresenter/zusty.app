@@ -30,7 +30,14 @@ typedef ToneLabel = ({String label, StatusTone tone});
 extension CampaignCreatorView on Campaign {
   /// Where the brief stands for a creator browsing: open to applications,
   /// running (visible, but no longer taking applicants), or closed.
+  ///
+  /// A brief still marked open after its end date is not called "Open" — a
+  /// green "Open" beside "Ended 13 Sep" contradicts itself. It reads "Past
+  /// end date" instead: the brand has not closed it, so applying stays
+  /// possible, but the creator sees that the date has gone.
   ToneLabel get boardStatus => switch (status) {
+        CampaignStatus.open when (daysLeft ?? 0) < 0 =>
+          (label: 'Past end date', tone: StatusTone.warning),
         CampaignStatus.open => (label: 'Open', tone: StatusTone.success),
         CampaignStatus.inProgress => (label: 'In progress', tone: StatusTone.info),
         CampaignStatus.draft => (label: 'Draft', tone: StatusTone.neutral),
@@ -42,7 +49,8 @@ extension CampaignCreatorView on Campaign {
   /// Driven by `ends_on`, the only deadline the API enforces against. A date
   /// that has passed on a brief still marked open is shown as it is — "Ended
   /// 13 Sep" — rather than hidden: the brand has not closed it and the server
-  /// still accepts applications, so the creator should see both facts.
+  /// still accepts applications, so the creator should see both facts
+  /// ([boardStatus] then reads "Past end date", not "Open").
   ToneLabel get deadline {
     final days = daysLeft;
     if (days == null) return (label: 'Flexible timeline', tone: StatusTone.neutral);

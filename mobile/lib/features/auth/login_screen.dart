@@ -16,10 +16,14 @@ import 'widgets/social_buttons.dart';
 
 /// Screen 04 — Welcome / Login.
 ///
-/// One primary path (email or phone + password) and, under it, whichever
-/// other ways in the operator has switched on in Admin → Authentication:
-/// a one-time code by email, social sign-in, guest browsing. Nothing below
-/// the password field is shown speculatively.
+/// One primary path (email + password) and, under it, whichever other ways
+/// in the operator has switched on in Admin → Authentication: a one-time
+/// code by email, social sign-in, guest browsing. Nothing below the password
+/// field is shown speculatively.
+///
+/// The field asks for an email address, because every new account has one.
+/// It still takes a mobile number, so an older account that holds one can
+/// sign in with it; it just does not invite one.
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -120,6 +124,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // Codes go to the account's email unless the server offers SMS alone.
     final otpByEmail = authConfig.otpChannel == 'email';
     final showGuest = authConfig.guest.enabled;
+    // `email` unless the operator also invites a number here.
+    final askForPhoneToo =
+        authConfig.method('email_password')?.string('identifier_mode') ==
+        'email_or_phone';
 
     return AuthScaffold(
       child: Form(
@@ -135,13 +143,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             ),
             const SizedBox(height: AppSpacing.xl),
             ZTextField(
-              label: 'Email or phone',
-              hint: 'you@brand.com or 98765 43210',
+              label: askForPhoneToo ? 'Email or phone' : 'Email',
+              hint: askForPhoneToo
+                  ? 'you@brand.com or 98765 43210'
+                  : 'you@brand.com',
               controller: _identifier,
               keyboardType: TextInputType.emailAddress,
               prefixIcon: Icons.person_outline_rounded,
               textInputAction: TextInputAction.next,
-              validator: Validators.emailOrPhone,
+              validator: askForPhoneToo
+                  ? Validators.emailOrPhone
+                  : _emailOrLegacyPhone,
               errorText: _fieldErrors['identifier']?.first,
               onChanged: (_) => _clearFieldError('identifier'),
             ),
@@ -236,6 +248,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (_fieldErrors.containsKey(field)) {
       setState(() => _fieldErrors = {..._fieldErrors}..remove(field));
     }
+  }
+
+  /// The "Email" field's rule: an email address, said as such, while a
+  /// mobile number still passes for the older accounts that sign in with one.
+  static String? _emailOrLegacyPhone(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) return 'Enter your email address.';
+    if (Validators.emailOrPhone(text) == null) return null;
+    return 'Enter a valid email address.';
   }
 }
 

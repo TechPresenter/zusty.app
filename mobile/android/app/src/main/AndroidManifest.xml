@@ -99,6 +99,17 @@
             android:name="firebase_crashlytics_collection_enabled"
             android:value="false" />
 
+        <!-- Geolocator merges in a foreground service (type "location") for
+             position streams that keep running in the background. The app
+             only asks for one coarse fix with getCurrentPosition(), which
+             never uses it, so it is removed: the release manifest then
+             declares no foreground service and Play asks for no
+             foreground-service declaration. The plugin's attempt to bind it
+             fails quietly and one-off fixes work as before. -->
+        <service
+            android:name="com.baseflow.geolocator.GeolocatorLocationService"
+            tools:node="remove" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

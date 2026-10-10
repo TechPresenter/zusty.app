@@ -120,36 +120,41 @@ $days = $autoComplete . ' ' . ($autoComplete === 1 ? 'day' : 'days');
 $footTagline = $tagline !== '' ? $tagline : 'Brands book verified creators. Creators get paid securely.';
 
 // Section 3: each feature, the screenshot that shows it, and what that shows.
+// Only screenshots that match the current app and demo data are used: the
+// old search, profile, opportunities, chat, creator-home and wallet shots
+// show retired demo names, an ended brief marked Open, a review-for-reward
+// message, the old banner and the wallet's Add money, and stay off the page
+// (23_landing checks) until they are retaken.
 $features = [
     [
         'title' => 'Discover creators',
         'text'  => 'Search by city, category, platform, followers and price, and see who is verified at a glance.',
-        'shot'  => 'search',
-        'alt'   => 'Creator search results: category filters and cards showing each creator’s blue tick, niche, city, followers, engagement rate and starting price.',
+        'shot'  => 'home',
+        'alt'   => 'The brand home screen: a search bar for creators and categories with a filter button, top categories and a collaboration in progress.',
     ],
     [
         'title' => 'See real profiles',
-        'text'  => 'Check followers, packages and past work before you reach out. The blue tick appears only after our team approves a creator’s verification.',
-        'shot'  => 'profile',
-        'alt'   => 'A creator profile with the blue tick, followers, following and posts, Follow and Message buttons, and Book now with the starting price.',
+        'text'  => 'Check followers, packages and past work before you reach out. The blue tick appears only after our team approves a creator.',
+        'shot'  => 'packages',
+        'alt'   => 'A creator’s packages as a brand sees them: fixed-price reels, a story series and a YouTube integration, each with its delivery days and revisions, and a Send a custom request button.',
     ],
     [
         'title' => 'Book with escrow',
-        'text'  => 'Pick a package and send a request. You pay once the creator accepts, and the money is released only when you approve the work.',
+        'text'  => 'Pick a package or post a brief and choose who applies. You pay once the creator accepts, and the money is held in escrow until the work is approved.',
+        'shot'  => 'request',
+        'alt'   => 'A new booking request: fixed-price packages with delivery days and revisions, and a note that nothing is charged until the creator accepts.',
+    ],
+    [
+        'title' => 'Approve the work',
+        'text'  => 'Review what the creator delivers, ask for changes, or approve it to release the payment. If you don’t respond within ' . $days . ' of delivery, the booking completes automatically.',
         'shot'  => 'approve',
         'alt'   => 'Booking details for a delivered campaign marked Ready for your review, with an Approve and release payment button.',
     ],
     [
-        'title' => 'Run campaigns',
-        'text'  => 'Post a brief with your budget and cities. Creators apply with their rate and a short pitch, and you choose who to work with.',
-        'shot'  => 'opportunities',
-        'alt'   => 'Paid brand briefs for creators, such as taste-test reels for a millet snack range, with the budget range, cities, follower requirement and an Apply button.',
-    ],
-    [
-        'title' => 'Chat and approve deliverables',
-        'text'  => 'Talk to creators, share feedback and approve the work in one place, with the booking always a tap away.',
-        'shot'  => 'chat',
-        'alt'   => 'A conversation between a brand and a creator about a reel, with the booking reference, a View booking button and the brand’s approval.',
+        'title' => 'Chat in one place',
+        'text'  => 'Talk to creators and share feedback in the app, with each conversation linked to its booking.',
+        'shot'  => 'inbox',
+        'alt'   => 'The Messages screen: conversations with creators, each showing its booking reference and status, with search and Unread and Bookings filters.',
     ],
 ];
 
@@ -322,7 +327,7 @@ $sections = [
           <li class="why-item">
             <span class="why-icon"><?= $icon('lock') ?></span>
             <h3>Your money stays safe</h3>
-            <p>Brands pay into escrow when a booking is confirmed. The money is released to the creator only when the work is approved.</p>
+            <p>Brands pay into escrow when a booking is confirmed. The money is released to the creator when the work is approved, or <?= $e($days) ?> after delivery if the brand does not respond.</p>
             <a class="more" href="#how">How escrow works <?= $icon('arrow') ?></a>
           </li>
           <li class="why-item">
@@ -343,9 +348,9 @@ $sections = [
             <p>Search, book, chat, approve and pay, all in one place.</p>
           </div>
           <div class="banner-phones">
-            <div class="bp bp-l"><?= $phone($shot('search', 'Creator search results with verified creators and their starting prices.')) ?></div>
+            <div class="bp bp-l"><?= $phone($shot('packages', 'A creator’s fixed-price packages with delivery days and revisions.')) ?></div>
             <div class="bp bp-c"><?= $phone($shot('approve', 'A delivered booking ready for review, with an Approve and release payment button.')) ?></div>
-            <div class="bp bp-r"><?= $phone($shot('opportunities', 'A board of paid brand briefs that creators can apply to.')) ?></div>
+            <div class="bp bp-r"><?= $phone($shot('inbox', 'Messages with creators, each linked to its booking.')) ?></div>
           </div>
         </div>
       </div>
@@ -366,12 +371,12 @@ $sections = [
             </div>
             <div class="side-body">
               <p class="kicker">For brands</p>
-              <h3 id="brands-title">Find the right voices. Pay only for approved work.</h3>
+              <h3 id="brands-title">Find the right voices. Pay through escrow.</h3>
               <p>Everything you need to run creator collaborations, from the shortlist to the invoice.</p>
               <ul class="checks" role="list">
                 <li><?= $icon('check') ?><span>Search verified creators by niche, city, audience and budget.</span></li>
                 <li><?= $icon('check') ?><span>Book a fixed package, or post a brief and choose who applies.</span></li>
-                <li><?= $icon('check') ?><span>Your payment waits in escrow until you approve the work.</span></li>
+                <li><?= $icon('check') ?><span>Your payment waits in escrow until you approve the work, or until <?= $e($days) ?> after delivery if you don’t respond.</span></li>
                 <li><?= $icon('check') ?><span>A <?= $e($invoiceTax) ?> invoice for every booking.</span></li>
               </ul>
               <a class="btn btn-primary" href="<?= $e($storeHref) ?>">Start as a brand</a>
@@ -379,7 +384,7 @@ $sections = [
           </article>
           <article class="side side--creators" id="creators" aria-labelledby="creators-title">
             <div class="side-media">
-              <?= $phone($shot('creator-home', 'The creator home screen: a prompt to finish verification to unlock payouts, and a banner reading “Turn Your Audience Into Income”.')) ?>
+              <?= $phone($shot('verification', 'The creator’s verification screen: add Aadhaar, PAN and payout details for a one-time review that unlocks bookings and payouts; the blue tick is considered after approval.')) ?>
 
             </div>
             <div class="side-body">
@@ -387,7 +392,7 @@ $sections = [
               <h3 id="creators-title">Turn your audience into paid work.</h3>
               <p>Set your own packages, get booked by brands that fit, and get paid when the work is approved.</p>
               <ul class="checks" role="list">
-                <li><?= $icon('check') ?><span>Verify once with Aadhaar and PAN and earn the blue tick.</span></li>
+                <li><?= $icon('check') ?><span>Verify once with Aadhaar and PAN. Our team then decides on the blue tick.</span></li>
                 <li><?= $icon('check') ?><span>Set your own packages and rates, then <?= $counterOffers ? 'accept, decline or counter each offer' : 'accept or decline each request' ?>.</span></li>
                 <li><?= $icon('check') ?><span>Apply to paid briefs from brands in your niche.</span></li>
                 <li><?= $icon('check') ?><span>Withdraw your earnings to your bank account or UPI.</span></li>
@@ -446,7 +451,7 @@ $sections = [
               <span class="si"><?= $icon('lock') ?></span>
               <div>
                 <h3>Escrow on every booking</h3>
-                <p>Money is held from the moment a booking is confirmed until the work is approved. If there is a dispute, it stays put until our team has reviewed it.</p>
+                <p>Money is held from the moment a booking is paid until the work is approved, or until the review window closes if the brand does not respond. If there is a dispute, it stays put until our team has reviewed it.</p>
               </div>
             </li>
             <li>
@@ -488,7 +493,7 @@ $sections = [
 <?php endif; ?>
           </div>
           <div class="dl-art">
-            <?= $phone($shot('wallet', 'The wallet: available balance, money in escrow and pending, and buttons to add money, withdraw and manage payout accounts.')) ?>
+            <?= $phone($shot('packages', 'A creator’s packages: fixed-price reels, story series and a YouTube integration, each with its delivery days and revisions, and a Send a custom request button.')) ?>
 
           </div>
         </div>
@@ -544,7 +549,7 @@ $sections = [
           <div class="head">
             <p class="kicker">For creators</p>
             <h2 class="h2" id="fair-title">Every creator deserves fair pay</h2>
-            <p class="sub">Whether you post from a metro or a small town, to a big following or a growing one, you set your own packages and prices. Brands pay before the work begins, and the money is released to you when they approve it, so there is no invoice to chase.</p>
+            <p class="sub">Whether you post from a metro or a small town, to a big following or a growing one, you set your own packages and prices. Brands pay before the work begins, and the money is released to you when they approve it, or automatically <?= $e($days) ?> after delivery if they don’t respond, so there is no invoice to chase.</p>
           </div>
           <a class="more" href="#creators">See what creators get <?= $icon('arrow') ?></a>
         </div>

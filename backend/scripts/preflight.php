@@ -76,9 +76,16 @@ function section(string $title): void
 
 $targetUrl = null;
 
+// --pre-migrate: deploy.sh runs this audit BEFORE it applies the pending
+// migrations, so a pending migration is expected there, not a failure. Run
+// on its own (after a deploy), the audit still fails on one.
+$preMigrate = false;
+
 foreach (array_slice($argv, 1) as $arg) {
     if (str_starts_with($arg, '--url=')) {
         $targetUrl = rtrim(substr($arg, 6), '/');
+    } elseif ($arg === '--pre-migrate') {
+        $preMigrate = true;
     }
 }
 
@@ -263,9 +270,13 @@ try {
     $applied = (int) (Database::scalar('SELECT COUNT(*) FROM `migrations`') ?? 0);
     $onDisk  = count(glob($basePath . '/database/migrations/*.sql') ?: []);
 
-    $applied >= $onDisk
-        ? good('migrations applied', "{$applied}/{$onDisk}")
-        : fail('migrations', ($onDisk - $applied) . ' migration(s) not applied — run php scripts/install.php --migrate-only');
+    if ($applied >= $onDisk) {
+        good('migrations applied', "{$applied}/{$onDisk}");
+    } elseif ($preMigrate) {
+        good('migrations', ($onDisk - $applied) . ' pending — this deploy applies them');
+    } else {
+        fail('migrations', ($onDisk - $applied) . ' migration(s) not applied — run php scripts/install.php --migrate-only');
+    }
 
     // An empty settings table means the app will fall back to code defaults for
     // everything an admin is supposed to control.

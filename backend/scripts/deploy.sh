@@ -196,7 +196,9 @@ preflight() {
     if [ -f "$BASE_PATH/scripts/preflight.php" ]; then
         if [ "$SKIP_PREFLIGHT" = "1" ]; then
             warn "production readiness audit SKIPPED at your request (--skip-preflight)"
-        elif "$PHP_BIN" "$BASE_PATH/scripts/preflight.php"; then
+        # --pre-migrate: the migrations this deploy is about to apply are
+        # expected to be pending here and must not fail the audit.
+        elif "$PHP_BIN" "$BASE_PATH/scripts/preflight.php" --pre-migrate; then
             ok "production readiness audit passed"
         else
             die "Production readiness audit failed. Fix the failures above, or re-run with --skip-preflight if you accept them."

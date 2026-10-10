@@ -143,10 +143,18 @@ preflight() {
     "$PHP_BIN" -r 'exit(PHP_VERSION_ID >= 80100 ? 0 : 1);' \
         || die "PHP 8.1 or newer is required (found $version)."
 
+    # The module list is read ONCE into a variable. Piping `php -m` straight
+    # into `grep -q` breaks under `set -o pipefail`: grep exits at the first
+    # match, php then dies of SIGPIPE while still writing, and the pipeline
+    # reports failure for an extension that is present (seen with curl, which
+    # sorts near the top of the list).
+    local modules
+    modules="$("$PHP_BIN" -m)"
+
     # zip is required: "Download my data" is a ZIP built with ZipArchive, and
     # every data export fails without it.
     for extension in pdo_mysql mbstring openssl json curl fileinfo zip; do
-        "$PHP_BIN" -m | grep -qi "^${extension}$" \
+        grep -qi "^${extension}$" <<<"$modules" \
             || die "Required PHP extension missing: $extension"
     done
     "$PHP_BIN" -r 'exit(class_exists("ZipArchive") ? 0 : 1);' \
@@ -154,7 +162,7 @@ preflight() {
     ok "required extensions present"
 
     for optional in gd apcu; do
-        if "$PHP_BIN" -m | grep -qi "^${optional}$"; then
+        if grep -qi "^${optional}$" <<<"$modules"; then
             ok "optional extension $optional present"
         else
             warn "optional extension $optional missing (image work / fast cache degrade gracefully)"

@@ -1,0 +1,7 @@
+# Files the Linux server runs or checksums must keep LF line endings, whatever
+# core.autocrlf says on a Windows checkout: deploy.sh with CRLF fails in bash,
+# and a migration whose bytes change no longer matches the checksum the
+# installer recorded when it was applied.
+*.sh   text eol=lf
+*.sql  text eol=lf
+*.php  text eol=lf

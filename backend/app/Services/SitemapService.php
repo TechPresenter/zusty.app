@@ -8,6 +8,7 @@ use Zuste\Core\Config;
 use Zuste\Core\Database;
 use Zuste\Core\HttpException;
 use Zuste\Core\Logger;
+use Zuste\Helpers\SiteUrl;
 
 /**
  * XML sitemap and robots.txt generator.
@@ -125,73 +126,40 @@ final class SitemapService
      * Host header: the attacker's domain would be baked into every <loc>, the
      * file written to disk, and then served to crawlers from our own domain
      * long after the request is gone. Configuration is the only trustworthy
-     * source, so the value comes from Settings → SEO → canonical_base, and
-     * falls back to APP_URL from the environment.
+     * source.
+     *
+     * The rule is SiteUrl::base(), the same one the landing and legal pages
+     * use for their canonical links: APP_URL, refined by Settings → SEO →
+     * canonical_base only when that is https on the same host, and the public
+     * domain when APP_URL is a localhost address. One rule means the sitemap,
+     * creator share links and QR codes can never name a different domain from
+     * the pages' own canonicals (a stale canonical_base of https://zustee.com
+     * used to leak into all three).
      */
     public static function baseUrl(): string
     {
-        $candidates = [
-            trim(Config::settingString(self::GROUP, 'canonical_base', '')),
-            trim((string) Config::get('app.url', '')),
-        ];
-
-        foreach ($candidates as $candidate) {
-            $candidate = rtrim($candidate, '/');
-
-            if ($candidate !== '' && self::isAbsoluteHttpUrl($candidate)) {
-                return $candidate;
-            }
-        }
-
-        throw HttpException::unprocessable(
-            'Set a canonical base URL under Settings → SEO before generating a sitemap.'
-        );
+        return SiteUrl::base();
     }
 
     /**
-     * Why the next run will use the base URL it is about to use.
+     * Why the next run will use the base URL it is about to use, or null when
+     * there is nothing to say.
      *
-     * baseUrl() falls back to APP_URL when the canonical base is missing or
-     * malformed. That fallback is useful but it must never be silent: on a
-     * development environment APP_URL is a localhost address, and a run that
-     * quietly bakes localhost into every <loc> publishes a sitemap full of
-     * unreachable URLs to search engines. Returns null when the canonical base
-     * is set and valid, i.e. when there is nothing to warn about.
+     * Warns when Settings → SEO → canonical_base names something other than
+     * the base actually used (another host, plain http, or malformed), so an
+     * operator who set it is not left wondering why it had no effect.
      */
     public static function baseUrlWarning(): ?string
     {
         $configured = rtrim(trim(Config::settingString(self::GROUP, 'canonical_base', '')), '/');
+        $used       = self::baseUrl();
 
-        if ($configured !== '' && self::isAbsoluteHttpUrl($configured)) {
+        if ($configured === '' || $configured === $used) {
             return null;
         }
 
-        $fallback = rtrim(trim((string) Config::get('app.url', '')), '/');
-
-        if (!self::isAbsoluteHttpUrl($fallback)) {
-            // baseUrl() will throw and the screen already reports that.
-            return null;
-        }
-
-        if ($configured === '') {
-            return 'No canonical base URL is set under Settings → SEO, so every URL will be built from '
-                 . 'APP_URL (' . $fallback . '). Set the canonical base before publishing.';
-        }
-
-        return 'The canonical base URL under Settings → SEO ("' . $configured . '") is not a valid absolute '
-             . 'http or https URL, so every URL will be built from APP_URL (' . $fallback . ') instead.';
-    }
-
-    private static function isAbsoluteHttpUrl(string $url): bool
-    {
-        if (filter_var($url, FILTER_VALIDATE_URL) === false) {
-            return false;
-        }
-
-        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
-
-        return in_array($scheme, ['http', 'https'], true)
-            && (string) parse_url($url, PHP_URL_HOST) !== '';
+        return 'The canonical base URL under Settings → SEO ("' . $configured . '") is not used: it must be an '
+             . 'https address on the same host as APP_URL. Every URL is built from ' . $used . ' instead.';
     }
 
     /**

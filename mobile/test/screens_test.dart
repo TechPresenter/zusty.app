@@ -328,7 +328,7 @@ void main() {
 
     testWidgets('Checkout success', (tester) async {
       await pumpScreen(tester, const CheckoutSuccessScreen(bookingId: 1));
-      expectsRendered(tester, 'Payment secured in escrow');
+      expectsRendered(tester, 'Payment held by Zusty');
     });
 
     testWidgets('Transaction detail', (tester) async {
@@ -434,7 +434,7 @@ void main() {
         (tester) async {
       await pumpScreen(tester, const DeliverableReviewScreen(bookingId: 4));
       expect(tester.takeException(), isNull);
-      expect(find.textContaining('held in escrow'), findsWidgets);
+      expect(find.textContaining('held by Zusty'), findsWidgets);
       expect(find.text('Approve & release'), findsWidgets);
       expect(find.text('Request changes'), findsWidgets);
       expect(
@@ -668,7 +668,7 @@ const _slides = [
   OnboardingSlide(
     id: 2,
     title: 'Book with confidence.',
-    body: 'Payments are held in escrow until you approve the deliverables.',
+    body: 'Payments are held by Zusty until you approve the deliverables.',
   ),
   OnboardingSlide(
     id: 3,

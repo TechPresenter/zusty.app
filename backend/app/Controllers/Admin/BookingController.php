@@ -283,7 +283,7 @@ final class BookingController extends BaseAdminController
         // than claim the auto-complete cron did it.
         BookingService::complete($bookingId, $this->adminId($request), 'admin');
 
-        $this->log($request, 'booking.completed', 'booking', $bookingId, 'Completed manually by admin; escrow released.');
+        $this->log($request, 'booking.completed', 'booking', $bookingId, 'Completed manually by admin; payment released.');
 
         $this->respond($request, 'Booking completed and the creator has been paid.', '/admin/bookings/' . $bookingId);
     }

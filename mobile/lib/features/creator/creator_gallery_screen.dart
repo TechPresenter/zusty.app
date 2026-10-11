@@ -167,6 +167,8 @@ class _GalleryTabsState extends State<_GalleryTabs>
               kind: term.value,
               kindLabel: term.label,
               creatorName: creator.displayName,
+              creatorUserId: creator.userId,
+              canReport: !profile.isOwner,
             ),
         ],
       ),
@@ -223,12 +225,20 @@ class PortfolioGrid extends ConsumerStatefulWidget {
     required this.kind,
     this.kindLabel,
     this.creatorName,
+    this.creatorUserId,
+    this.canReport = false,
   });
 
   final int creatorId;
   final String kind;
   final String? kindLabel;
   final String? creatorName;
+
+  /// The account behind the work, offered for blocking after a report.
+  final int? creatorUserId;
+
+  /// Whether the viewer offers "Report post": not on the creator's own work.
+  final bool canReport;
 
   @override
   ConsumerState<PortfolioGrid> createState() => _PortfolioGridState();
@@ -372,6 +382,9 @@ class _PortfolioGridState extends ConsumerState<PortfolioGrid>
                       context,
                       items: items,
                       initialIndex: i,
+                      canReport: widget.canReport,
+                      creatorName: widget.creatorName,
+                      creatorUserId: widget.creatorUserId,
                     ),
                   ),
                   childCount: items.length,

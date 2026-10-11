@@ -104,7 +104,7 @@ SELECT
     CASE WHEN c.mth = 'upi'
          THEN CONCAT(
                 LEFT(LOWER(REGEXP_REPLACE(COALESCE(NULLIF(c.company_name, ''), c.uname), '[^A-Za-z0-9]', '')), 18),
-                CASE c.bid % 3 WHEN 0 THEN '@okhdfcbank' WHEN 1 THEN '@ybl' ELSE '@okaxis' END)
+                CASE c.bid % 3 WHEN 0 THEN '@samplebank' WHEN 1 THEN '@sampleupi' ELSE '@samplepay' END)
          ELSE NULL END,
     CASE WHEN c.mth = 'netbanking'
          THEN CASE c.bid % 5
@@ -132,7 +132,8 @@ SELECT
         ',"notes":{"booking_id":', c.bid, ',"booking_code":', JSON_QUOTE(c.code),
         ',"brand_user_id":', c.brand_user_id, '}',
         ',"created_at":', UNIX_TIMESTAMP(c.ts0), '}'),
-    CONCAT('49.36.', (c.bid % 250) + 1, '.', ((c.bid * 13) % 250) + 1),
+    -- RFC 5737 documentation range: no demo row carries a routable address.
+    CONCAT('198.51.100.', (c.bid % 250) + 1),
     CASE WHEN c.pst IN ('captured','refunded','partially_refunded')
          THEN DATE_SUB(c.ts0, INTERVAL 14 SECOND) ELSE NULL END,
     CASE WHEN c.pst IN ('captured','refunded','partially_refunded') THEN c.ts0 ELSE NULL END,
@@ -240,7 +241,7 @@ SELECT
         ',"rate":', ROUND(i.amount / GREATEST(i.posts_count, 1), 2),
         ',"amount":', i.amount, '}',
         CASE WHEN i.platform_fee > 0
-             THEN CONCAT(',{"type":"fee","description":"Zustee platform fee","hsn_sac":"998599","qty":1',
+             THEN CONCAT(',{"type":"fee","description":"Zusty platform fee","hsn_sac":"998599","qty":1',
                          ',"rate":', i.platform_fee, ',"amount":', i.platform_fee, '}')
              ELSE '' END,
         CASE WHEN i.disc > 0
@@ -331,7 +332,7 @@ SELECT
          WHEN r.rk = 9  THEN 'failed'
          ELSE 'completed' END,
     CASE WHEN r.rk = 9
-         THEN 'Beneficiary account details rejected by the acquiring bank. Re-initiated to the Zustee wallet.'
+         THEN 'Beneficiary account details rejected by the acquiring bank. Re-initiated to the Zusty wallet.'
          ELSE NULL END,
     CASE WHEN r.rk % 3 = 0 THEN 'user' ELSE 'admin' END,
     CASE WHEN r.rk % 3 = 0 THEN r.uid ELSE 1 END,
@@ -412,7 +413,9 @@ WHERE w.uid BETWEEN 1001 AND 2045;
 -- 5. bank_accounts (1971-1990)
 -- -------------------------------------------------------------------------------------
 -- Payout destinations for the 20 creators with the highest settled earnings. Account
--- numbers are stored masked (only the last four digits are ever readable).
+-- numbers are stored masked (only the last four digits are ever readable). UPI IDs here
+-- and on payments use handles no payment app issues (@samplebank, @sampleupi,
+-- @samplepay), so no demo VPA can be a real person's.
 -- Rank = earnings from completed bookings settled more than 4 days ago, desc.
 -- -------------------------------------------------------------------------------------
 INSERT IGNORE INTO bank_accounts
@@ -456,8 +459,8 @@ SELECT
                    ELSE        'C G Road, Ahmedabad' END END,
     CASE WHEN e.rk % 5 = 0
          THEN CONCAT(LEFT(LOWER(REGEXP_REPLACE(e.uname, '[^A-Za-z0-9]', '')), 18),
-                     CASE e.rk % 4 WHEN 0 THEN '@okicici' WHEN 1 THEN '@ybl'
-                                   WHEN 2 THEN '@okhdfcbank' ELSE '@paytm' END)
+                     CASE e.rk % 4 WHEN 0 THEN '@samplebank' WHEN 1 THEN '@sampleupi'
+                                   WHEN 2 THEN '@samplebank' ELSE '@samplepay' END)
          ELSE NULL END,
     1,
     CASE WHEN e.rk <= 17 THEN 1 ELSE 0 END,
@@ -526,7 +529,7 @@ SELECT
          WHEN e.rk <= 16 THEN 'Awaiting finance approval — falls in the weekly Tuesday payout run.'
          WHEN e.rk = 17  THEN 'Approved by finance. Scheduled for the next NEFT window.'
          WHEN e.rk = 18  THEN 'Rejected at review.'
-         WHEN e.rk = 19  THEN 'Bank rejected the credit; amount returned to the Zustee wallet.'
+         WHEN e.rk = 19  THEN 'Bank rejected the credit; amount returned to the Zusty wallet.'
          ELSE 'Withdrawn by the creator before processing.' END,
     CASE WHEN e.rk = 18
          THEN 'PAN on the payout account does not match the verified KYC name. Please add a bank account in your own name.'
@@ -543,8 +546,8 @@ SELECT
            CASE WHEN e.rk % 5 = 0
                 THEN CONCAT(',"upi_id":', JSON_QUOTE(CONCAT(
                         LEFT(LOWER(REGEXP_REPLACE(e.uname, '[^A-Za-z0-9]', '')), 18),
-                        CASE e.rk % 4 WHEN 0 THEN '@okicici' WHEN 1 THEN '@ybl'
-                                      WHEN 2 THEN '@okhdfcbank' ELSE '@paytm' END)))
+                        CASE e.rk % 4 WHEN 0 THEN '@samplebank' WHEN 1 THEN '@sampleupi'
+                                      WHEN 2 THEN '@samplebank' ELSE '@samplepay' END)))
                 ELSE CONCAT(',"account_last4":', JSON_QUOTE(LPAD((e.uid * 17) % 10000, 4, '0')),
                             ',"ifsc_code":', JSON_QUOTE(CONCAT(CASE e.rk % 6
                                     WHEN 0 THEN 'HDFC' WHEN 1 THEN 'ICIC' WHEN 2 THEN 'SBIN'
@@ -691,7 +694,7 @@ FROM (
         SELECT
             h.creator_user_id, 'credit', 'escrow_hold', h.amount, 'pending',
             'booking', h.id, h.brand_user_id,
-            CONCAT('Funds held in escrow for booking #', h.code),
+            CONCAT('Payment held by Zusty for booking #', h.code),
             CONCAT('wtx:hold:', h.id), 2,
             COALESCE(h.paid_at, h.accepted_at, h.created_at),
             'system', NULL
@@ -714,7 +717,7 @@ FROM (
             CASE WHEN cb.id % 10 = 9 THEN 'booking_earning' ELSE 'escrow_release' END,
             cb.amount, 'completed', 'booking', cb.id, cb.brand_user_id,
             CONCAT(CASE WHEN cb.id % 10 = 9 THEN 'Earning credited for booking #'
-                        ELSE 'Escrow released for booking #' END, cb.code),
+                        ELSE 'Payment released for booking #' END, cb.code),
             CONCAT('wtx:earn:', cb.id), 3,
             COALESCE(cb.completed_at, cb.paid_at, cb.created_at),
             'system', NULL
@@ -734,7 +737,7 @@ FROM (
         SELECT
             cb.creator_user_id, 'debit', 'commission', cb.commission_amount, 'completed',
             'booking', cb.id, cb.brand_user_id,
-            CONCAT('Zustee platform commission — booking #', cb.code),
+            CONCAT('Zusty platform commission — booking #', cb.code),
             CONCAT('wtx:comm:', cb.id), 4,
             DATE_ADD(COALESCE(cb.completed_at, cb.paid_at, cb.created_at), INTERVAL 2 MINUTE),
             'system', NULL

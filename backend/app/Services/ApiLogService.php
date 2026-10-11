@@ -31,57 +31,144 @@ final class ApiLogService
     public const MAX_BODY_CHARS = 2000;
 
     /**
-     * Any payload key containing one of these fragments has its value replaced
-     * before the body is stored. Matching is case-insensitive and by substring,
-     * so `new_password`, `password_confirmation` and `otpCode` are all caught.
+     * Any payload key containing one of these has its value replaced before
+     * the body is stored. Keys are compared lower-cased with the separators
+     * between words taken out, so `new_password`, `passwordConfirmation`,
+     * `refresh-token`, `bank_account_no` and `accountNumber` are all caught.
      *
      * The list covers two kinds of value. Credentials — a password, a token, a
      * card number — are obvious. The rest are identifiers that are not secrets
      * in the cryptographic sense but which nobody should be able to read out of
-     * a request log: a bank account number, an IFSC, a UPI handle, a PAN, an
-     * Aadhaar or passport number. Those arrive through
-     * `POST /wallet/bank-accounts` (`account_number`, `ifsc_code`, `upi_id`)
-     * and `POST /kyc/details` (`bank_account_no`, `bank_ifsc`, `pan_number`,
-     * `id_proof_number`), and until they were listed here they were written to
-     * `api_logs.request_body` in the clear and rendered verbatim in the admin
-     * log viewer — a KYC document number readable by anyone with
-     * `developer.logs`, which is a much wider group than `kyc.download`.
+     * a request log: a bank account number, an IFSC, a PAN, an Aadhaar or
+     * passport number. Those arrive through `POST /wallet/bank-accounts`
+     * (`account_number`, `ifsc_code`, `upi_id`) and `POST /kyc/details`
+     * (`bank_account_no`, `bank_ifsc`, `pan_number`, `id_proof_number`), and
+     * until they were listed here they were written to `api_logs.request_body`
+     * in the clear and rendered verbatim in the admin log viewer — a KYC
+     * document number readable by anyone with `developer.logs`, which is a
+     * much wider group than `kyc.download`.
      *
-     * Substring matching means `bank_account_no`, `account_number` and
-     * `accountNumber` are all caught by `account`, and `id_proof_number` by
-     * `id_proof`.
+     * Only words long enough not to turn up inside other words belong here.
+     * The short ones are {@see SECRET_WORDS}.
      */
     private const SECRET_FRAGMENTS = [
-        // Credentials.
-        'password', 'token', 'secret', 'otp', 'authorization', 'card', 'cvv', 'pin',
+        // Credentials. `otp` stays a fragment despite its length: `otpcode`
+        // and `emailotp` are one word, and a code in the clear costs more
+        // than a redacted `footprint`.
+        'password', 'passwd', 'passcode', 'token', 'secret', 'authorization', 'apikey', 'privatekey',
+        'otp', 'onetimecode', 'cvv', 'cvc', 'cardnumber', 'cardnum', 'cardno', 'creditcard', 'debitcard',
         // Payout details.
-        'account_number', 'account_no', 'accountnumber', 'ifsc', 'upi', 'vpa', 'iban', 'swift',
+        'accountnumber', 'accountno', 'ifsc', 'iban', 'swiftcode', 'upiid', 'upihandle', 'upipin', 'vpaid',
         // Identity documents. `aadhaar` also catches `aadhaar_number` (the
-        // verification centre's field). The CIN is matched as `cin_number` /
-        // `cinnumber` here and as the bare key `cin` below: a bare `cin`
-        // substring would also redact `pricing`, `vaccine` and friends.
-        'pan_number', 'pannumber', 'aadhaar', 'aadhar', 'passport', 'id_proof', 'document_number',
-        'gst_number', 'gstin', 'tax_id', 'ssn', 'cin_number', 'cinnumber', 'cin_no', 'llpin',
+        // verification centre's field).
+        'pannumber', 'panno', 'aadhaar', 'aadhar', 'passport', 'idproof', 'documentnumber',
+        'gstnumber', 'gstin', 'taxid', 'cinnumber', 'cinno', 'llpin',
     ];
+
+    /**
+     * Keys redacted when one of their WORDS is one of these: `upi_id`,
+     * `upiId`, `pan`, `ownerPan`, `card_holder`, `upi_pin`.
+     *
+     * Matched as whole words because each is short enough to sit inside an
+     * ordinary one — `upi` in `groupId`, `pin` in `shipping`, `pan` in
+     * `company`, `cin` in `pricing`, `card` in `postcard`. As substrings they
+     * redacted fields an operator needs.
+     */
+    private const SECRET_WORDS = [
+        'pin', 'mpin', 'pwd', 'card', 'upi', 'vpa', 'swift', 'pan', 'cin', 'gst', 'ssn',
+    ];
+
+    /**
+     * Keys redacted when they START with one of these once squashed
+     * ({@see squash()}): `cardno`, `cardHolder`, `upihandle`, `vpaAddress`.
+     * One-word spellings of a card or UPI field have no word boundary for
+     * {@see SECRET_WORDS} to find, and no ordinary key starts this way.
+     */
+    private const SECRET_PREFIXES = ['card', 'upi', 'vpa'];
+
+    /** Keys redacted when they END with one of these once squashed: `payerVpa`, `customerupi`. */
+    private const SECRET_SUFFIXES = ['upi', 'vpa'];
 
     /**
      * Keys redacted only on an exact (case-insensitive) match.
      *
      * `code` is the one-time code sent with a verification or step-up
      * (`/auth/otp/verify`, `/me/privacy/exports`, `/me/privacy/delete-account`).
-     * It must be exact: as a fragment it would also redact `reason_code`,
-     * `phone_country_code` and `referral_code`, which are what an operator
-     * reading a failed request needs to see.
+     * Elsewhere a `code` is redacted only beside one of
+     * {@see ONE_TIME_CODE_WORDS}: `reason_code`, `phone_country_code` and
+     * `referral_code` are what an operator reading a failed request needs to
+     * see.
      */
-    private const SECRET_KEYS = ['cin', 'pan', 'gst', 'uid', 'code'];
+    private const SECRET_KEYS = ['uid', 'code'];
 
     /**
-     * Keys whose value is masked rather than redacted, on an exact
-     * (case-insensitive) match. A failed sign-in, sign-up or password reset
-     * has no user id, so the masked value is the only hint of whose request
-     * it was, and the full address or number is not something a log needs.
+     * A key with the word `code` and one of these words is a one-time code:
+     * `verification_code`, `resetCode`, `email_code`, `two_factor_code`.
      */
-    private const MASKED_KEYS = ['email', 'phone', 'mobile', 'identifier'];
+    private const ONE_TIME_CODE_WORDS = [
+        'verification', 'verify', 'confirm', 'confirmation', 'auth', 'login', 'signin', 'reset',
+        'security', 'access', 'sms', 'email', 'mfa', 'factor', 'backup', 'recovery', 'magic', 'step',
+    ];
+
+    /**
+     * Keys whose value is masked rather than redacted: any key containing one
+     * of these (`customer_phone`, `alternateMobile`, `msisdn`, `billing_email`,
+     * `new_email`), compared the same way as {@see SECRET_FRAGMENTS}.
+     *
+     * A failed sign-in, sign-up or payment has no user id, so the masked
+     * value is the only hint of whose request it was, and the full address
+     * or number is not something a log needs. Masking keeps the key and the
+     * shape: an email keeps its first characters and its domain, a number its
+     * last four digits ({@see mask()}). This used to match the exact keys
+     * `email` and `phone` only, and a failed `POST /payments/booking/{id}`
+     * kept `customer_phone` in the clear for the 180 days the row lives.
+     */
+    private const MASKED_FRAGMENTS = ['phone', 'mobile', 'msisdn', 'whatsapp', 'email'];
+
+    /**
+     * Masked on an exact (case-insensitive) match: what a sign-in or a code
+     * is addressed to (`/auth/login`, `/auth/otp/send`).
+     */
+    private const MASKED_KEYS = ['identifier', 'destination', 'recipient'];
+
+    /**
+     * Generic keys that carry a contact when the request says so.
+     *
+     * `POST /me/contacts/change` and `/me/contacts/alternates` send
+     * `{"channel": "email|phone", "value": "…"}`: the address or number is
+     * under `value`, a key no list of words could mark as personal. So a
+     * level whose `channel` (or `type`, `kind` …, {@see CONTACT_TYPE_KEYS})
+     * names a contact channel ({@see CONTACT_CHANNELS}) has these siblings
+     * masked in full, like a masked key. Without one, a value under the first
+     * four is still masked when it is shaped like a phone number
+     * ({@see looksLikePhone()}), and an email address is masked wherever it
+     * appears ({@see maskEmails()}).
+     */
+    private const CONTACT_VALUE_KEYS = ['value', 'new_value', 'old_value', 'contact', 'to', 'target', 'address'];
+
+    /** The {@see CONTACT_VALUE_KEYS} masked by shape alone: `to` and `address` are too often a date or a street. */
+    private const CONTACT_SHAPE_KEYS = ['value', 'new_value', 'old_value', 'contact'];
+
+    /** Keys that say which channel a sibling `value` belongs to. */
+    private const CONTACT_TYPE_KEYS = ['channel', 'type', 'kind', 'medium', 'via', 'contact_type'];
+
+    /** Channels whose value is an email address or a phone number. */
+    private const CONTACT_CHANNELS = ['email', 'phone', 'mobile', 'sms', 'whatsapp', 'msisdn'];
+
+    /**
+     * An email address inside any text: kept to its first characters and its
+     * domain wherever it appears. The local part cannot contain `*`, so an
+     * address already masked is not matched again, and a file name such as
+     * `logo@2x.png` is not an address. Migration 058 masks stored bodies
+     * with the same pattern.
+     */
+    private const EMAIL_PATTERN = '/[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*'
+        . '\.(?!(?:png|jpe?g|gif|webp|svg|pdf|mp4|mov|heic|avif)(?![A-Za-z]))[A-Za-z]{2,}/';
+
+    /** How much of a value is masked; see {@see redactValue()}. */
+    private const MASK_EMAILS = 0;
+    private const MASK_PHONE_SHAPED = 1;
+    private const MASK_ALL = 2;
 
     public const REDACTED = '[REDACTED]';
 
@@ -397,48 +484,226 @@ final class ApiLogService
     }
 
     /**
-     * Secrets become [REDACTED]. A string under one of {@see MASKED_KEYS} is
-     * masked instead: an email address with Str::maskEmail (`it****@x.com`),
-     * anything else as a phone number with Str::maskPhone (last 4 digits).
+     * Secrets become [REDACTED]; values under a masked key are masked
+     * ({@see mask()}), at any depth and in every element of a list under
+     * one, as are a `value` beside `"channel": "email"` or `"phone"` and a
+     * phone-shaped `value` anywhere ({@see CONTACT_VALUE_KEYS}). An email
+     * address is masked wherever it appears. Keys are always kept, so the log
+     * still says what was sent. A string holding JSON of its own is opened
+     * and treated the same way, so a number cannot ride through inside an
+     * encoded field.
      *
      * @param  array<mixed> $data
+     * @param  int          $mode What everything here sits under: one of
+     *                            the MASK_* levels.
      * @return array<mixed>
      */
-    private static function redactArray(array $data, int $depth = 0): array
+    private static function redactArray(array $data, int $depth = 0, int $mode = self::MASK_EMAILS): array
     {
         if ($depth > 8) {
             return [];
         }
 
-        $clean = [];
+        $contactLevel = self::namesContactChannel($data);
+        $clean        = [];
 
         foreach ($data as $key => $value) {
+            $name = strtolower((string) $key);
+
             if (self::isSecretKey((string) $key)) {
                 $clean[$key] = self::REDACTED;
                 continue;
             }
 
-            if (is_string($value) && in_array(strtolower((string) $key), self::MASKED_KEYS, true)) {
-                $clean[$key] = str_contains($value, '@') ? Str::maskEmail($value) : Str::maskPhone($value);
-                continue;
+            $keyMode = $mode;
+
+            if (self::isMaskedKey((string) $key) || ($contactLevel && in_array($name, self::CONTACT_VALUE_KEYS, true))) {
+                $keyMode = self::MASK_ALL;
+            } elseif (in_array($name, self::CONTACT_SHAPE_KEYS, true)) {
+                $keyMode = max($mode, self::MASK_PHONE_SHAPED);
             }
 
-            $clean[$key] = is_array($value) ? self::redactArray($value, $depth + 1) : $value;
+            $clean[$key] = self::redactValue($value, $depth, $keyMode);
         }
 
         return $clean;
     }
 
+    /**
+     * Does this level say its contact value is an email address or a phone
+     * number (`"channel": "phone"`)?
+     *
+     * @param array<mixed> $data
+     */
+    private static function namesContactChannel(array $data): bool
+    {
+        foreach (self::CONTACT_TYPE_KEYS as $typeKey) {
+            foreach ($data as $key => $value) {
+                if (is_string($key) && strtolower($key) === $typeKey && is_string($value)
+                    && in_array(strtolower(trim($value)), self::CONTACT_CHANNELS, true)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static function redactValue(mixed $value, int $depth, int $mode): mixed
+    {
+        if (is_array($value)) {
+            return self::redactArray($value, $depth + 1, $mode);
+        }
+
+        if (is_string($value)) {
+            $embedded = self::embeddedJson($value);
+
+            if ($embedded !== null) {
+                return (string) json_encode(
+                    self::redactArray($embedded, $depth + 1, $mode),
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                );
+            }
+
+            if ($mode === self::MASK_ALL) {
+                return self::mask($value);
+            }
+
+            if ($mode === self::MASK_PHONE_SHAPED && self::looksLikePhone($value)) {
+                return Str::maskPhone($value);
+            }
+
+            return self::maskEmails($value);
+        }
+
+        // A number sent as a JSON number (`"customer_phone": 9876543210`).
+        if (is_int($value) || is_float($value)) {
+            $text = (string) $value;
+
+            if ($mode === self::MASK_ALL) {
+                $mask = self::mask($text);
+
+                return $mask === $text ? $value : $mask;
+            }
+
+            if ($mode === self::MASK_PHONE_SHAPED && is_int($value) && self::looksLikePhone($text)) {
+                return Str::maskPhone($text);
+            }
+        }
+
+        return $value;
+    }
+
+    /**
+     * Is this the whole of a phone number: seven to fifteen digits, an
+     * optional leading +, and nothing but spaces, dots, dashes and brackets
+     * between them? A date (`2026-10-10`) is not.
+     */
+    private static function looksLikePhone(string $value): bool
+    {
+        $trimmed = trim($value);
+
+        if (preg_match('/^\+?[0-9][0-9 ().\-]{4,22}[0-9]$/', $trimmed) !== 1
+            || preg_match('/^\d{4}-\d{2}-\d{2}$/', $trimmed) === 1) {
+            return false;
+        }
+
+        $digits = preg_match_all('/\d/', $trimmed);
+
+        return $digits >= 7 && $digits <= 15;
+    }
+
+    /** Every email address in [$text], masked ({@see EMAIL_PATTERN}); the rest of the text kept. */
+    private static function maskEmails(string $text): string
+    {
+        if (!str_contains($text, '@')) {
+            return $text;
+        }
+
+        return preg_replace_callback(
+            self::EMAIL_PATTERN,
+            static fn (array $m): string => Str::maskEmail($m[0]),
+            $text
+        ) ?? self::REDACTED;
+    }
+
+    /** @return array<mixed>|null A string's own JSON object or list, decoded. */
+    private static function embeddedJson(string $value): ?array
+    {
+        $trimmed = ltrim($value);
+        $start   = $trimmed[0] ?? '';
+
+        if ($start !== '{' && $start !== '[') {
+            return null;
+        }
+
+        $decoded = json_decode($value, true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * Mask a value by its shape: an email address keeps its first characters
+     * and its domain (`it****@x.com`), anything holding five or more digits
+     * keeps its last four (`******3210`). Anything else (`+91`, `weekly`) is
+     * kept: too short to identify anyone, and useful to whoever reads the log.
+     */
+    private static function mask(string $value): string
+    {
+        $trimmed = trim($value);
+
+        if (str_contains($trimmed, '@')) {
+            return Str::maskEmail($trimmed);
+        }
+
+        return preg_match_all('/\d/', $trimmed) >= 5 ? Str::maskPhone($trimmed) : $value;
+    }
+
     private static function isSecretKey(string $key): bool
     {
-        $needle = strtolower($key);
-
-        if (in_array($needle, self::SECRET_KEYS, true)) {
+        if (in_array(strtolower($key), self::SECRET_KEYS, true)) {
             return true;
         }
 
+        $squashed = self::squash($key);
+
         foreach (self::SECRET_FRAGMENTS as $fragment) {
-            if (str_contains($needle, $fragment)) {
+            if (str_contains($squashed, $fragment)) {
+                return true;
+            }
+        }
+
+        foreach (self::SECRET_PREFIXES as $prefix) {
+            if (str_starts_with($squashed, $prefix)) {
+                return true;
+            }
+        }
+
+        foreach (self::SECRET_SUFFIXES as $suffix) {
+            if (str_ends_with($squashed, $suffix)) {
+                return true;
+            }
+        }
+
+        $words = self::words($key);
+
+        if (array_intersect($words, self::SECRET_WORDS) !== []) {
+            return true;
+        }
+
+        return in_array('code', $words, true) && array_intersect($words, self::ONE_TIME_CODE_WORDS) !== [];
+    }
+
+    private static function isMaskedKey(string $key): bool
+    {
+        if (in_array(strtolower($key), self::MASKED_KEYS, true)) {
+            return true;
+        }
+
+        $squashed = self::squash($key);
+
+        foreach (self::MASKED_FRAGMENTS as $fragment) {
+            if (str_contains($squashed, $fragment)) {
                 return true;
             }
         }
@@ -446,22 +711,62 @@ final class ApiLogService
         return false;
     }
 
+    /** `customer_Phone-No.` → `customerphoneno`: lower case, letters and digits only. */
+    private static function squash(string $key): string
+    {
+        return preg_replace('/[^a-z0-9]/', '', strtolower($key)) ?? '';
+    }
+
+    /**
+     * A key's words, lower case: `otpCode`, `otp_code` and `OTP-code` are all
+     * `['otp', 'code']`.
+     *
+     * @return list<string>
+     */
+    private static function words(string $key): array
+    {
+        $split = preg_replace('/(?<=[a-z0-9])(?=[A-Z])/', '_', $key) ?? $key;
+
+        return array_values(array_filter(
+            preg_split('/[^a-z0-9]+/', strtolower($split)) ?: [],
+            static fn (string $word): bool => $word !== ''
+        ));
+    }
+
     /**
      * Last-resort scrub for a body we could not parse: blank the value that
-     * follows any secret-looking key, in `key: value`, `key=value` and
-     * `<key>value</key>` form.
+     * follows any secret-looking key and mask the one after a masked key, in
+     * `key: value`, `key=value` and `<key>value</key>` form. Keys are judged
+     * by the same rules as a parsed body, a phone-shaped `value` is masked,
+     * and so is any email address left anywhere in the text.
      *
-     * If either pass fails outright the whole body is discarded rather than
+     * If any pass fails outright the whole body is discarded rather than
      * stored — an unreadable body is worth less than the risk of keeping one.
      */
     private static function scrub(string $raw): string
     {
-        $fragments = implode('|', self::SECRET_FRAGMENTS);
-        $keyPart   = '[A-Za-z0-9_\-\.]*(?:' . $fragments . ')[A-Za-z0-9_\-\.]*';
-
         $result = preg_replace_callback(
-            '/("|\')?(' . $keyPart . ')\1?\s*(=|:)\s*("[^"]*"|\'[^\']*\'|[^&,}\s]*)/i',
-            static fn (array $m): string => $m[2] . $m[3] . '"' . self::REDACTED . '"',
+            '/(["\']?)([A-Za-z][A-Za-z0-9_\-\.]*)(["\']?)(\s*[=:]\s*)("[^"]*"|\'[^\']*\'|[^&,}\s]*)/',
+            static function (array $m): string {
+                [$all, $open, $key, $close, $separator, $value] = $m;
+
+                if (self::isSecretKey($key)) {
+                    return $open . $key . $close . $separator . '"' . self::REDACTED . '"';
+                }
+
+                $quote = $value !== '' && ($value[0] === '"' || $value[0] === "'") ? $value[0] : '';
+                $inner = $quote === '' ? $value : substr($value, 1, -1);
+
+                if (self::isMaskedKey($key)) {
+                    return $open . $key . $close . $separator . $quote . self::mask($inner) . $quote;
+                }
+
+                if (in_array(strtolower($key), self::CONTACT_SHAPE_KEYS, true) && self::looksLikePhone($inner)) {
+                    return $open . $key . $close . $separator . $quote . Str::maskPhone($inner) . $quote;
+                }
+
+                return $all;
+            },
             $raw
         );
 
@@ -469,14 +774,44 @@ final class ApiLogService
             return self::REDACTED;
         }
 
-        // XML-ish payloads: <otp>123456</otp>
-        $result = preg_replace(
-            '#<(' . $keyPart . ')(\s[^>]*)?>.*?</\1>#is',
-            '<$1>' . self::REDACTED . '</$1>',
-            $result
-        );
+        // XML-ish payloads: <otp>123456</otp> loses its whole content, and
+        // <phone>9876543210</phone> keeps a masked number.
+        preg_match_all('#<([A-Za-z][A-Za-z0-9_\-\.]*)[\s>]#', $result, $tags);
 
-        return $result ?? self::REDACTED;
+        $names  = array_values(array_unique($tags[1]));
+        $secret = array_values(array_filter($names, static fn (string $name): bool => self::isSecretKey($name)));
+        $masked = array_values(array_filter(
+            $names,
+            static fn (string $name): bool => !self::isSecretKey($name) && self::isMaskedKey($name)
+        ));
+
+        $alternation = static fn (array $list): string => implode('|', array_map(
+            static fn (string $name): string => preg_quote($name, '#'),
+            $list
+        ));
+
+        if ($secret !== []) {
+            $result = preg_replace(
+                '#<(' . $alternation($secret) . ')(\s[^>]*)?>.*?</\1>#is',
+                '<$1>' . self::REDACTED . '</$1>',
+                $result
+            );
+
+            if ($result === null) {
+                return self::REDACTED;
+            }
+        }
+
+        if ($masked !== []) {
+            $result = preg_replace_callback(
+                '#<(' . $alternation($masked) . ')(\s[^>]*)?>([^<]*)</\1>#i',
+                static fn (array $m): string => '<' . $m[1] . $m[2] . '>' . self::mask($m[3]) . '</' . $m[1] . '>',
+                $result
+            );
+        }
+
+        // An address anywhere else in the text, under whatever key or none.
+        return $result === null ? self::REDACTED : self::maskEmails($result);
     }
 
     private static function cap(string $body): string

@@ -43,10 +43,43 @@ final class CreatorBadgeService
      */
     public const KYC_BADGES = ['identity_verified', 'kyc_verified', 'business_verified'];
 
+    /**
+     * Badges only a text message can earn.
+     *
+     * `mobile_verified` follows a mobile number confirmed with a code sent by
+     * SMS. While SMS is switched off (SmsService::enabled(), the standing
+     * decision) no creator can earn it, so nothing may ask for it: the gates
+     * and the completion rules in ProfileCompletionService leave it out, and
+     * {@see ownerOverview()} does not offer it as a badge still to earn. A
+     * creator who already holds it keeps it. Switching SMS back on brings it
+     * back everywhere with no data change.
+     */
+    public const SMS_BADGES = ['mobile_verified'];
+
+    /**
+     * Automatic badges read straight off the account's own contact data
+     * (`users.email_verified_at`, `users.phone_verified_at`).
+     *
+     * Cheap to re-check — one read, no query per badge unless it moves — so
+     * {@see syncAccountBadges()} runs them wherever a creator is about to be
+     * told what they are missing. An email confirmed at sign-up, before the
+     * creator row existed, used to stay unbadged until an administrator acted
+     * or the nightly sweep reached the creator, and that sweep covers only
+     * approved creators: every creator still in review was told "Email
+     * verified" was outstanding next to an address already confirmed.
+     */
+    public const ACCOUNT_BADGES = ['email_verified', 'mobile_verified'];
+
     /** Is [$badge] one of the KYC-derived badges? */
     public static function isKycBadge(string $badge): bool
     {
         return in_array($badge, self::KYC_BADGES, true);
+    }
+
+    /** Can a creator earn [$badge] right now? False only for an SMS badge while SMS is off. */
+    public static function earnable(string $badge): bool
+    {
+        return !in_array($badge, self::SMS_BADGES, true) || SmsService::enabled();
     }
 
     /**
@@ -375,7 +408,9 @@ final class CreatorBadgeService
 
     /**
      * The full catalogue as the CREATOR sees it on their own profile
-     * (GET /me/creator): what they hold and what they could still earn.
+     * (GET /me/creator): what they hold and what they could still earn. A
+     * badge nobody can earn right now ({@see earnable()}) is listed only when
+     * it is already held.
      *
      * The same entries as {@see adminOverview()} without anything an
      * administrator wrote or did: no `awarded_note` (a blue-tick grant used to
@@ -389,6 +424,17 @@ final class CreatorBadgeService
      */
     public static function ownerOverview(int $creatorId): array
     {
+        // A confirmed address reads as earned here at once, not after the
+        // nightly sweep ({@see syncAccountBadges()}). Never fatal to the page.
+        try {
+            self::syncAccountBadges($creatorId);
+        } catch (\Throwable $e) {
+            Logger::warning('Could not re-check the account badges on read', [
+                'creator_id' => $creatorId,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+
         $held = [];
 
         foreach (Database::select(
@@ -430,6 +476,11 @@ final class CreatorBadgeService
                 && !($badge === 'business_verified' ? $kycOk['brand'] : $kycOk['creator'])) {
                 $status = 'none';
                 $row    = null;
+            }
+
+            // Not offered as one to earn while nothing can earn it.
+            if ($status !== 'active' && !self::earnable($badge)) {
+                continue;
             }
 
             $out[] = $definition + [
@@ -650,13 +701,7 @@ final class CreatorBadgeService
      */
     public static function syncAutomatic(int $creatorId): int
     {
-        $creator = Database::selectOne(
-            'SELECT c.*, u.`email_verified_at`, u.`phone_verified_at`, u.`is_identity_verified`
-               FROM `creators` c
-               JOIN `users` u ON u.`id` = c.`user_id`
-              WHERE c.`id` = :id',
-            ['id' => $creatorId]
-        );
+        $creator = self::syncSubject($creatorId);
 
         if ($creator === null) {
             return 0;
@@ -672,42 +717,105 @@ final class CreatorBadgeService
                 continue;
             }
 
-            $qualifies = self::qualifiesFor($badge, $creator);
-
-            // A rule the service does not implement must not silently revoke a
-            // badge an operator may have granted by hand.
-            if ($qualifies === null) {
-                continue;
-            }
-
-            $before = (string) (Database::scalar(
-                'SELECT `status` FROM `creator_badges` WHERE `creator_id` = :c AND `badge` = :b',
-                ['c' => $creatorId, 'b' => $badge]
-            ) ?? 'none');
-
-            if ($qualifies) {
-                self::award($creatorId, $badge, [
-                    'actor_type' => 'system',
-                    'note'       => 'Awarded automatically: the creator meets this badge\'s rule.',
-                ]);
-            } elseif ($before === 'active') {
-                self::revoke($creatorId, $badge, [
-                    'actor_type' => 'system',
-                    'reason'     => 'Withdrawn automatically: the creator no longer meets this badge\'s rule.',
-                ]);
-            }
-
-            $after = (string) (Database::scalar(
-                'SELECT `status` FROM `creator_badges` WHERE `creator_id` = :c AND `badge` = :b',
-                ['c' => $creatorId, 'b' => $badge]
-            ) ?? 'none');
-
-            if ($before !== $after) {
-                $changed++;
-            }
+            $changed += self::syncOne($creatorId, $badge, $creator) ? 1 : 0;
         }
 
         return $changed;
+    }
+
+    /**
+     * Re-evaluate only {@see ACCOUNT_BADGES}: the badges a confirmed email
+     * address or mobile number earns.
+     *
+     * For the read paths that show a creator what they still lack
+     * (ProfileCompletionService::breakdown(), {@see ownerOverview()}), so a
+     * confirmed address is never reported as an outstanding badge. Covers
+     * every creator that is not deleted, whatever their review status. A
+     * badge an operator made manual in the catalogue is left alone.
+     *
+     * @return int Badges whose state changed.
+     */
+    public static function syncAccountBadges(int $creatorId): int
+    {
+        $catalogue = self::catalogue();
+        $badges    = array_values(array_filter(
+            self::ACCOUNT_BADGES,
+            static fn (string $badge): bool => (bool) ($catalogue[$badge]['automatic'] ?? false)
+        ));
+
+        if ($badges === []) {
+            return 0;
+        }
+
+        $creator = self::syncSubject($creatorId);
+
+        if ($creator === null || $creator['deleted_at'] !== null) {
+            return 0;
+        }
+
+        $changed = 0;
+
+        foreach ($badges as $badge) {
+            $changed += self::syncOne($creatorId, $badge, $creator) ? 1 : 0;
+        }
+
+        return $changed;
+    }
+
+    /**
+     * The creator row joined with what the automatic rules read off the account.
+     *
+     * @return array<string,mixed>|null
+     */
+    private static function syncSubject(int $creatorId): ?array
+    {
+        return Database::selectOne(
+            'SELECT c.*, u.`email_verified_at`, u.`phone_verified_at`, u.`is_identity_verified`
+               FROM `creators` c
+               JOIN `users` u ON u.`id` = c.`user_id`
+              WHERE c.`id` = :id',
+            ['id' => $creatorId]
+        );
+    }
+
+    /**
+     * Bring one automatic badge in line with its rule.
+     *
+     * @param  array<string,mixed> $creator {@see syncSubject()}
+     * @return bool Whether the badge's stored state changed.
+     */
+    private static function syncOne(int $creatorId, string $badge, array $creator): bool
+    {
+        $qualifies = self::qualifiesFor($badge, $creator);
+
+        // A rule the service does not implement must not silently revoke a
+        // badge an operator may have granted by hand.
+        if ($qualifies === null) {
+            return false;
+        }
+
+        $before = self::statusOf($creatorId, $badge);
+
+        if ($qualifies) {
+            // Held and current: award() would do nothing, so neither do we.
+            if ($before === 'active' && self::holds($creatorId, $badge)) {
+                return false;
+            }
+
+            self::award($creatorId, $badge, [
+                'actor_type' => 'system',
+                'note'       => 'Awarded automatically: the creator meets this badge\'s rule.',
+            ]);
+        } elseif ($before === 'active') {
+            self::revoke($creatorId, $badge, [
+                'actor_type' => 'system',
+                'reason'     => 'Withdrawn automatically: the creator no longer meets this badge\'s rule.',
+            ]);
+        } else {
+            return false;
+        }
+
+        return self::statusOf($creatorId, $badge) !== $before;
     }
 
     /**

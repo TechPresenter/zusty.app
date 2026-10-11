@@ -506,26 +506,31 @@ class _BannerCard extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Flexible(
-                      child: Text(
-                        banner.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.headlineSmall.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          height: 1.25,
-                        ),
+                    Text(
+                      banner.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.headlineSmall.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        height: 1.25,
                       ),
                     ),
+                    // Two lines fit under a two-line headline at the default
+                    // text size, so a one-sentence subtitle ("…and get paid
+                    // when the work is approved.") is not cut mid-sentence.
+                    // Flexible, so at a larger text size it gives way rather
+                    // than the headline.
                     if (banner.subtitle.isNotEmpty) ...[
                       const SizedBox(height: AppSpacing.base),
-                      Text(
-                        banner.subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.bodySmall.copyWith(
-                          color: Colors.white.withValues(alpha: 0.85),
+                      Flexible(
+                        child: Text(
+                          banner.subtitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.bodySmall.copyWith(
+                            color: Colors.white.withValues(alpha: 0.85),
+                          ),
                         ),
                       ),
                     ],

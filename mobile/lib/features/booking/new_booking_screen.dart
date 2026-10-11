@@ -10,6 +10,7 @@ import '../../core/utils/validators.dart';
 import '../../models/booking.dart';
 import '../../models/creator.dart';
 import '../../models/taxonomy.dart';
+import '../../providers/app_config_provider.dart';
 import '../../providers/booking_provider.dart';
 import '../../providers/core_providers.dart';
 import '../../providers/discovery_provider.dart';
@@ -778,19 +779,26 @@ class _QuoteBreakdown extends ConsumerWidget {
   }
 }
 
-/// The escrow reassurance panel — the trust guarantee from PRD goal G2.
-class _EscrowNotice extends StatelessWidget {
+/// The payment-protection panel (PRD goal G2): who holds the money, when it
+/// is released, and that a dispute is reviewed first. Never "escrow" — the
+/// money settles to Zusty's own account (decision P-ESCROW).
+class _EscrowNotice extends ConsumerWidget {
   const _EscrowNotice();
 
   @override
-  Widget build(BuildContext context) {
-    return const ZInfoBanner(
+  Widget build(BuildContext context, WidgetRef ref) {
+    final window = ref.watch(reviewWindowProvider);
+
+    return ZInfoBanner(
       tone: StatusTone.success,
       icon: Icons.verified_user_rounded,
-      title: 'Protected by escrow',
+      title: 'Payment protection',
       message:
-          'Your payment is held in escrow and only released to the '
-          'creator after you approve the delivered work.',
+          'When the booking is confirmed, your payment is held by Zusty. It '
+          'is released to the creator when you approve the work, or '
+          'automatically if you don\'t respond within $window of delivery. '
+          'If there is a dispute, our team reviews it before any money is '
+          'released.',
     );
   }
 }

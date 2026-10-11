@@ -410,16 +410,24 @@ class _CounterOfferSheetState extends State<CounterOfferSheet> {
 typedef DeliverResult = ({String? note, List<String> urls});
 
 /// The creator's "mark as complete" sheet, per the approval workflow.
+///
+/// [reviewWindow] is how long the brand has to answer before the booking
+/// completes on its own ("7 days", from `/app/config`).
 class DeliverSheet extends StatefulWidget {
-  const DeliverSheet({super.key});
+  const DeliverSheet({super.key, this.reviewWindow = '7 days'});
 
-  static Future<DeliverResult?> show(BuildContext context) =>
+  final String reviewWindow;
+
+  static Future<DeliverResult?> show(
+    BuildContext context, {
+    String reviewWindow = '7 days',
+  }) =>
       showModalBottomSheet<DeliverResult>(
         context: context,
         isScrollControlled: true,
         useSafeArea: true,
         sheetAnimationStyle: zSheetMotion(context),
-        builder: (_) => const DeliverSheet(),
+        builder: (_) => DeliverSheet(reviewWindow: reviewWindow),
       );
 
   @override
@@ -486,11 +494,12 @@ class _DeliverSheetState extends State<DeliverSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const _SheetHeader(
+          _SheetHeader(
             title: 'Submit deliverables',
             subtitle:
-                'The brand reviews and approves before escrow is '
-                'released to you.',
+                'The brand reviews the work. The payment is released to you '
+                'when they approve it, or automatically if they don\'t '
+                'respond within ${widget.reviewWindow}.',
           ),
           const SizedBox(height: AppSpacing.lg),
           ZTextField(

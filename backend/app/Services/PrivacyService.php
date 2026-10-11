@@ -480,7 +480,7 @@ final class PrivacyService
             // FirebaseService answers a bad token with a 401, and a 401 here
             // would make the app end the session.
             throw HttpException::unprocessable(
-                'We could not check that sign-in. Sign in with Google or Apple again, or confirm another way.',
+                'We could not check that sign-in. Sign in with Google again, or confirm another way.',
                 'invalid_firebase_token'
             );
         } catch (\Throwable $e) {
@@ -494,7 +494,7 @@ final class PrivacyService
         // enough: those are exactly what a session can change.
         if ($firebaseUid === '' || !hash_equals($firebaseUid, (string) ($claims['uid'] ?? ''))) {
             throw HttpException::unprocessable(
-                'That sign-in belongs to a different account. Use the Google or Apple account you sign in to Zusty with.',
+                'That sign-in belongs to a different account. Use the Google account you sign in to Zusty with.',
                 'reauth_mismatch'
             );
         }
@@ -532,7 +532,7 @@ final class PrivacyService
         Logger::error('Firebase re-authentication is unavailable', ['error' => $e->getMessage()]);
 
         throw new HttpException(
-            'Google and Apple sign-in are not available right now. Confirm another way, or try again later.',
+            'Google sign-in is not available right now. Confirm another way, or try again later.',
             503,
             'provider_unavailable'
         );
@@ -675,7 +675,7 @@ final class PrivacyService
             return 'To add a password, confirm with a code we send to your phone.';
         }
 
-        return 'To add a password, confirm it is you by signing in with Google or Apple again.';
+        return 'To add a password, confirm it is you by signing in with Google again.';
     }
 
     private static function locked(int $retryAfter): HttpException

@@ -4,9 +4,12 @@ import 'package:flutter/services.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../models/creator.dart';
+import '../../../models/safety.dart';
 import '../../../shared/motion/motion.dart';
 import '../../../shared/widgets/z_button.dart';
 import '../../../shared/widgets/z_image.dart';
+import '../../safety/report_sheet.dart';
+import '../../safety/safety_menu.dart';
 import 'profile_layout.dart';
 
 /// Full-screen, swipeable viewer for portfolio media.
@@ -19,16 +22,42 @@ import 'profile_layout.dart';
 /// There is no video player in the app, so a reel or video shows its poster
 /// frame with a "Watch on …" action that opens the original post — the honest
 /// way to play it, rather than a play button that does nothing.
+///
+/// On someone else's work the top bar has a ⋮ menu that reports the item on
+/// screen (`POST /reports`, type `portfolio`) through the same sheet as every
+/// other report.
 class MediaViewer extends StatefulWidget {
-  const MediaViewer({super.key, required this.items, this.initialIndex = 0});
+  const MediaViewer({
+    super.key,
+    required this.items,
+    this.initialIndex = 0,
+    this.canReport = false,
+    this.creatorName,
+    this.creatorUserId,
+  });
 
   final List<PortfolioItem> items;
   final int initialIndex;
+
+  /// Offers "Report post" for the item on screen. The public profile sets it
+  /// for everyone but the creator, whose own work has nothing to report.
+  final bool canReport;
+
+  /// Whose work it is, as the report sheet names them ("Report Aanya's
+  /// post").
+  final String? creatorName;
+
+  /// The account behind the work, which the sheet offers to block once the
+  /// report is in.
+  final int? creatorUserId;
 
   static Future<void> open(
     BuildContext context, {
     required List<PortfolioItem> items,
     int initialIndex = 0,
+    bool canReport = false,
+    String? creatorName,
+    int? creatorUserId,
   }) {
     if (items.isEmpty) return Future.value();
 
@@ -43,6 +72,9 @@ class MediaViewer extends StatefulWidget {
         pageBuilder: (_, _, _) => MediaViewer(
           items: items,
           initialIndex: initialIndex.clamp(0, items.length - 1),
+          canReport: canReport,
+          creatorName: creatorName,
+          creatorUserId: creatorUserId,
         ),
         transitionsBuilder: (_, animation, _, child) => FadeTransition(
           opacity: CurvedAnimation(parent: animation, curve: Motion.standard),
@@ -76,6 +108,15 @@ class _MediaViewerState extends State<MediaViewer> {
   }
 
   void _close() => Navigator.of(context).maybePop();
+
+  /// Reports the item on screen, not the one the viewer opened on.
+  Future<void> _report(PortfolioItem item) => showReportSheet(
+    context,
+    target: ReportTarget.portfolio,
+    id: item.id,
+    name: widget.creatorName,
+    blockUserId: (widget.creatorUserId ?? 0) > 0 ? widget.creatorUserId : null,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -158,6 +199,10 @@ class _MediaViewerState extends State<MediaViewer> {
                       index: _index,
                       count: widget.items.length,
                       onClose: _close,
+                      // An item without an id is not one the server knows.
+                      onReport: widget.canReport && item.id > 0
+                          ? () => _report(item)
+                          : null,
                     ),
                     Align(
                       alignment: Alignment.bottomCenter,
@@ -238,11 +283,15 @@ class _TopBar extends StatelessWidget {
     required this.index,
     required this.count,
     required this.onClose,
+    this.onReport,
   });
 
   final int index;
   final int count;
   final VoidCallback onClose;
+
+  /// Null leaves the ⋮ menu out.
+  final VoidCallback? onReport;
 
   @override
   Widget build(BuildContext context) {
@@ -300,6 +349,29 @@ class _TopBar extends StatelessWidget {
                         ),
                       ),
                     ),
+                  ),
+                if (onReport case final report?)
+                  PopupMenuButton<ReportTarget>(
+                    tooltip: 'More options',
+                    position: PopupMenuPosition.under,
+                    shape: const RoundedRectangleBorder(
+                      borderRadius: AppRadius.lgAll,
+                    ),
+                    color: AppColors.surfaceContainerLowest,
+                    icon: const Icon(
+                      Icons.more_vert_rounded,
+                      size: 24,
+                      color: Colors.white,
+                    ),
+                    onSelected: (_) => report(),
+                    itemBuilder: (_) => [
+                      safetyMenuItem(
+                        ReportTarget.portfolio,
+                        Icons.flag_outlined,
+                        'Report ${ReportTarget.portfolio.noun}',
+                        destructive: true,
+                      ),
+                    ],
                   ),
               ],
             ),

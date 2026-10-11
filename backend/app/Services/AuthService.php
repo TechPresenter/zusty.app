@@ -225,7 +225,7 @@ final class AuthService
                 $user === null ? 'No account with that email or phone.' : 'Account has no password set.'
             );
 
-            throw HttpException::unauthorized('Incorrect email/phone or password.', 'invalid_credentials');
+            throw HttpException::unauthorized('Incorrect email or password.', 'invalid_credentials');
         }
 
         if (!Crypto::verifyPassword($password, (string) $user['password_hash'])) {
@@ -241,7 +241,7 @@ final class AuthService
                 'Password did not match.'
             );
 
-            throw HttpException::unauthorized('Incorrect email/phone or password.', 'invalid_credentials');
+            throw HttpException::unauthorized('Incorrect email or password.', 'invalid_credentials');
         }
 
         try {
@@ -493,7 +493,9 @@ final class AuthService
 
         if (PrivacyService::heldUntil($user, $channel) !== null) {
             throw HttpException::conflict(
-                'This email address or mobile number changed recently. Sign in with your password, or try again later.',
+                $channel === 'email'
+                    ? 'This email address changed recently. Sign in with your password, or try again later.'
+                    : 'This mobile number changed recently. Sign in with your password, or try again later.',
                 'account_link_held'
             );
         }

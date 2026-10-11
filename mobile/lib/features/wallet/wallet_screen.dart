@@ -255,7 +255,7 @@ class _BalanceCard extends StatelessWidget {
             child: Row(
               children: [
                 _MiniStat(
-                  label: 'In escrow',
+                  label: 'On hold',
                   value: wallet.escrowLabel,
                   icon: Icons.lock_rounded,
                 ),

@@ -12,8 +12,9 @@ staff can answer "why did that happen?" without guessing.
 
 A brand finds a creator, requests a booking with a price and a brief. The creator
 accepts, rejects, or counters. Once both agree, the brand pays — and that money is
-**held in escrow**, not passed on. The creator does the work and submits deliverables.
-The brand approves, which releases the escrow to the creator's wallet. The creator
+**held by Zusty**, not passed on (payment protection). The creator does the work and
+submits deliverables. The brand approves, which releases the payment to the creator's
+wallet. The creator
 withdraws to their bank account. Both sides can review each other afterwards.
 
 Everything else — search, messaging, disputes, refunds, coupons, referrals — supports
@@ -80,8 +81,9 @@ debit or credit card, or net banking. It is chosen for you on the payment screen
 
 Cashfree needs a mobile number on every order. If your account has none (accounts made
 with an email address or Google usually don't), the app asks for one when you tap
-**Pay**: a 10-digit Indian mobile number. It is used for that payment only. It is not
-added to your account and no code is sent to it.
+**Pay**: a 10-digit Indian mobile number. It is sent to Cashfree with that payment only.
+It is not added to your account and no code is sent to it; if the payment cannot be
+started, our log of that request keeps only its last four digits.
 
 There is no "Add money" for brands: you do not load your Zusty wallet in advance, you
 pay each booking as you go. If a refund has gone to your wallet and that balance
@@ -89,9 +91,13 @@ covers the whole booking, the payment screen also offers **Or use your Zusty
 balance** — a second option you can pick instead. A balance short of the total cannot
 be combined with another method, so it is not offered.
 
-**Your money goes into escrow, not to the creator.** It is held by the platform until
-you approve the work. This protects both sides: you are not paying up-front for
-nothing, and the creator knows the funds exist before starting.
+**Payment protection: your money is held by Zusty, not passed to the creator.** When
+the booking is confirmed, your payment is held by Zusty. It is released to the creator
+when you approve the work, or automatically if you do not respond within the review
+window after delivery (`booking.auto_complete_days`, 7 days by default; the app and the
+terms quote the current value). If there is a dispute, our team reviews it before any
+money is released. This protects both sides: you are not paying up-front for nothing,
+and the creator knows the funds exist before starting.
 
 Coupons apply at this step, subject to their validity window, usage limit and minimum
 booking amount.
@@ -107,7 +113,7 @@ booking amount.
 ## Approving
 
 When the creator submits deliverables, review them and **approve**. Approval releases
-escrow to the creator immediately and is not reversible.
+the held payment to the creator immediately and is not reversible.
 
 If you do nothing, the booking auto-completes after the review window (the
 `bookings:autocomplete` job). Read what was delivered before that window closes.
@@ -170,6 +176,13 @@ an operator approves it.
 
 Status moves `draft → pending_review → approved`. If rejected, you are told why and
 can resubmit.
+
+The **Profile** tab shows how complete your profile is and the next parts you can
+finish in the app (contact details, social accounts, portfolio, packages, KYC or your
+profile photo); tap one to open the screen where you finish it. A mobile number is not
+part of it while text messages are switched off on the platform. KYC is not listed
+while our team is reviewing it, and the *Email verified* badge follows on its own once
+your email address is confirmed.
 
 ## Packages, portfolio and social accounts
 
@@ -247,7 +260,7 @@ brand moves on. Your profile shows the typical reply time you set, not a measure
 
 ## Doing the work
 
-Once the brand pays, the booking becomes `confirmed` and the money is in escrow — it
+Once the brand pays, the booking becomes `confirmed` and Zusty holds the payment — it
 exists, it is committed, and it is yours on approval.
 
 Mark it `in_progress`, use the message thread for questions, then **submit
@@ -259,12 +272,18 @@ are not what a dispute will be judged against.
 ## Getting paid
 
 The brand approves, or the review window closes and the booking auto-completes. Either
-way, escrow releases into your **wallet**.
+way, the held payment is released into your **wallet**, minus the commission.
 
 Your wallet shows:
 
 - **Available balance** — withdrawable now.
-- **Locked balance** — escrow on bookings not yet completed. Real money, not yet yours.
+- **On hold** (locked balance) — earnings from completed bookings during the short
+  hold before they become withdrawable (`wallet.withdrawal_hold_days`), and any
+  withdrawal already on its way to you.
+
+The wallet also holds any refunds credited to it and referral rewards: while the
+referral programme runs, you and a friend you invited each get one when that friend
+completes a first booking as a brand. Nobody can pay money into the wallet.
 
 Withdraw to a verified bank account, above the minimum withdrawal amount. Requests are
 reviewed by an operator, then paid out. **Withdrawal is not instant** — it is a queue,
@@ -311,7 +330,8 @@ on the platform.
 
 ### Reporting
 
-Report a profile, message, review, booking or campaign brief from its menu in the app.
+Report a profile, message, review, booking, portfolio post or campaign brief from its
+menu in the app.
 A person on the team reviews every report, and the person reported is not told who
 reported them. What the team can do depends on what was reported: a message can be
 removed from the chat for both people, a campaign brief taken down (it is cancelled and
@@ -322,7 +342,8 @@ it) from the booking itself. Reports are not anonymous to operators, and a patte
 false reports is itself actionable.
 
 Where to find it: the **⋮** menu on a creator's profile, a chat, each review, a
-campaign brief and a booking. To report one message rather than the whole chat,
+campaign brief and a booking, and at the top of a portfolio post opened full screen
+(it reports the post on screen). To report one message rather than the whole chat,
 long-press it and choose **Report message**. Pick the reason that fits best (spam, a
 scam, being asked to pay outside Zusty, harassment, hate speech, sexual content,
 violence, self-harm, a child at risk, impersonation, someone else's work, or something
@@ -346,6 +367,12 @@ part of **Download my data**, and deleting your account removes your blocks.
 
 Raise a ticket from the app. It reaches the operator's queue with your account and
 booking context attached, so you do not have to explain who you are.
+
+**Complaints** go to the Grievance Officer, Appsgain Technologies Private Limited, at
+support@zusty.app, with "Grievance" in the subject line. Complaints are acknowledged
+within 24 hours and resolved within 15 days. The same address takes requests about
+your personal data under the Digital Personal Data Protection Act, 2023 (privacy policy
+section 8).
 
 ### Account
 
@@ -394,7 +421,8 @@ booking context attached, so you do not have to explain who you are.
 | **GST** | Tax on the platform fee |
 | **Total** | What the brand pays |
 | **Creator receives** | Subtotal minus commission |
-| **Escrow / locked balance** | Paid by the brand, held by the platform, not yet the creator's |
+| **Held payment** | Paid by the brand, held by Zusty until approval (or the review window), not yet the creator's |
+| **On hold / locked balance** | A creator's earnings in the short hold after completion, or a withdrawal on its way |
 | **Available balance** | Withdrawable now |
 
 All amounts are in **INR**.
@@ -415,7 +443,7 @@ the gateway ever called back.
 The request expires automatically and nothing is charged.
 
 **"I approved by mistake."**
-Approval releases escrow and cannot be reversed from the app. Contact support — an
+Approval releases the held payment and cannot be reversed from the app. Contact support — an
 operator can see the full history, but recovering released funds depends on the
 creator's cooperation.
 

@@ -249,7 +249,8 @@ Suite::check(
 // page until they are retaken: retired demo names and handles (search,
 // profile, opportunities, creator-home), an ended brief marked Open
 // (opportunities), a review-for-reward message (chat), the old "paid on
-// time" banner (creator-home) and the wallet's Add money (wallet).
+// time" banner (creator-home) and the wallet's Add money (wallet). Their
+// files were deleted, so "every image loads" below would also catch them.
 $retiredShots = [];
 foreach ($xp->query("//img[contains(@src, '/screens/')]/@src") ?: [] as $node) {
     $name = basename((string) $node->nodeValue, '.webp');
@@ -266,6 +267,23 @@ Suite::check(
     preg_match('/★|\bstar rating|\brated\b|#\s?1\b|\bnumber one\b|\bbest\b|\btestimonial|\b\d[\d,.]*\s*(k|m|lakh|crore|million)?\+?\s+(users|downloads|happy|customers)\b/iu', $visible) === 0
 );
 Suite::check('it does not mention SMS or phone OTP', preg_match('/\bSMS\b|\bOTP\b/', $visible) === 0);
+
+// P-ESCROW (migration 059): money settles to Zusty's own account, so the page
+// speaks of payment protection, never escrow, and promises nothing. Checked
+// on the whole document, alt text and meta tags included.
+Suite::check(
+    'it never says escrow, nodal, trust account, guaranteed or 100% safe',
+    preg_match('/escrow|\bnodal\b|trust account|guaranteed|100\s*%\s*safe/i', $body) === 0
+);
+$reviewDays = max(1, Config::settingInt('booking', 'auto_complete_days', 7));
+$reviewText = $reviewDays . ' ' . ($reviewDays === 1 ? 'day' : 'days');
+Suite::check(
+    'it explains payment protection with the auto-complete window and the dispute review',
+    str_contains($visible, 'held by ' . $appName)
+        && str_contains($visible, 'within ' . $reviewText . ' of delivery')
+        && str_contains($visible, 'our team reviews it before any money is released'),
+    $reviewText
+);
 
 // The fee the FAQ quotes is the one the booking maths uses.
 $feeSetting = Config::settingFloat('commission', 'platform_fee_percent', 10.0);

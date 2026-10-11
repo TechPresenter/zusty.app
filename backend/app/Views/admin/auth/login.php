@@ -52,7 +52,7 @@ $assetVersion = $this->e((string) \Zuste\Core\Config::get('app.version', '1.0.0'
       <div style="display:flex;gap:28px;margin-top:36px">
         <?php foreach ([
             ['Verified creators', 'shield'],
-            ['Escrow payments', 'wallet'],
+            ['Payment protection', 'wallet'],
             ['Full audit trail', 'file'],
         ] as [$label, $icon]): ?>
           <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">

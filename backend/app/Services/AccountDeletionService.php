@@ -370,8 +370,8 @@ final class AccountDeletionService
                 'title'   => 'Money in your wallet',
                 'message' => ($balance > 0.0
                         ? 'You have ' . Money::format($balance, $currency) . ' in your wallet and '
-                          . Money::format($escrow, $currency) . ' still being released from escrow. Withdraw it all once it is released, '
-                        : Money::format($escrow, $currency) . ' of your earnings is still being released from escrow. Withdraw it once it is released, ')
+                          . Money::format($escrow, $currency) . ' of earnings still on hold. Withdraw it all once the hold ends, '
+                        : Money::format($escrow, $currency) . ' of your earnings is still on hold. Withdraw it once the hold ends, ')
                     . 'then you can delete your account. If you need help, contact support.',
                 'action'  => 'wallet',
                 'amount'  => Money::add($balance, $escrow),

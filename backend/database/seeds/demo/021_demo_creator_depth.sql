@@ -30,6 +30,8 @@
 --     at apply time through a 10-pack content library (LIFE / STYLE / TRAVEL / FOOD /
 --     FIT / TECH / CREATIVE / KNOW / PARENT / AUTO), so a finance creator never ends up
 --     with a makeup portfolio.
+--   * Every package includes at least two revision rounds, so the package cards
+--     in store screenshots never show a single-revision offer.
 --   * Engagement counts scale with the creator's followers_total; analytics trend
 --     upward over the 90-day window with weekday seasonality and bounded noise.
 --   * Every statement is INSERT IGNORE and every id is deterministic, so the whole
@@ -120,7 +122,7 @@ FROM (
       '["Concept and script approval","1 x 30-45s Reel","Story reshare on publish day","7-day organic usage rights"]' AS incl
     UNION ALL SELECT 'LIFE',1,'3-Post Story Series',
       'A three-frame Story arc that takes the audience from problem to product to link tap, published across a single high-traffic evening window.',
-      'instagram','story',3,0.22,4,1,
+      'instagram','story',3,0.22,4,2,
       '["3 x 15s Stories","Link sticker to product page","Brand mention and tag","24-hour highlight save"]'
     UNION ALL SELECT 'LIFE',2,'Feed Post + Reel Combo',
       'A polished carousel feed post paired with a companion Reel so the campaign lands on both the grid and the discovery tab.',
@@ -128,7 +130,7 @@ FROM (
       '["1 x feed carousel","1 x companion Reel","2 Stories with product tag","30-day paid usage rights"]'
     UNION ALL SELECT 'LIFE',3,'YouTube Integration - 60s Brand Segment',
       'A 60 to 90 second integrated brand segment inside a regular long-form upload, written to sit naturally in the episode rather than read like an ad.',
-      'youtube','video',1,0.72,12,1,
+      'youtube','video',1,0.72,12,2,
       '["Dedicated 60-90s brand segment","Pinned comment with offer code","Description link and timestamps","Community post on launch day"]'
     UNION ALL SELECT 'LIFE',4,'Full Lifestyle Campaign Bundle',
       'A month-long always-on bundle: two Reels, one carousel, six Stories and a whitelisted cut your paid media team can run as an ad.',
@@ -142,7 +144,7 @@ FROM (
       '["Look direction and styling","1 x 30-45s transition Reel","Product close-up insert","7-day organic usage rights"]'
     UNION ALL SELECT 'STYLE',1,'3-Post Story Series - Try-On Haul',
       'Three Stories covering unboxing, fit-and-fabric commentary and a sizing guide, closed with a link sticker to the exact SKU.',
-      'instagram','story',3,0.22,4,1,
+      'instagram','story',3,0.22,4,2,
       '["3 x 15s Stories","Sizing and fit commentary","Link sticker to the exact SKU","24-hour highlight save"]'
     UNION ALL SELECT 'STYLE',2,'Lookbook Post + Reel Combo',
       'A four-slide lookbook carousel plus a companion Reel, delivered with flat-lay stills your team can reuse on the product page.',
@@ -150,7 +152,7 @@ FROM (
       '["4-slide lookbook carousel","1 x companion Reel","5 flat-lay stills for your PDP","30-day paid usage rights"]'
     UNION ALL SELECT 'STYLE',3,'YouTube Integration - Wardrobe Feature',
       'Your label featured inside a wardrobe or haul video with an on-camera styling breakdown and a pinned discount code.',
-      'youtube','video',1,0.72,12,1,
+      'youtube','video',1,0.72,12,2,
       '["Dedicated wardrobe segment","On-camera styling breakdown","Pinned discount code","Description link and timestamps"]'
     UNION ALL SELECT 'STYLE',4,'Product Unboxing Video + Reel Bundle',
       'A dedicated unboxing film plus two cut-down Reels and ten UGC stills licensed for your ads and marketplace listings.',
@@ -164,7 +166,7 @@ FROM (
       '["Location recce and shot list","1 x cinematic 30-45s Reel","Geo-tag on your property","7-day organic usage rights"]'
     UNION ALL SELECT 'TRAVEL',1,'3-Post Story Series - Stay Walkthrough',
       'Three Stories walking through arrival, room reveal and the property highlight, each carrying a booking link sticker.',
-      'instagram','story',3,0.23,5,1,
+      'instagram','story',3,0.23,5,2,
       '["3 x 15s Stories","Booking link sticker","Property geo-tag","Permanent highlight save"]'
     UNION ALL SELECT 'TRAVEL',2,'Travel Feature Post + Reel Combo',
       'A feature carousel with a written itinerary plus a companion Reel, both geo-tagged and saved to a permanent highlight.',
@@ -172,7 +174,7 @@ FROM (
       '["Feature carousel with itinerary","1 x companion Reel","6 destination stills","30-day paid usage rights"]'
     UNION ALL SELECT 'TRAVEL',3,'YouTube Integration - Property Feature',
       'A two to three minute property feature inside a destination vlog, including room tour, food and a candid guest verdict.',
-      'youtube','video',1,0.74,14,1,
+      'youtube','video',1,0.74,14,2,
       '["2-3 minute property feature","Room tour and food coverage","Booking link in description","Pinned comment with offer code"]'
     UNION ALL SELECT 'TRAVEL',4,'48-Hour Destination Campaign Bundle',
       'A two-night hosted shoot delivering two Reels, one carousel, twelve Stories and a raw footage folder for your own edits.',
@@ -186,7 +188,7 @@ FROM (
       '["Recipe development","1 x top-down 30-45s Reel","Bilingual on-screen steps","7-day organic usage rights"]'
     UNION ALL SELECT 'FOOD',1,'3-Post Story Series - Restaurant Visit',
       'Three Stories covering the arrival, the signature dish and an honest first-bite verdict, tagged to your outlet location.',
-      'instagram','story',3,0.22,4,1,
+      'instagram','story',3,0.22,4,2,
       '["3 x 15s Stories","Outlet location tag","Menu and pricing frame","24-hour highlight save"]'
     UNION ALL SELECT 'FOOD',2,'Food Feature Post + Reel Combo',
       'A styled feed post with the full recipe in the caption plus a companion Reel, delivered with five plated stills.',
@@ -194,7 +196,7 @@ FROM (
       '["Styled feed post","Full recipe in caption","1 x companion Reel","5 plated stills","30-day paid usage rights"]'
     UNION ALL SELECT 'FOOD',3,'YouTube Integration - Recipe Film',
       'A long-form recipe film built end to end around your product, with an ingredient card and a pinned offer code.',
-      'youtube','video',1,0.73,14,1,
+      'youtube','video',1,0.73,14,2,
       '["Long-form recipe film","On-screen ingredient card","Pinned comment with offer code","Description link and timestamps"]'
     UNION ALL SELECT 'FOOD',4,'Product Unboxing Video + Recipe Bundle',
       'An unboxing and taste-test film plus two recipe Reels and eight food stills licensed for packaging and ad use.',
@@ -208,7 +210,7 @@ FROM (
       '["Movement selection and script","1 x 30-45s training Reel","Form-cue voiceover","7-day organic usage rights"]'
     UNION ALL SELECT 'FIT',1,'3-Post Story Series - Day-in-the-Life',
       'Three Stories tracking a training day from pre-workout to recovery, placing your product at the moment of actual use.',
-      'instagram','story',3,0.21,4,1,
+      'instagram','story',3,0.21,4,2,
       '["3 x 15s Stories","Product placed at point of use","Link sticker to product page","24-hour highlight save"]'
     UNION ALL SELECT 'FIT',2,'Transformation Post + Reel Combo',
       'A results-led carousel with honest before-and-after context plus a companion Reel breaking down the routine.',
@@ -216,7 +218,7 @@ FROM (
       '["Results carousel with context","1 x routine breakdown Reel","2 Stories with product tag","30-day paid usage rights"]'
     UNION ALL SELECT 'FIT',3,'YouTube Integration - Routine Breakdown',
       'A dedicated segment inside a training or nutrition video explaining how your product fits an actual weekly plan.',
-      'youtube','video',1,0.71,12,1,
+      'youtube','video',1,0.71,12,2,
       '["Dedicated 90s brand segment","Weekly plan walkthrough","Pinned comment with offer code","Description link and timestamps"]'
     UNION ALL SELECT 'FIT',4,'30-Day Wellness Campaign Bundle',
       'A month-long tracked challenge: two Reels, weekly Story check-ins, a results carousel and a testimonial cut for your ads.',
@@ -230,7 +232,7 @@ FROM (
       '["Unit collection and setup","1 x first impressions Reel","Product close-up inserts","7-day organic usage rights"]'
     UNION ALL SELECT 'TECH',1,'3-Post Story Series - Setup Walkthrough',
       'Three Stories taking the audience through unboxing, setup and the first-run experience with a link to the product page.',
-      'instagram','story',3,0.22,4,1,
+      'instagram','story',3,0.22,4,2,
       '["3 x 15s Stories","Unboxing and setup coverage","Link sticker to product page","24-hour highlight save"]'
     UNION ALL SELECT 'TECH',2,'Spec Breakdown Post + Reel Combo',
       'A spec-comparison carousel against two rivals in the same price band plus a companion Reel with the short verdict.',
@@ -238,7 +240,7 @@ FROM (
       '["Spec comparison carousel","1 x verdict Reel","2 Stories with product tag","30-day paid usage rights"]'
     UNION ALL SELECT 'TECH',3,'YouTube Integration - Dedicated Review',
       'A full long-form review after a week of real usage, with benchmark notes and an honest buy or skip call at the end.',
-      'youtube','video',1,0.76,15,1,
+      'youtube','video',1,0.76,15,2,
       '["Full long-form review","Benchmark and battery testing","Pinned comment with offer code","Description link and timestamps"]'
     UNION ALL SELECT 'TECH',4,'Product Unboxing Video - Long Form + Shorts',
       'A dedicated unboxing and review upload plus three Shorts and a Reel cut-down, with 90-day paid usage rights.',
@@ -252,7 +254,7 @@ FROM (
       '["Original concept and script","1 x performed Reel","Original audio stem","7-day organic usage rights"]'
     UNION ALL SELECT 'CREATIVE',1,'3-Post Story Series - Behind the Scenes',
       'Three Stories from the making of the shoot, giving the audience process access and closing on a link sticker.',
-      'instagram','story',3,0.22,4,1,
+      'instagram','story',3,0.22,4,2,
       '["3 x 15s Stories","Behind-the-scenes process access","Link sticker to product page","Permanent highlight save"]'
     UNION ALL SELECT 'CREATIVE',2,'Concept Post + Reel Combo',
       'A concept-led feed post plus a companion Reel, delivered with the project stills and the original audio stem.',
@@ -260,7 +262,7 @@ FROM (
       '["Concept-led feed post","1 x companion Reel","Project stills handover","Original audio stem","30-day paid usage rights"]'
     UNION ALL SELECT 'CREATIVE',3,'YouTube Integration - Sponsored Segment',
       'A scripted sponsored segment inside a regular upload, performed in the same voice the channel is subscribed for.',
-      'youtube','video',1,0.72,13,1,
+      'youtube','video',1,0.72,13,2,
       '["Scripted sponsored segment","In-voice performance","Pinned comment with offer code","Description link and timestamps"]'
     UNION ALL SELECT 'CREATIVE',4,'Live Session + Content Bundle',
       'A 45-minute co-hosted live session plus a promo Reel, three Stories and a highlights cut-down after the stream.',
@@ -274,7 +276,7 @@ FROM (
       '["Script and fact check","1 x 60s explainer Reel","Silent-viewing on-screen text","7-day organic usage rights"]'
     UNION ALL SELECT 'KNOW',1,'3-Post Story Series - Q&A Takeover',
       'Three Stories running an audience question box on the topic, with your platform positioned as the practical answer.',
-      'instagram','story',3,0.21,4,1,
+      'instagram','story',3,0.21,4,2,
       '["3 x 15s Stories","Audience question box","Link sticker to sign-up page","24-hour highlight save"]'
     UNION ALL SELECT 'KNOW',2,'Carousel Post + Reel Combo',
       'A ten-slide teaching carousel plus a companion Reel, both built to be saved and shared rather than just liked.',
@@ -282,7 +284,7 @@ FROM (
       '["10-slide teaching carousel","1 x companion Reel","2 Stories with link sticker","30-day paid usage rights"]'
     UNION ALL SELECT 'KNOW',3,'YouTube Integration - Deep-Dive Segment',
       'A three to four minute deep-dive segment inside a long-form video, with an on-screen walkthrough of your product.',
-      'youtube','video',1,0.73,14,1,
+      'youtube','video',1,0.73,14,2,
       '["3-4 minute deep-dive segment","On-screen product walkthrough","Pinned comment with offer code","Description link and timestamps"]'
     UNION ALL SELECT 'KNOW',4,'Webinar + Content Campaign Bundle',
       'A co-hosted webinar with pre-promotion Reels, three Stories, a recap carousel and the recording licensed for your funnel.',
@@ -296,7 +298,7 @@ FROM (
       '["Routine-led concept","1 x 30-45s family Reel","Product placed at point of use","7-day organic usage rights"]'
     UNION ALL SELECT 'PARENT',1,'3-Post Story Series - Morning Routine',
       'Three Stories following a school-morning routine, placing your product at the point where it actually saves time.',
-      'instagram','story',3,0.21,4,1,
+      'instagram','story',3,0.21,4,2,
       '["3 x 15s Stories","School-morning routine coverage","Link sticker to product page","24-hour highlight save"]'
     UNION ALL SELECT 'PARENT',2,'Honest Review Post + Reel Combo',
       'A long-form honest review post after two weeks of real use plus a companion Reel carrying the short verdict.',
@@ -304,7 +306,7 @@ FROM (
       '["Two-week real-use trial","Long-form review post","1 x verdict Reel","30-day paid usage rights"]'
     UNION ALL SELECT 'PARENT',3,'YouTube Integration - Family Vlog Feature',
       'Your product featured across a family vlog with a dedicated segment covering value, safety and repeat-buy intent.',
-      'youtube','video',1,0.71,13,1,
+      'youtube','video',1,0.71,13,2,
       '["Dedicated vlog segment","Value and safety commentary","Pinned comment with offer code","Description link and timestamps"]'
     UNION ALL SELECT 'PARENT',4,'Product Unboxing Video + UGC Pack',
       'An unboxing and two-week trial film plus a pack of twelve UGC clips and stills licensed for your performance ads.',
@@ -318,7 +320,7 @@ FROM (
       '["Rolling shots and cabin detail","1 x cinematic 30-45s Reel","Verdict voiceover","7-day organic usage rights"]'
     UNION ALL SELECT 'AUTO',1,'3-Post Story Series - Showroom Visit',
       'Three Stories from the showroom floor covering the variant walkaround, on-road pricing and the booking link.',
-      'instagram','story',3,0.23,5,1,
+      'instagram','story',3,0.23,5,2,
       '["3 x 15s Stories","Variant walkaround","On-road pricing frame","Booking link sticker"]'
     UNION ALL SELECT 'AUTO',2,'First Drive Post + Reel Combo',
       'A first-drive carousel with mileage and ride-quality notes plus a companion Reel shot on city and highway stretches.',
@@ -326,7 +328,7 @@ FROM (
       '["First-drive carousel","Mileage and ride-quality notes","1 x companion Reel","30-day paid usage rights"]'
     UNION ALL SELECT 'AUTO',3,'YouTube Integration - Full Road Test',
       'A complete road test upload covering performance, comfort, features and a value verdict against the direct rivals.',
-      'youtube','video',1,0.78,16,1,
+      'youtube','video',1,0.78,16,2,
       '["Complete road test upload","Rival comparison and value verdict","Dealer link in description","Pinned comment with offer code"]'
     UNION ALL SELECT 'AUTO',4,'Launch Week Campaign Bundle',
       'Launch-week coverage: a teaser Reel, a first-drive video, eight Stories and a live Q&A on delivery timelines and variants.',

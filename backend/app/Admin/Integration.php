@@ -968,7 +968,7 @@ final class Integration
                  'notes' => 'Uses the Amazon S3 integration\'s credentials. Sync uploads anything not yet copied.']),
 
             'cron_jobs' => self::make('Scheduled jobs', 'platform', 'Zusty',
-                'The nine cron jobs that drive queues, expiry, escrow release, roll-ups and backups.',
+                'The nine cron jobs that drive queues, expiry, releasing held earnings, roll-ups and backups.',
                 'https://man7.org/linux/man-pages/man5/crontab.5.html',
                 [], ['auth' => 'none', 'delegate' => '/admin/system',
                      'notes' => 'Owned by the System module — run, enable and inspect each job there.']),

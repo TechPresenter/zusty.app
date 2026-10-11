@@ -1124,6 +1124,18 @@ if ($privateRows === []) {
                   WHERE `is_public` = 0 AND `value` IS NOT NULL AND LENGTH(`value`) >= 12"
             );
 
+            // A private value that is also part of a public one is published
+            // by that public setting, not leaked: the app's package name sits
+            // inside app.android_store_url as well as in the private
+            // auth.firebase_android_package_name.
+            $publicValues = array_map(
+                static fn (array $r): string => (string) $r['value'],
+                Database::select(
+                    "SELECT `value` FROM `settings`
+                      WHERE `is_public` = 1 AND `is_encrypted` = 0 AND `value` IS NOT NULL"
+                )
+            );
+
             foreach ($rows as $row) {
                 // Short or numeric values collide with legitimate public data,
                 // so only distinctive strings are searched for.
@@ -1131,6 +1143,12 @@ if ($privateRows === []) {
 
                 if (is_numeric($value) || in_array(strtolower($value), ['true', 'false'], true)) {
                     continue;
+                }
+
+                foreach ($publicValues as $publicValue) {
+                    if (str_contains($publicValue, $value)) {
+                        continue 2;
+                    }
                 }
 
                 if (str_contains($settings->body, $value)) {

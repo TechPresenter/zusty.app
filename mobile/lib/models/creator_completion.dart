@@ -54,9 +54,11 @@ class CreatorCompletion {
 
   bool get meetsRequirement => overall >= requiredPercent;
 
-  /// Sections still worth the creator's attention.
-  List<CompletionSection> get incomplete =>
-      sections.where((section) => !section.complete).toList();
+  /// Sections still worth the creator's attention. A section with no rule
+  /// that applies has nothing in it to finish, so it is never one of them.
+  List<CompletionSection> get incomplete => sections
+      .where((section) => section.applicable && !section.complete)
+      .toList();
 
   /// Features the creator has not unlocked yet, most nearly-reachable first —
   /// so the prompt is "you are 6% from being featured", not a wall of locks.
@@ -83,6 +85,8 @@ class CompletionSection {
     this.rulesMet = 0,
     this.mandatoryMissing = 0,
     this.missing = const [],
+    this.missingKeys = const [],
+    this.applicable = true,
     this.complete = false,
   });
 
@@ -107,23 +111,46 @@ class CompletionSection {
   /// What is actually missing, in the operator's own wording.
   final List<CompletionRule> missing;
 
+  /// The `rule_key` of every unmet rule, in the operator's order.
+  /// `GET /me/creator/completion` sends `missing` as these keys; an endpoint
+  /// that sends whole rules (see [missing]) fills this from them.
+  final List<String> missingKeys;
+
+  /// False for a section with no rule that applies right now: none set up,
+  /// or every one of them needing a text message while SMS is off. Read from
+  /// the server's `applicable`, or from `rules_total` where it is not sent.
+  final bool applicable;
+
   final bool complete;
 
-  factory CompletionSection.fromJson(Map<String, dynamic> json) =>
-      CompletionSection(
-        section: Json.str(json['section']),
-        label: Json.str(json['label']),
-        description: Json.str(json['description']),
-        icon: Json.strOrNull(json['icon']),
-        color: Json.strOrNull(json['color']),
-        percent: Json.integer(json['percent']),
-        weight: Json.integer(json['weight']),
-        rulesTotal: Json.integer(json['rules_total']),
-        rulesMet: Json.integer(json['rules_met']),
-        mandatoryMissing: Json.integer(json['mandatory_missing']),
-        missing: Json.list(json['missing'], CompletionRule.fromJson),
-        complete: Json.boolean(json['complete']),
-      );
+  factory CompletionSection.fromJson(Map<String, dynamic> json) {
+    final missing = Json.list(json['missing'], CompletionRule.fromJson);
+    final raw = json['missing'];
+
+    return CompletionSection(
+      section: Json.str(json['section']),
+      label: Json.str(json['label']),
+      description: Json.str(json['description']),
+      icon: Json.strOrNull(json['icon']),
+      color: Json.strOrNull(json['color']),
+      percent: Json.integer(json['percent']),
+      weight: Json.integer(json['weight']),
+      rulesTotal: Json.integer(json['rules_total']),
+      rulesMet: Json.integer(json['rules_met']),
+      mandatoryMissing: Json.integer(json['mandatory_missing']),
+      missing: missing,
+      missingKeys: missing.isNotEmpty
+          ? missing.map((rule) => rule.ruleKey).toList()
+          : raw is List
+          ? raw.whereType<String>().where((key) => key.isNotEmpty).toList()
+          : const [],
+      applicable: Json.boolean(
+        json['applicable'],
+        Json.integer(json['rules_total'], 1) > 0,
+      ),
+      complete: Json.boolean(json['complete']),
+    );
+  }
 
   bool get blocksProfile => mandatoryMissing > 0;
 }

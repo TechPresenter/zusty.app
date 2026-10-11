@@ -571,6 +571,11 @@ final class ContentController extends BaseApiController
                 'max_amount'             => Config::settingFloat('booking', 'max_booking_amount', 2000000),
                 'request_expiry_hours'   => Config::settingInt('booking', 'request_expiry_hours', 72),
                 'free_cancellation_days' => Config::settingInt('booking', 'free_cancellation_days', 7),
+                // Days after delivery before an unanswered booking completes
+                // and its held payment is released, as the auto-complete job
+                // applies it (never under 1). The app quotes it wherever it
+                // explains payment protection.
+                'auto_complete_days'     => max(1, Config::settingInt('booking', 'auto_complete_days', 7)),
             ],
             // What the app may offer around the wallet. `topup_enabled` is off
             // by default (migration 056): brands pay bookings at checkout, so

@@ -281,7 +281,7 @@ class _SpendCard extends StatelessWidget {
                             Icon(Icons.lock_rounded, size: 13, color: foreground),
                             const SizedBox(width: 4),
                             Text(
-                              'In escrow',
+                              'Held',
                               style: AppTypography.labelSmall
                                   .copyWith(color: foreground),
                             ),
@@ -750,7 +750,7 @@ class _NeedsAttention extends StatelessWidget {
         SectionHeader(
           title: 'Needs your attention',
           subtitle: hasReview
-              ? 'Escrow stays frozen until you approve, so creators are waiting.'
+              ? 'Payments stay held until you approve, so creators are waiting.'
               : 'Creators are waiting on your answer.',
           actionLabel: items.length > shown.length ? 'View all' : null,
           onAction: items.length > shown.length

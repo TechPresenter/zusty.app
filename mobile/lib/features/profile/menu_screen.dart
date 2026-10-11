@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/config/app_config.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
+import '../../models/creator_completion.dart';
 import '../../models/menu.dart';
 import '../../models/user.dart';
 import '../../providers/account_provider.dart';
@@ -79,7 +80,8 @@ class MenuScreen extends ConsumerWidget {
           // Creators only, and only while there is something left to do. A
           // permanent "100% complete" banner is clutter; this disappears once
           // it has served its purpose.
-          if (isCreator) const _CompletionCard(),
+          if (isCreator)
+            ProfileCompletionCard(kycStatus: kyc?.status ?? user?.kycStatus),
 
           // -- Money at a glance ---------------------------------------------
           const SizedBox(height: AppSpacing.md),
@@ -499,7 +501,7 @@ class _ProfileHeader extends StatelessWidget {
 }
 
 /// The wallet in three figures, tapping through to it. Brands see what is
-/// spendable and what is held in escrow; creators see what they can
+/// spendable and what is on hold; creators see what they can
 /// withdraw, what is still clearing, and what they have earned in total.
 class _QuickStats extends ConsumerWidget {
   const _QuickStats({required this.isCreator, required this.unreadMessages});
@@ -531,7 +533,7 @@ class _QuickStats extends ConsumerWidget {
                 ]
               : [
                   (data.balanceLabel, 'Wallet'),
-                  (data.escrowLabel, 'In escrow'),
+                  (data.escrowLabel, 'On hold'),
                   ('$unreadMessages', 'Unread chats'),
                 ],
         ),
@@ -540,16 +542,138 @@ class _QuickStats extends ConsumerWidget {
   }
 }
 
-/// Profile completion, and the nearest thing it would unlock.
+/// Profile completion, and what to do next.
 ///
-/// Every label, percentage and reason here is the operator's own wording from
-/// the server. The card composes no explanation of its own, so retuning a
+/// Every label and percentage here is the operator's own wording from the
+/// server. The card composes no explanation of its own, so retuning a
 /// threshold in the admin panel changes what a creator reads with no release.
 ///
-/// Renders nothing at all when the profile is complete and no feature is
-/// locked — a card that says "you are done" is clutter on every visit.
-class _CompletionCard extends ConsumerWidget {
-  const _CompletionCard();
+/// Every section it lists opens the screen where that section is finished,
+/// and a section no screen in this app can finish is not listed at all: a
+/// row that leads nowhere is the dead end this card used to be, when the
+/// mobile-number rules sat on it as mandatory while SMS was off. It does not
+/// claim a feature is locked either, because nothing on the platform
+/// withholds one by completion.
+///
+/// Renders nothing at all when nothing listed is left to do — a card that
+/// says "you are done" is clutter on every visit.
+class ProfileCompletionCard extends ConsumerWidget {
+  const ProfileCompletionCard({super.key, this.kycStatus});
+
+  /// Where the creator's verification stands, when known. A KYC gap opens
+  /// the verification screen only while there is something to do there
+  /// ([KycStatus.needsAction]): under review the forms are locked, and once
+  /// approved the badge follows on the server.
+  final KycStatus? kycStatus;
+
+  /// What the app can finish, by `section.rule_key`, for the rules the
+  /// platform ships with. Null marks a rule no screen here can meet: the
+  /// creator's basics, bio and categories have no editor in the app, a cover
+  /// image or gallery upload has no picker, and a verified account, a
+  /// featured piece or the blue tick are the team's to give.
+  static const _ruleRoutes = <String, String?>{
+    'basic.display_name': null,
+    'basic.handle': null,
+    'basic.headline': null,
+    'basic.city': null,
+    'basic.state': null,
+    'basic.languages': null,
+    'basic.gender': null,
+    'basic.date_of_birth': null,
+    'contact.email': Routes.contacts,
+    'contact.email_verified': Routes.contacts,
+    'contact.phone': Routes.contacts,
+    'contact.phone_verified': Routes.contacts,
+    'social.linked_account': Routes.socialAccounts,
+    'social.primary_account': null,
+    'social.verified_account': null,
+    'portfolio.work_samples': Routes.myPortfolio,
+    'portfolio.featured_sample': null,
+    'kyc.kyc_submitted': Routes.kyc,
+    'kyc.kyc_approved': Routes.kyc,
+    'bio.about': null,
+    'bio.about_detailed': null,
+    'gallery.profile_photo': Routes.editProfile,
+    'gallery.cover_image': null,
+    'gallery.gallery_media': null,
+    'pricing.price_min': Routes.myPackages,
+    'pricing.price_max': Routes.myPackages,
+    'pricing.package': Routes.myPackages,
+    'categories.primary_category': null,
+    'categories.sub_categories': null,
+    // The email badge follows a confirmed address (see [_earnedVia]), the
+    // identity badge an approved KYC.
+    'verification.email_badge': Routes.contacts,
+    'verification.mobile_badge': Routes.contacts,
+    'verification.identity_badge': Routes.kyc,
+    'verification.creator_badge': null,
+  };
+
+  /// Rules met by finishing a rule in another section, by `section.rule_key`:
+  /// that section, and the rules in it the screen can still help with.
+  ///
+  /// Email & mobile can earn the email badge only while the contact section
+  /// still lists the address or its confirmation as missing. Once the address
+  /// is confirmed the badge follows on the server and there is nothing left
+  /// to do on that screen, so the rule opens nothing rather than a screen
+  /// that already says "confirmed".
+  static const _earnedVia = <String, (String, List<String>)>{
+    'verification.email_badge': ('contact', ['email', 'email_verified']),
+    'verification.mobile_badge': ('contact', ['phone', 'phone_verified']),
+  };
+
+  /// The screen for a rule this build does not know (one an operator added
+  /// later), by its section. Sections with no editor in the app are absent.
+  static const _sectionRoutes = <String, String>{
+    'contact': Routes.contacts,
+    'social': Routes.socialAccounts,
+    'portfolio': Routes.myPortfolio,
+    'kyc': Routes.kyc,
+    'pricing': Routes.myPackages,
+    'verification': Routes.kyc,
+  };
+
+  /// Where in the app the creator can finish [section]: the screen for its
+  /// first unmet rule that one can meet, or null when none can. [all] is
+  /// every section of the breakdown, which decides the rules in [_earnedVia].
+  /// [kyc] is the creator's verification status, when known: the KYC screen
+  /// is offered only while it [KycStatus.needsAction].
+  static String? routeFor(
+    CompletionSection section, {
+    List<CompletionSection> all = const [],
+    KycStatus? kyc,
+  }) {
+    bool usable(String? route) =>
+        route != null &&
+        (route != Routes.kyc || kyc == null || kyc.needsAction);
+
+    final fallback = _sectionRoutes[section.section];
+
+    if (section.missingKeys.isEmpty) return usable(fallback) ? fallback : null;
+
+    for (final rule in section.missingKeys) {
+      final key = '${section.section}.$rule';
+      final route = _ruleRoutes.containsKey(key) ? _ruleRoutes[key] : fallback;
+      if (!usable(route)) continue;
+
+      final via = _earnedVia[key];
+      if (via != null && !_stillMissing(all, via.$1, via.$2)) continue;
+
+      return route;
+    }
+
+    return null;
+  }
+
+  /// Does [all] list one of [rules] in [section] as missing?
+  static bool _stillMissing(
+    List<CompletionSection> all,
+    String section,
+    List<String> rules,
+  ) => all.any(
+    (other) =>
+        other.section == section && other.missingKeys.any(rules.contains),
+  );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -557,21 +681,26 @@ class _CompletionCard extends ConsumerWidget {
 
     if (completion == null) return const SizedBox.shrink();
 
-    final gaps = completion.incomplete;
-    final locked = completion.locked;
+    final gaps = [
+      for (final section in completion.incomplete)
+        if (routeFor(section, all: completion.sections, kyc: kycStatus)
+            case final route?)
+          (section: section, route: route),
+    ];
 
-    if (gaps.isEmpty && locked.isEmpty) return const SizedBox.shrink();
+    if (gaps.isEmpty) return const SizedBox.shrink();
 
     // Below the operator's required percentage the profile is not merely
     // improvable, it is failing a rule — worth saying in the error colour
-    // rather than the same neutral prompt as a nice-to-have.
+    // rather than the same neutral prompt as a nice-to-have. "Needed to go
+    // live" is said only of a profile that is not live yet.
     final short = !completion.meetsRequirement;
     final tint = short ? AppColors.error : AppColors.primary;
 
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.md),
       child: ZCard(
-        onTap: () => context.push(Routes.editProfile),
+        onTap: () => context.push(gaps.first.route),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -585,7 +714,7 @@ class _CompletionCard extends ConsumerWidget {
                         'Profile ${completion.overall}% complete',
                         style: AppTypography.titleMedium,
                       ),
-                      if (short)
+                      if (short && completion.status != 'approved')
                         Text(
                           '${completion.requiredPercent}% needed to go live',
                           style: AppTypography.labelMedium.copyWith(
@@ -614,50 +743,50 @@ class _CompletionCard extends ConsumerWidget {
             ),
 
             // The two sections worth the most, so the prompt is specific
-            // rather than "complete your profile".
-            if (gaps.isNotEmpty) ...[
-              const SizedBox(height: AppSpacing.sm),
-              ...gaps
-                  .take(2)
-                  .map(
-                    (section) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
-                        children: [
-                          Icon(
-                            section.blocksProfile
-                                ? Icons.error_outline_rounded
-                                : Icons.radio_button_unchecked_rounded,
-                            size: 16,
-                            color: section.blocksProfile
-                                ? AppColors.error
-                                : AppColors.onSurfaceVariant,
+            // rather than "complete your profile", each opening its screen.
+            const SizedBox(height: AppSpacing.xs),
+            for (final gap in gaps.take(2))
+              Semantics(
+                button: true,
+                label: 'Finish ${gap.section.label}, ${gap.section.percent}%',
+                excludeSemantics: true,
+                child: InkWell(
+                  onTap: () => context.push(gap.route),
+                  borderRadius: AppRadius.mdAll,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      minHeight: AppSpacing.minTouch,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          gap.section.blocksProfile
+                              ? Icons.error_outline_rounded
+                              : Icons.radio_button_unchecked_rounded,
+                          size: 16,
+                          color: gap.section.blocksProfile
+                              ? AppColors.error
+                              : AppColors.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            '${gap.section.label} · ${gap.section.percent}%',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.bodySmall,
                           ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              '${section.label} · ${section.percent}%',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppTypography.bodySmall,
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 18,
+                          color: AppColors.outline,
+                        ),
+                      ],
                     ),
                   ),
-            ],
-
-            // The nearest locked feature, with the server's own reason.
-            if (locked.isNotEmpty) ...[
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                locked.first.shortfall > 0
-                    ? '${locked.first.shortfall}% more to unlock ${locked.first.name}'
-                    : locked.first.name,
-                style: AppTypography.labelMedium.copyWith(color: tint),
+                ),
               ),
-            ],
           ],
         ),
       ),

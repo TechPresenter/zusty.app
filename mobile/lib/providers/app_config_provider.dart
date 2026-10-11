@@ -67,6 +67,18 @@ final walletTopupEnabledProvider = Provider<bool>((ref) {
   return ref.watch(walletOptionsProvider).topupEnabled;
 });
 
+/// The booking rules the app explains (Admin → Settings → Bookings).
+final bookingOptionsProvider = Provider<BookingOptions>((ref) {
+  return ref.watch(remoteAppConfigProvider).booking;
+});
+
+/// How long after delivery an unanswered booking completes and its held
+/// payment is released, as "7 days" — quoted wherever the app explains
+/// payment protection.
+final reviewWindowProvider = Provider<String>((ref) {
+  return ref.watch(bookingOptionsProvider).reviewWindow;
+});
+
 /// The minimum-version gate.
 final updateGateProvider = Provider<UpdateGate>((ref) {
   return ref.watch(remoteAppConfigProvider).update;

@@ -25,9 +25,9 @@ INSERT INTO `notification_templates`
 
 ('booking.disputed', 'Booking disputed', 'booking',
  'This booking is under dispute',
- 'A dispute has been raised on "{{campaign_title}}" ({{booking_code}}): {{reason}}. The payment stays in escrow until our team has reviewed it.',
+ 'A dispute has been raised on "{{campaign_title}}" ({{booking_code}}): {{reason}}. Zusty keeps holding the payment until our team has reviewed it.',
  'Dispute raised on {{booking_code}}',
- 'Zusty: a dispute was raised on {{booking_code}}. Your payment stays in escrow.',
+ 'Zusty: a dispute was raised on {{booking_code}}. The payment stays on hold until our team has reviewed it.',
  'gavel', 'booking', '["in_app","push","email"]', 1)
 
 ON DUPLICATE KEY UPDATE

@@ -7,6 +7,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/booking.dart';
 import '../../models/wallet.dart';
+import '../../providers/app_config_provider.dart';
 import '../../providers/booking_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../router/routes.dart';
@@ -24,7 +25,7 @@ import 'widgets/gateway_checkout.dart';
 
 /// Screen 15 — Payment Details.
 ///
-/// Order summary, coupon entry, gateway selection, and the escrow guarantee,
+/// Order summary, coupon entry, gateway selection, and payment protection,
 /// per the payment workflow in `Zuste_Workflow.md` § 6. The total on the Pay
 /// button is always the server's figure, re-read after every coupon change.
 ///
@@ -185,8 +186,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       ref.invalidate(bookingsProvider(tab));
     }
 
-    // A dedicated screen rather than a dialog: this is where the escrow
-    // guarantee and the next steps are explained.
+    // A dedicated screen rather than a dialog: this is where payment
+    // protection and the next steps are explained.
     if (mounted) {
       context.pushReplacement(Routes.checkoutSuccess(widget.bookingId));
     }
@@ -228,7 +229,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                     child: Text(
                       selected == null
                           ? 'Choose a payment method to continue'
-                          : 'Held in escrow until you approve the work',
+                          : 'Held by Zusty until you approve the work',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppTypography.labelSmall.copyWith(
@@ -484,13 +485,16 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
 
         // -- Trust panel -----------------------------------------------------
         const SizedBox(height: AppSpacing.md),
-        const ZInfoBanner(
+        ZInfoBanner(
           tone: StatusTone.success,
           icon: Icons.shield_rounded,
-          title: 'Escrow protected',
+          title: 'Payment protection',
           message:
-              'Zusty holds your payment until you approve the delivered '
-              'work. If the creator does not deliver, you get a refund.',
+              'When the booking is confirmed, your payment is held by Zusty. '
+              'It is released to the creator when you approve the work, or '
+              'automatically if you don\'t respond within '
+              '${ref.watch(reviewWindowProvider)} of delivery. If there is a '
+              'dispute, our team reviews it before any money is released.',
         ),
         const SizedBox(height: AppSpacing.sm),
         Row(

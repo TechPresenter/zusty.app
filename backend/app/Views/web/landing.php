@@ -120,11 +120,12 @@ $days = $autoComplete . ' ' . ($autoComplete === 1 ? 'day' : 'days');
 $footTagline = $tagline !== '' ? $tagline : 'Brands book verified creators. Creators get paid securely.';
 
 // Section 3: each feature, the screenshot that shows it, and what that shows.
-// Only screenshots that match the current app and demo data are used: the
+// Only screenshots that match the current app and demo data are used. The
 // old search, profile, opportunities, chat, creator-home and wallet shots
-// show retired demo names, an ended brief marked Open, a review-for-reward
-// message, the old banner and the wallet's Add money, and stay off the page
-// (23_landing checks) until they are retaken.
+// showed retired demo names, an ended brief marked Open, a review-for-reward
+// message, the old banner and the wallet's Add money; their files are gone
+// from assets/landing/screens, and 23_landing keeps them off the page until
+// they are retaken.
 $features = [
     [
         'title' => 'Discover creators',
@@ -139,8 +140,8 @@ $features = [
         'alt'   => 'A creator’s packages as a brand sees them: fixed-price reels, a story series and a YouTube integration, each with its delivery days and revisions, and a Send a custom request button.',
     ],
     [
-        'title' => 'Book with escrow',
-        'text'  => 'Pick a package or post a brief and choose who applies. You pay once the creator accepts, and the money is held in escrow until the work is approved.',
+        'title' => 'Book with payment protection',
+        'text'  => 'Pick a package or post a brief and choose who applies. You pay once the creator accepts, and ' . $appName . ' holds the payment until you approve the work.',
         'shot'  => 'request',
         'alt'   => 'A new booking request: fixed-price packages with delivery days and revisions, and a note that nothing is charged until the creator accepts.',
     ],
@@ -253,11 +254,11 @@ $sections = [
         <div class="hero-copy">
           <ul class="trust-row" role="list">
             <li><?= $icon('check') ?>KYC-verified creators</li>
-            <li><?= $icon('check') ?>Payments held in escrow</li>
+            <li><?= $icon('check') ?>Payment held until you approve</li>
             <li><?= $icon('check') ?><?= $e($invoiceTax) ?> invoices</li>
           </ul>
           <h1 id="hero-title">Brands book <span class="grad">verified creators</span>. Creators get paid securely.</h1>
-          <p class="lead"><?= $e($appName) ?> is where brands discover and book Instagram and YouTube creators at clear, fixed prices. Creators get paid when the work is approved, and until then the money waits safely in escrow.</p>
+          <p class="lead"><?= $e($appName) ?> is where brands discover and book Instagram and YouTube creators at clear, fixed prices. Creators get paid when the work is approved, and until then <?= $e($appName) ?> holds the brand’s payment.</p>
           <div class="cta-row">
             <?= $store() ?>
             <a class="btn btn-ghost" href="#how">See how it works <?= $icon('arrow') ?></a>
@@ -273,7 +274,7 @@ $sections = [
           <?= $spark('spark-1') ?><?= $spark('spark-2') ?><?= $spark('spark-3') ?>
           <?= $phone($shot('home', 'The ' . $appName . ' home screen for brands: creator search, a banner reading “Find the Right Creator for Your Next Campaign”, top categories and an active campaign.', '', true)) ?>
           <div class="float f1" aria-hidden="true"><span class="chip-ico ci-blue"><?= $tick ?></span><span><b>KYC verified</b><small>Checked by our team</small></span></div>
-          <div class="float f2" aria-hidden="true"><span class="chip-ico ci-pink"><?= $icon('lock') ?></span><span><b>₹8,000 held in escrow</b><small>Released when you approve</small></span></div>
+          <div class="float f2" aria-hidden="true"><span class="chip-ico ci-pink"><?= $icon('lock') ?></span><span><b>₹8,000 held by <?= $e($appName) ?></b><small>Released when you approve</small></span></div>
           <div class="float f3" aria-hidden="true"><span class="chip-ico ci-green"><?= $icon('check') ?></span><span><b>Booking confirmed</b><small>The creator can start</small></span></div>
         </div>
       </div>
@@ -326,9 +327,9 @@ $sections = [
           </li>
           <li class="why-item">
             <span class="why-icon"><?= $icon('lock') ?></span>
-            <h3>Your money stays safe</h3>
-            <p>Brands pay into escrow when a booking is confirmed. The money is released to the creator when the work is approved, or <?= $e($days) ?> after delivery if the brand does not respond.</p>
-            <a class="more" href="#how">How escrow works <?= $icon('arrow') ?></a>
+            <h3>Payment protection</h3>
+            <p>When a booking is confirmed, the brand’s payment is held by <?= $e($appName) ?>. It is released to the creator when the brand approves the work, or automatically if the brand does not respond within <?= $e($days) ?> of delivery.</p>
+            <a class="more" href="#safety">How payment protection works <?= $icon('arrow') ?></a>
           </li>
           <li class="why-item">
             <span class="why-icon"><?= $icon('receipt') ?></span>
@@ -371,12 +372,12 @@ $sections = [
             </div>
             <div class="side-body">
               <p class="kicker">For brands</p>
-              <h3 id="brands-title">Find the right voices. Pay through escrow.</h3>
+              <h3 id="brands-title">Find the right voices. Pay with protection.</h3>
               <p>Everything you need to run creator collaborations, from the shortlist to the invoice.</p>
               <ul class="checks" role="list">
                 <li><?= $icon('check') ?><span>Search verified creators by niche, city, audience and budget.</span></li>
                 <li><?= $icon('check') ?><span>Book a fixed package, or post a brief and choose who applies.</span></li>
-                <li><?= $icon('check') ?><span>Your payment waits in escrow until you approve the work, or until <?= $e($days) ?> after delivery if you don’t respond.</span></li>
+                <li><?= $icon('check') ?><span><?= $e($appName) ?> holds your payment until you approve the work, or until <?= $e($days) ?> after delivery if you don’t respond.</span></li>
                 <li><?= $icon('check') ?><span>A <?= $e($invoiceTax) ?> invoice for every booking.</span></li>
               </ul>
               <a class="btn btn-primary" href="<?= $e($storeHref) ?>">Start as a brand</a>
@@ -420,7 +421,7 @@ $sections = [
           <li class="step">
             <div class="step-top"><span class="step-num grad" aria-hidden="true">02</span><span class="step-icon"><?= $icon('calendar') ?></span></div>
             <h3>Book</h3>
-            <p>Choose a package and send a request. Nothing is charged until the creator accepts; then your payment is held in escrow.</p>
+            <p>Choose a package and send a request. Nothing is charged until the creator accepts; then <?= $e($appName) ?> holds your payment.</p>
           </li>
           <li class="step">
             <div class="step-top"><span class="step-num grad" aria-hidden="true">03</span><span class="step-icon"><?= $icon('wallet') ?></span></div>
@@ -450,8 +451,8 @@ $sections = [
             <li>
               <span class="si"><?= $icon('lock') ?></span>
               <div>
-                <h3>Escrow on every booking</h3>
-                <p>Money is held from the moment a booking is paid until the work is approved, or until the review window closes if the brand does not respond. If there is a dispute, it stays put until our team has reviewed it.</p>
+                <h3>Payment protection on every booking</h3>
+                <p>When a booking is confirmed, the brand’s payment is held by <?= $e($appName) ?>. It is released to the creator when the brand approves the work, or automatically if the brand does not respond within <?= $e($days) ?> of delivery. If there is a dispute, our team reviews it before any money is released.</p>
               </div>
             </li>
             <li>
@@ -568,17 +569,17 @@ $sections = [
         <div class="faq">
           <details>
             <summary>What is <?= $e($appName) ?>?</summary>
-            <div class="answer"><p><?= $e($appName) ?> is an influencer marketplace for India. Brands find and book Instagram and YouTube creators at clear prices, and creators get paid securely through escrow, all in one Android app.</p></div>
+            <div class="answer"><p><?= $e($appName) ?> is an influencer marketplace for India. Brands find and book Instagram and YouTube creators at clear prices, and creators get paid when the work is approved, all in one Android app.</p></div>
           </details>
           <details>
             <summary>How much does it cost?</summary>
             <div class="answer"><p>Signing up is free for brands and creators.<?= $chargesLine ?> You see the full breakdown before you confirm anything.</p></div>
           </details>
           <details>
-            <summary>How does escrow work?</summary>
+            <summary>How does payment protection work?</summary>
             <div class="answer">
-              <p>When a creator accepts your request, you pay and the money is held in escrow. The creator delivers in the app, and when you approve the work the payment is released to them. If you don’t respond within <?= $e($days) ?> of delivery, the booking completes automatically.</p>
-              <p>You can ask for changes first. If you still can’t agree, raise a dispute: the money stays held until our team has reviewed it.</p>
+              <p>When a creator accepts your request, you pay and <?= $e($appName) ?> holds the payment. The creator delivers in the app, and when you approve the work the payment is released to them. If you don’t respond within <?= $e($days) ?> of delivery, the booking completes automatically and the payment is released.</p>
+              <p>You can ask for changes first. If you still can’t agree, raise a dispute: our team reviews it before any money is released.</p>
             </div>
           </details>
           <details>
@@ -587,7 +588,7 @@ $sections = [
           </details>
           <details>
             <summary>When and how do creators get paid?</summary>
-            <div class="answer"><p>As soon as the brand approves the work, the payment moves from escrow to the creator’s <?= $e($appName) ?> wallet. Once their verification is approved, creators can withdraw it to a bank account or UPI.</p></div>
+            <div class="answer"><p>When the brand approves the work, or automatically <?= $e($days) ?> after delivery if the brand doesn’t respond, the payment is credited to the creator’s <?= $e($appName) ?> wallet. After a short hold, and once their verification is approved, creators can withdraw it to a bank account or UPI.</p></div>
           </details>
           <details>
             <summary>How do I delete my account?</summary>

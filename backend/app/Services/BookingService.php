@@ -528,7 +528,7 @@ final class BookingService
                 'started_at'     => date('Y-m-d H:i:s'),
             ], ['id' => $bookingId]);
 
-            self::recordHistory($bookingId, (string) $booking['status'], 'confirmed', 'system', null, 'Payment captured and held in escrow.');
+            self::recordHistory($bookingId, (string) $booking['status'], 'confirmed', 'system', null, 'Payment captured and held by Zusty.');
 
             // Burn the coupon only now that money has actually moved. Every
             // gateway and the wallet funnel through here, and the early return
@@ -889,7 +889,7 @@ final class BookingService
                 $brandUserId,
                 match ($actor) {
                     'system' => 'Auto-completed after the review window elapsed.',
-                    'admin'  => 'Completed by an administrator; escrow released.',
+                    'admin'  => 'Completed by an administrator; payment released.',
                     default  => 'Brand approved the deliverables.',
                 }
                 . ($reduced ? ' Earning reduced to ' . Money::format($payable) . ' after refunds.' : '')

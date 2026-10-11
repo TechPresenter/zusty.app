@@ -359,7 +359,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.text('UPI / Card / Net Banking'), findsOneWidget);
-      expect(find.text('Held in escrow until you approve the work'), findsOneWidget);
+      expect(find.text('Held by Zusty until you approve the work'), findsOneWidget);
 
       await pay(tester);
 

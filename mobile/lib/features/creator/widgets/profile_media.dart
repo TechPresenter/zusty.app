@@ -110,8 +110,14 @@ class ProfileMediaTab extends ConsumerWidget {
             itemCount: items.length,
             itemBuilder: (context, i) => PortfolioTile(
               item: items[i],
-              onTap: () =>
-                  MediaViewer.open(context, items: items, initialIndex: i),
+              onTap: () => MediaViewer.open(
+                context,
+                items: items,
+                initialIndex: i,
+                canReport: !profile.isOwner,
+                creatorName: creator.displayName,
+                creatorUserId: creator.userId,
+              ),
             ),
           ),
         Padding(

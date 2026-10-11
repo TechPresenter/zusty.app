@@ -64,6 +64,15 @@ final class ProfileCompletionService
     private const SCOPES = ['creator', 'user'];
 
     /**
+     * The `users` columns only a text message can fill.
+     *
+     * A mobile number is added and confirmed with a code sent by SMS
+     * (ContactVerificationService), so while SMS is off a rule that tests one
+     * of these can never pass. {@see needsSms()}.
+     */
+    private const SMS_COLUMNS = ['phone', 'phone_country_code', 'phone_verified_at'];
+
+    /**
      * The error codes this engine raises when the RULES TABLE is wrong.
      *
      * Every one of them means an operator mistyped a rule, not that a creator
@@ -194,6 +203,69 @@ final class ProfileCompletionService
         return self::$rules = $grouped;
     }
 
+    /**
+     * The active rules a creator can meet right now, by section.
+     *
+     * {@see rules()} less the rules that need a text message while SMS is off.
+     * A creator cannot add or confirm a mobile number without one, so scoring
+     * those rules would hold every profile below 100% (and, for a mandatory
+     * one, below "ready") for a reason nobody can act on. They are left out of
+     * the score, the checklist and the counts rather than switched off: the
+     * rows keep their settings, and turning SMS back on brings them back.
+     *
+     * Not memoised: SMS can be switched while a long sweep runs, and the
+     * filter is a pass over rows already in memory.
+     *
+     * @return array<string,list<array<string,mixed>>>
+     */
+    public static function applicableRules(): array
+    {
+        $rules = self::rules();
+
+        if (SmsService::enabled()) {
+            return $rules;
+        }
+
+        foreach ($rules as $section => $sectionRules) {
+            $rules[$section] = array_values(array_filter(
+                $sectionRules,
+                static fn (array $rule): bool => !self::needsSms($rule)
+            ));
+        }
+
+        return $rules;
+    }
+
+    /**
+     * Can this rule only be met with a text message?
+     *
+     * Decided from what the rule reads, so a rule an operator adds later
+     * against the same column or badge is covered too: a mobile-number column
+     * on `users`, or a count of `creator_badges` asking only for badges that
+     * CreatorBadgeService::SMS_BADGES says only SMS can earn. A badge rule that
+     * any one of several badges satisfies needs SMS only when all of them do.
+     *
+     * @param array<string,mixed> $rule
+     */
+    public static function needsSms(array $rule): bool
+    {
+        $table = (string) $rule['source_table'];
+
+        if ($table === 'users') {
+            return in_array((string) ($rule['source_column'] ?? ''), self::SMS_COLUMNS, true);
+        }
+
+        if ($table !== 'creator_badges') {
+            return false;
+        }
+
+        $filter = json_decode((string) ($rule['source_filter'] ?? ''), true);
+        $badges = is_array($filter) && isset($filter['badge']) ? (array) $filter['badge'] : [];
+
+        return $badges !== []
+            && array_diff(array_map('strval', $badges), CreatorBadgeService::SMS_BADGES) === [];
+    }
+
     // =================================================================
     // Evaluation
     // =================================================================
@@ -231,7 +303,9 @@ final class ProfileCompletionService
         // thousand pointless round trips.
         $rows = [];
 
-        $rules    = self::rules();
+        // Only what the creator can meet now: with SMS off, the mobile-number
+        // rules are not scored at all ({@see applicableRules()}).
+        $rules    = self::applicableRules();
         $sections = self::sections();
 
         $sectionResults   = [];
@@ -320,7 +394,7 @@ final class ProfileCompletionService
             'mandatory_missing' => $mandatoryMissing,
             'required_percent'  => $required,
             // Two separate conditions on purpose: a creator can pad the score
-            // with optional extras and still be missing their phone number, so
+            // with optional extras and still be missing a confirmed email, so
             // "high enough" and "nothing mandatory outstanding" are reported
             // apart and only `ready` requires both.
             'meets_required'    => $overall >= $required,
@@ -672,6 +746,26 @@ final class ProfileCompletionService
      */
     public static function recompute(int $creatorId): array
     {
+        // The badge rules read `creator_badges`, and the automatic badges are
+        // only as current as their last sync. The nightly badge sweep covers
+        // approved creators only, so a creator still in review whose email
+        // was confirmed at sign-up was scored, night after night, as missing
+        // "Email verified". The badges a confirmed email or mobile earns are
+        // brought in line first, so the score says what the account holds.
+        //
+        // Only those: the full syncAutomatic() also reconciles the KYC-derived
+        // badges, and a profile score is no place to withdraw "Identity
+        // verified" from anyone (KycService and the creators:badges job own
+        // that). A failure here is logged, never fatal.
+        try {
+            CreatorBadgeService::syncAccountBadges($creatorId);
+        } catch (\Throwable $e) {
+            Logger::warning('Could not sync the automatic badges before scoring a profile', [
+                'creator_id' => $creatorId,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+
         $result = self::evaluate($creatorId);
         $now    = date('Y-m-d H:i:s');
 
@@ -824,14 +918,48 @@ final class ProfileCompletionService
      * a creator who signed up an hour ago must not be told their profile is 0%
      * complete because the sweep has not come round yet.
      *
+     * Refilled, too, when the stored rows no longer describe the rules that
+     * apply ({@see storedIsCurrent()}). Switching SMS off takes the mobile
+     * rules out of the score; without this a creator would keep reading
+     * "Confirm your mobile number" as outstanding until the nightly sweep,
+     * with no way to act on it.
+     *
      * @return array<string,mixed>
      */
     public static function breakdown(int $creatorId): array
     {
+        // An email confirmed since the last sync earns its badge before the
+        // creator is told it is missing ({@see storedIsCurrent()} then sees
+        // the stored row is behind). Never fatal to the read.
+        try {
+            CreatorBadgeService::syncAccountBadges($creatorId);
+        } catch (\Throwable $e) {
+            Logger::warning('Could not re-check the account badges before a completion read', [
+                'creator_id' => $creatorId,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+
         $stored = self::storedSections($creatorId);
 
-        if ($stored === []) {
-            self::recompute($creatorId);
+        if (!self::storedIsCurrent($stored, $creatorId)) {
+            try {
+                self::recompute($creatorId);
+            } catch (HttpException $e) {
+                // A rule an operator has just mistyped changes the count too.
+                // Rows already on file are still worth showing then; the
+                // engine's own message describing the rules table is not.
+                if ($stored === [] || !in_array($e->errorCode(), self::CONFIG_ERROR_CODES, true)) {
+                    throw $e;
+                }
+
+                Logger::error('A profile rule is misconfigured; the stored completion was served as it was.', [
+                    'creator_id' => $creatorId,
+                    'code'       => $e->errorCode(),
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+
             $stored = self::storedSections($creatorId);
         }
 
@@ -863,6 +991,10 @@ final class ProfileCompletionService
                 'mandatory_missing' => $row !== null ? (int) $row['mandatory_missing'] : 0,
                 'missing'           => $missing,
                 'computed_at'       => $row['computed_at'] ?? null,
+                // False for a section with no rule that applies (none set up,
+                // or all of them needing SMS while it is off): there is
+                // nothing in it to finish, and it is not counted in `overall`.
+                'applicable'        => $row !== null && (int) $row['rules_total'] > 0,
                 'complete'          => $row !== null && (int) $row['rules_total'] > 0 && (int) $row['percent'] >= 100,
             ];
         }
@@ -881,6 +1013,115 @@ final class ProfileCompletionService
             'computed_at'       => $oldest,
             'required_percent'  => Config::settingInt('creator', 'required_completion_percent', 60),
         ];
+    }
+
+    /**
+     * Was the stored breakdown computed against the rules that apply now?
+     *
+     * Every scored section must have a row, and each row must count as many
+     * rules as apply to its section today. The count moves when SMS is
+     * switched either way and when an operator adds or retires a rule, which
+     * are the changes that make a stored checklist name things that are no
+     * longer asked for (or miss ones that now are). A pass over rows already
+     * read; no query.
+     *
+     * Nor may a row list a badge as missing that the creator now holds: a
+     * badge awarded since (an email confirmed, a KYC approved) would
+     * otherwise stay "outstanding" until the nightly sweep, with nothing left
+     * for the creator to do. One query, and only when a stored row names a
+     * plain badge rule ({@see heldBadgeRule()}) as missing.
+     *
+     * @param array<string,array<string,mixed>> $stored
+     */
+    private static function storedIsCurrent(array $stored, int $creatorId): bool
+    {
+        if ($stored === []) {
+            return false;
+        }
+
+        $rules        = self::applicableRules();
+        $badgeMissing = [];
+
+        foreach (array_keys(self::sections()) as $section) {
+            $row = $stored[$section] ?? null;
+
+            if ($row === null || (int) $row['rules_total'] !== count($rules[$section] ?? [])) {
+                return false;
+            }
+
+            $missing = json_decode((string) ($row['missing'] ?? ''), true);
+
+            if (!is_array($missing) || $missing === []) {
+                continue;
+            }
+
+            foreach ($rules[$section] ?? [] as $rule) {
+                $badges = self::heldBadgeRule($rule);
+
+                if ($badges !== [] && in_array((string) $rule['rule_key'], array_map('strval', $missing), true)) {
+                    $badgeMissing[] = $badges;
+                }
+            }
+        }
+
+        if ($badgeMissing === []) {
+            return true;
+        }
+
+        $held = array_map('strval', Database::column(
+            'SELECT `badge` FROM `creator_badges`
+              WHERE `creator_id` = :c AND `status` = "active"
+                AND (`expires_at` IS NULL OR `expires_at` > NOW())',
+            ['c' => $creatorId]
+        ));
+
+        foreach ($badgeMissing as $badges) {
+            if (array_intersect($badges, $held) !== []) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * The badges a plain "holds this badge" rule accepts, or [] for any other
+     * rule.
+     *
+     * Plain means: a `min_count` of at most one over `creator_badges` by
+     * `creator_id`, filtered on the badge and on `status` = active and nothing
+     * else — the shape of every seeded badge rule, and one whose answer is
+     * exactly "does the creator hold one of these now". Anything an operator
+     * shaped differently is left to the full evaluation.
+     *
+     * @param  array<string,mixed> $rule
+     * @return list<string>
+     */
+    private static function heldBadgeRule(array $rule): array
+    {
+        if ((string) $rule['source_table'] !== 'creator_badges'
+            || (string) $rule['check_type'] !== 'min_count'
+            || (string) ($rule['source_key'] ?? '') !== 'creator_id'
+            || (string) ($rule['source_scope'] ?? '') !== 'creator') {
+            return [];
+        }
+
+        $filter = json_decode((string) ($rule['source_filter'] ?? ''), true);
+
+        if (!is_array($filter) || !isset($filter['badge']) || ($filter['status'] ?? null) !== 'active'
+            || array_diff(array_keys($filter), ['badge', 'status']) !== []) {
+            return [];
+        }
+
+        try {
+            if (self::threshold($rule) > 1) {
+                return [];
+            }
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return array_values(array_map('strval', (array) $filter['badge']));
     }
 
     /**
@@ -1102,7 +1343,11 @@ final class ProfileCompletionService
         }
 
         foreach ($requiredSections as $section) {
-            if (!isset($sections[$section])) {
+            // A section with no rule that applies has nothing to finish (with
+            // SMS off, one whose every rule needs a text message), and
+            // demanding it would hold the gate shut for a reason nobody can
+            // act on.
+            if (!isset($sections[$section]) || (int) $sections[$section]['rules_total'] === 0) {
                 continue;
             }
 
@@ -1116,8 +1361,16 @@ final class ProfileCompletionService
         }
 
         foreach (self::requiredBadges($gate) as $badge) {
-            // Memoised: the seeded gates ask for email_verified and
-            // mobile_verified twice each, and holds() is a query every time.
+            // A badge nobody can earn right now (Mobile verified while SMS is
+            // off) is not asked for. Migration 058 took it out of the seeded
+            // gates; this keeps a gate an operator writes later from locking
+            // every creator out the same way.
+            if (!CreatorBadgeService::earnable($badge)) {
+                continue;
+            }
+
+            // Memoised: two seeded gates ask for email_verified, and holds()
+            // is a query every time.
             if (!array_key_exists($badge, $context['badges'] ?? [])) {
                 $context['badges'][$badge] = CreatorBadgeService::holds($creatorId, $badge);
             }

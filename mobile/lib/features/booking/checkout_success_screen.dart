@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../models/booking.dart';
+import '../../providers/app_config_provider.dart';
 import '../../providers/booking_provider.dart';
 import '../../router/routes.dart';
 import '../../shared/motion/motion.dart';
@@ -15,12 +16,13 @@ import '../../shared/widgets/z_scaffold.dart';
 import '../../shared/widgets/z_timeline.dart';
 import 'widgets/booking_ui.dart';
 
-/// Checkout Success — the confirmation moment after escrow is funded.
+/// Checkout Success — the confirmation moment after the brand has paid.
 ///
 /// A full screen rather than a dialog: this is where the brand learns what
-/// happens next, and where the escrow guarantee from `Zuste_Workflow.md` § 6 is
-/// spelled out. Payment is held, not released — that distinction is the whole
-/// trust proposition, so it gets the headline.
+/// happens next, and where payment protection (`Zuste_Workflow.md` § 6) is
+/// spelled out. Payment is held by Zusty, not released — that distinction is
+/// the whole trust proposition, so it gets the headline. The copy never says
+/// "escrow": the money settles to Zusty's own account (decision P-ESCROW).
 class CheckoutSuccessScreen extends ConsumerWidget {
   const CheckoutSuccessScreen({super.key, required this.bookingId});
 
@@ -29,6 +31,7 @@ class CheckoutSuccessScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final detail = ref.watch(bookingDetailProvider(bookingId));
+    final window = ref.watch(reviewWindowProvider);
 
     return ZScaffold(
       padded: false,
@@ -73,7 +76,7 @@ class CheckoutSuccessScreen extends ConsumerWidget {
             Reveal(
               index: 4,
               child: Text(
-                'Payment secured in escrow',
+                'Payment held by Zusty',
                 textAlign: TextAlign.center,
                 style: AppTypography.headlineMedium,
               ),
@@ -82,9 +85,11 @@ class CheckoutSuccessScreen extends ConsumerWidget {
             Reveal(
               index: 5,
               child: Text(
-                '${data.amounts.total} is held safely by Zusty. It is released '
-                'to ${data.booking.counterparty.name} only after you approve '
-                'the delivered work.',
+                '${data.amounts.total} is held by Zusty. It is released to '
+                '${data.booking.counterparty.name} when you approve the '
+                'delivered work, or automatically if you don\'t respond within '
+                '$window of delivery. If there is a dispute, our team reviews '
+                'it before any money is released.',
                 textAlign: TextAlign.center,
                 style: AppTypography.bodyMedium.copyWith(
                   color: AppColors.onSurfaceVariant,
@@ -102,9 +107,9 @@ class CheckoutSuccessScreen extends ConsumerWidget {
   }
 }
 
-/// The success mark, ringed to echo the escrow "held" metaphor: the ring
-/// settles in, the check draws itself, then a small lock pops onto the ring —
-/// done, and held safely.
+/// The success mark, ringed to echo the "held" metaphor: the ring settles in,
+/// the check draws itself, then a small lock pops onto the ring — done, and
+/// held.
 class _SuccessBadge extends StatelessWidget {
   const _SuccessBadge();
 
@@ -252,7 +257,7 @@ class _ReceiptCard extends StatelessWidget {
             ),
           const SizedBox(height: AppSpacing.xs),
           TotalPanel(
-            label: 'Paid into escrow',
+            label: 'Paid, held by Zusty',
             value: detail.amounts.total,
             color: AppColors.success,
           ),
@@ -282,7 +287,7 @@ class _NextSteps extends StatelessWidget {
           const ZTimeline(
             steps: [
               TimelineStep(
-                title: 'Payment secured',
+                title: 'Payment held',
                 subtitle: 'Held by Zusty — not released to anyone yet.',
                 icon: Icons.lock_rounded,
               ),
@@ -303,8 +308,8 @@ class _NextSteps extends StatelessWidget {
               TimelineStep(
                 title: 'You approve, we release',
                 subtitle:
-                    'Escrow pays out to the creator, minus the platform '
-                    'commission.',
+                    'The payment is released to the creator, minus the '
+                    'platform commission.',
                 state: TimelineState.upcoming,
               ),
             ],

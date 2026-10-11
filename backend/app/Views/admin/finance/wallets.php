@@ -20,7 +20,7 @@ $this->start('content');
 <section class="grid grid--4 mb-6">
   <?php foreach ([
       ['Available balance', $this->moneyShort($totals['available'] ?? 0),       'wallet',      'var(--tertiary)'],
-      ['Locked in escrow',  $this->moneyShort($totals['locked'] ?? 0),          'shield',      'var(--warning)'],
+      ['Locked (on hold)',  $this->moneyShort($totals['locked'] ?? 0),          'shield',      'var(--warning)'],
       ['Lifetime credited', $this->moneyShort($totals['lifetime_credit'] ?? 0), 'arrow-down',  'var(--secondary)'],
       ['Lifetime debited',  $this->moneyShort($totals['lifetime_debit'] ?? 0),  'arrow-up',    'var(--primary)'],
   ] as [$label, $value, $icon, $tone]): ?>
@@ -36,8 +36,9 @@ $this->start('content');
   <div class="card__body row gap-3" style="padding:14px 18px">
     <span class="text-secondary"><?= $this->icon('info') ?></span>
     <p class="small">
-      <strong>Available</strong> is spendable and withdrawable. <strong>Locked</strong> is money held in escrow
-      for an active booking, or reserved against a payout already in flight. Every figure here is derived
+      <strong>Available</strong> is spendable and withdrawable. <strong>Locked</strong> is a creator's earnings
+      still in the hold period after a completed booking, or money reserved against a payout already in
+      flight. A booking's own payment is held on the booking, not in a wallet. Every figure here is derived
       from the immutable ledger — use <em>Reconcile</em> on a user to verify it.
     </p>
   </div>

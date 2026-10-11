@@ -59,30 +59,46 @@ $scNote = static function (string $text): void {
     echo "  \033[33mnote\033[0m  {$text}\n";
 };
 
-/** Settings this suite changed: "group.key" => ['value' => original], or null when the row did not exist. */
+/**
+ * Settings this suite changed: "group.key" => the whole row as it was (id,
+ * type, label, description, is_public, sort_order, updated_at …), or null
+ * when there was none. Restoring only the value used to put a row that
+ * $scUnset deleted back bare: sms.enabled came back as type "string" with
+ * no label or description and sort order 0.
+ */
 $scSettings = [];
 
 $scRemember = static function (string $group, string $key) use (&$scSettings): void {
     $id = $group . '.' . $key;
 
     if (!array_key_exists($id, $scSettings)) {
-        $row = Database::selectOne(
-            'SELECT `value` FROM `settings` WHERE `group_key` = :g AND `setting_key` = :k',
+        $scSettings[$id] = Database::selectOne(
+            'SELECT * FROM `settings` WHERE `group_key` = :g AND `setting_key` = :k',
             ['g' => $group, 'k' => $key]
         );
-
-        $scSettings[$id] = $row === null ? null : ['value' => $row['value']];
     }
 };
 
-$scSet = static function (string $group, string $key, string $value) use ($scRemember): void {
+$scSettingExists = static fn (string $group, string $key): bool => Database::scalar(
+    'SELECT 1 FROM `settings` WHERE `group_key` = :g AND `setting_key` = :k',
+    ['g' => $group, 'k' => $key]
+) !== null;
+
+$scSet = static function (string $group, string $key, string $value) use ($scRemember, $scSettingExists, &$scSettings): void {
     $scRemember($group, $key);
 
-    Database::execute(
-        'INSERT INTO `settings` (`group_key`, `setting_key`, `value`) VALUES (:g, :k, :v)
-         ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)',
-        ['g' => $group, 'k' => $key, 'v' => $value]
-    );
+    $where = ['group_key' => $group, 'setting_key' => $key];
+
+    if ($scSettingExists($group, $key)) {
+        Database::update('settings', ['value' => $value], $where);
+    } else {
+        // A row $scUnset removed comes back with its own definition, not as
+        // a bare value; one that never existed gets the table's defaults.
+        $definition = $scSettings[$group . '.' . $key] ?? [];
+        unset($definition['id'], $definition['updated_at']);
+
+        Database::insert('settings', array_merge($definition, $where, ['value' => $value]));
+    }
 
     Config::flushSettings();
 };
@@ -98,7 +114,7 @@ $scUnset = static function (string $group, string $key) use ($scRemember): void 
     Config::flushSettings();
 };
 
-$scRestore = static function () use (&$scSettings): void {
+$scRestore = static function () use (&$scSettings, $scSettingExists): void {
     foreach ($scSettings as $id => $original) {
         [$group, $key] = explode('.', $id, 2);
 
@@ -107,12 +123,12 @@ $scRestore = static function () use (&$scSettings): void {
                 'DELETE FROM `settings` WHERE `group_key` = :g AND `setting_key` = :k',
                 ['g' => $group, 'k' => $key]
             );
+        } elseif ($scSettingExists($group, $key)) {
+            // Every column, its id and updated_at included: the row ends as
+            // it started, even when $scUnset and $scSet re-created it.
+            Database::update('settings', $original, ['group_key' => $group, 'setting_key' => $key]);
         } else {
-            Database::execute(
-                'INSERT INTO `settings` (`group_key`, `setting_key`, `value`) VALUES (:g, :k, :v)
-                 ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)',
-                ['g' => $group, 'k' => $key, 'v' => $original['value']]
-            );
+            Database::insert('settings', $original);
         }
     }
 
@@ -543,8 +559,9 @@ Suite::equals('…untouched by the sends', $scVerify->header('x-ratelimit-remain
 Suite::group('Sign-up consent: SMS stays off when the panel says off');
 // =================================================================
 
-$scEnvSms = Config::get('sms.enabled', false);
-$scSmsRow = 0;
+$scEnvSms    = Config::get('sms.enabled', false);
+$scSmsRow    = 0;
+$scSmsBefore = Database::selectOne("SELECT * FROM `settings` WHERE `group_key` = 'sms' AND `setting_key` = 'enabled'");
 
 try {
     $scSet('sms', 'enabled', '0');
@@ -562,6 +579,16 @@ try {
     Suite::equals('…either way', SmsService::enabled(), false);
 
     $scSet('sms', 'enabled', '0');
+
+    if ($scSmsBefore !== null) {
+        $scRecreated = Database::selectOne("SELECT `type`, `label`, `description`, `is_public`, `sort_order` FROM `settings` WHERE `group_key` = 'sms' AND `setting_key` = 'enabled'");
+        Suite::equals(
+            'a setting the suite removed comes back with its definition, not bare',
+            $scRecreated,
+            array_intersect_key($scSmsBefore, (array) $scRecreated)
+        );
+    }
+
     $scSmsRow = Database::insert('sms_queue', [
         'to_phone'   => '+910000' . random_int(100000, 999999),
         'message'    => 'IT signup-consent queued before SMS went off',
@@ -584,6 +611,12 @@ try {
         Database::execute('DELETE FROM `sms_queue` WHERE `id` = :id', ['id' => $scSmsRow]);
     }
 }
+
+Suite::equals(
+    'the sms.enabled row is put back exactly as it was, every column',
+    Database::selectOne("SELECT * FROM `settings` WHERE `group_key` = 'sms' AND `setting_key` = 'enabled'"),
+    $scSmsBefore
+);
 
 // =================================================================
 // A new mobile number is proved by a code sent by text. With SMS off and

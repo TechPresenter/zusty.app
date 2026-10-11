@@ -343,7 +343,7 @@ final class Widget
             'platform_commission' => self::stat('Commission (30d)', $g, 'chart', '#E2165F', 'payments.view',
                 'commission30d', '/admin/settlements', 'money'),
 
-            'escrow_held' => self::stat('Held in escrow', $g, 'shield', '#B45309', 'wallet.view',
+            'escrow_held' => self::stat('Held for bookings', $g, 'shield', '#B45309', 'wallet.view',
                 'escrowHeld', '/admin/bookings?payment_status=paid', 'money'),
 
             'wallet_balance' => self::stat('Wallet float', $g, 'wallet', '#4F00D0', 'wallet.view',

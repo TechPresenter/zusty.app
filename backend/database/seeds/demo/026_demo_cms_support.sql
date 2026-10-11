@@ -32,9 +32,16 @@
  *     rule. Nothing is hard-coded and nothing can drift out of sync.
  *   - coupons.used_count and media_folders.file_count / size_bytes are
  *     recomputed at the end of the file from the rows actually present.
- *   - popups deliberately include one audience = 'all' row and one
- *     audience = 'creators' row, both active and inside their window, because
- *     the API suite asserts audience targeting against /app/config.
+ *   - popups cover every audience. The creator-audience row (1517) is a
+ *     retired verification nudge: a popup cannot target unverified creators
+ *     only, so it would also show to verified ones. The all-audience modal
+ *     (1516) is retired too, so no modal covers the app screens used for
+ *     store screenshots. The API suite asserts audience targeting with its
+ *     own fixture popups.
+ *   - 028 used to insert its own media, coupons, popups and tickets in these
+ *     same id ranges. Whichever file ran first won, so a fresh install and
+ *     an older database disagreed. This file is now the only source of them.
+ *   - Contact-form IP addresses come from the RFC 5737 documentation ranges.
  *   - support_tickets covers every member of the status ENUM
  *     (open, pending_user, pending_agent, resolved, closed).
  *   - Money is INR. GST is 18 percent, platform commission is 15 percent.
@@ -210,9 +217,9 @@ VALUES
  'https://picsum.photos/seed/zuste-blog-whitelisting/1200/630',
  DATE_SUB(NOW(), INTERVAL 230 DAY), DATE_SUB(NOW(), INTERVAL 180 DAY)),
 
-(1314, 4, 'what-we-learned-from-480-bookings-on-zuste', 'What we learned from 480 bookings on Zusty',
+(1314, 4, 'what-we-learned-from-480-bookings-on-zusty', 'What we learned from 480 bookings on Zusty',
  'Acceptance rates, delivery times, dispute causes and the day of the week that quietly predicts whether a booking completes. An honest read of our own marketplace data.',
- 'We looked at every booking on the platform, from first request to final payout, and pulled out the patterns that surprised us.\n\n## Acceptance is decided in the first message\n\nBookings where the brand wrote more than 40 words in the initial request were accepted 2.3 times more often than one-line offers. Creators read effort as a proxy for whether the campaign will be painful.\n\n## Speed matters more than money\n\nOffers answered within four hours completed at 88 percent. Offers that sat for more than 48 hours completed at 51 percent, even at higher rates. Momentum, not price, is the strongest completion signal we have.\n\n## Where disputes come from\n\nOf the bookings that reached a dispute, the causes clustered tightly:\n\n- Deliverable scope disagreement, 41 percent\n- Late delivery past the agreed window, 27 percent\n- Content edited or taken down early, 18 percent\n- Payment and invoice mismatches, 14 percent\n\nAlmost all of it is scope written vaguely at the start.\n\n## Tuesday and Wednesday\n\nBookings created on a Tuesday or Wednesday completed noticeably more often than those created on a Friday. Our best guess is that a Friday offer sits unread over the weekend and loses the momentum described above.\n\n## Escrow changed creator behaviour\n\nAfter funds started being held in escrow at confirmation, average time to first deliverable dropped by just under three days. Creators shoot faster when they can see the money is already committed.\n\n## What we changed because of this\n\nWe now nudge brands whose first message is under 40 words, surface a response-time badge on creator profiles, and require a structured deliverable list before a booking can be confirmed.',
+ 'We looked at every booking on the platform, from first request to final payout, and pulled out the patterns that surprised us.\n\n## Acceptance is decided in the first message\n\nBookings where the brand wrote more than 40 words in the initial request were accepted 2.3 times more often than one-line offers. Creators read effort as a proxy for whether the campaign will be painful.\n\n## Speed matters more than money\n\nOffers answered within four hours completed at 88 percent. Offers that sat for more than 48 hours completed at 51 percent, even at higher rates. Momentum, not price, is the strongest completion signal we have.\n\n## Where disputes come from\n\nOf the bookings that reached a dispute, the causes clustered tightly:\n\n- Deliverable scope disagreement, 41 percent\n- Late delivery past the agreed window, 27 percent\n- Content edited or taken down early, 18 percent\n- Payment and invoice mismatches, 14 percent\n\nAlmost all of it is scope written vaguely at the start.\n\n## Tuesday and Wednesday\n\nBookings created on a Tuesday or Wednesday completed noticeably more often than those created on a Friday. Our best guess is that a Friday offer sits unread over the weekend and loses the momentum described above.\n\n## Payment protection changed creator behaviour\n\nAfter brand payments started being held by Zusty at confirmation, average time to first deliverable dropped by just under three days. Creators shoot faster when they can see the money is already committed.\n\n## What we changed because of this\n\nWe now nudge brands whose first message is under 40 words, surface a response-time badge on creator profiles, and require a structured deliverable list before a booking can be confirmed.',
  'https://picsum.photos/seed/zuste-blog-480-bookings/1200/630',
  1, 'Zusty Editorial', '["data","marketplace","case-study","platform"]', 8, 22140,
  'published', 1, DATE_SUB(NOW(), INTERVAL 214 DAY),
@@ -248,7 +255,7 @@ VALUES
 
 (1317, 4, 'case-study-kiranapay-and-the-finance-creator-trust-problem', 'Case study: Kiranapay and the finance creator trust problem',
  'Fintech has the hardest compliance surface in Indian influencer marketing. How Kiranapay ran 9 finance creators without a single takedown, and what it cost in process.',
- 'Kiranapay Labs needed awareness for a UPI-linked savings feature. Finance content in India carries real regulatory weight, and a careless creator line becomes a company problem.\n\n## The constraint\n\nNo returns language, no guaranteed outcomes, no comparison against named competitors, no implied advisory. Every claim had to be traceable to approved product copy.\n\n## The process that made it work\n\n- A two-page claims sheet with approved and banned phrasing, sent before the brief\n- Script-level review of the spoken claims only, with full creative freedom on everything else\n- A 24-hour compliance review window written into the booking, with a fee for delays caused by the brand\n- A named contact who could approve, not a committee\n\n## The numbers\n\n- Nine creators, average 68k followers, personal finance and markets\n- Total fees: Rs 8,40,000\n- App installs attributed in 45 days: 41,300\n- Cost per install: Rs 20.34, against a paid social benchmark of Rs 63\n- Compliance takedowns: zero\n\n## The surprise\n\nCreators did not resist review. They resisted slow review. When the team committed to a 24-hour turnaround and honoured it, the friction disappeared entirely. The one booking that ran late did so because a brand-side approver was on leave.\n\n## What transferred\n\nThe claims sheet is now used for every campaign the company runs, including its own paid social. Writing down what may and may not be said turned out to be useful well beyond influencer work.',
+ 'Kiranapay Labs needed awareness for a UPI-linked savings feature. Finance content in India carries real regulatory weight, and a careless creator line becomes a company problem.\n\n## The constraint\n\nNo returns language, no promised outcomes, no comparison against named competitors, no implied advisory. Every claim had to be traceable to approved product copy.\n\n## The process that made it work\n\n- A two-page claims sheet with approved and banned phrasing, sent before the brief\n- Script-level review of the spoken claims only, with full creative freedom on everything else\n- A 24-hour compliance review window written into the booking, with a fee for delays caused by the brand\n- A named contact who could approve, not a committee\n\n## The numbers\n\n- Nine creators, average 68k followers, personal finance and markets\n- Total fees: Rs 8,40,000\n- App installs attributed in 45 days: 41,300\n- Cost per install: Rs 20.34, against a paid social benchmark of Rs 63\n- Compliance takedowns: zero\n\n## The surprise\n\nCreators did not resist review. They resisted slow review. When the team committed to a 24-hour turnaround and honoured it, the friction disappeared entirely. The one booking that ran late did so because a brand-side approver was on leave.\n\n## What transferred\n\nThe claims sheet is now used for every campaign the company runs, including its own paid social. Writing down what may and may not be said turned out to be useful well beyond influencer work.',
  'https://picsum.photos/seed/zuste-case-kiranapay/1200/630',
  1, 'Zusty Editorial', '["case-study","fintech","compliance","finance-creators"]', 7, 10480,
  'published', 0, DATE_SUB(NOW(), INTERVAL 171 DAY),
@@ -270,33 +277,33 @@ VALUES
  'https://picsum.photos/seed/zuste-case-homestay-hopper/1200/630',
  DATE_SUB(NOW(), INTERVAL 160 DAY), DATE_SUB(NOW(), INTERVAL 130 DAY)),
 
-(1319, 3, 'escrow-milestones-and-creator-payments', 'Escrow, milestones and why creators stopped chasing payments',
- 'Payment terms are the most common reason Indian creators refuse repeat work. Here is how escrow on Zusty works, when funds release, and what happens in a dispute.',
- 'Ask any working creator about their worst brand experience and you will hear about a payment, not a brief.\n\n## The old default was 60 to 90 days\n\nA creator delivers, the brand posts, and the invoice enters a procurement queue. Two months later the creator is sending polite follow-ups to a marketing manager who has changed jobs. That dynamic broke trust across the whole category.\n\n## How escrow changes it\n\nWhen a booking is confirmed, the brand funds the full amount and it is held by the platform. The creator can see the money is committed before shooting anything. The brand keeps protection because funds only release against accepted delivery.\n\n## The release rules\n\n- Funds are held at confirmation and marked in escrow on both dashboards\n- On delivery, the brand has a review window to accept or request changes\n- If no action is taken inside the review window, funds auto-release to the creator\n- Accepted delivery releases immediately, minus the 15 percent platform commission\n- Payouts settle to the registered bank account, with GST handled on the platform fee\n\n## Milestones for larger bookings\n\nOn bookings above Rs 1,00,000 the amount can be split: a portion released on script or concept approval, the remainder on final delivery. This protects creators from a brand walking away after a shoot, and protects brands from paying in full for work they have not seen.\n\n## Disputes\n\nEither side can raise a dispute inside the review window. Funds stay held while a support agent reviews the brief, the delivered assets and the message thread. Most disputes resolve as a partial release once the actual scope is compared with the written brief.\n\n## Why it matters commercially\n\nAcross the platform, creators respond to brands with a funded booking substantially faster than to open offers. Reliable payment is not just fair, it is a discovery advantage.',
- 'https://picsum.photos/seed/zuste-blog-escrow-payments/1200/630',
- 1, 'Zusty Product', '["escrow","payments","product-update","trust"]', 6, 9240,
+(1319, 3, 'payment-protection-and-creator-payments', 'Payment protection and why creators stopped chasing payments',
+ 'Payment terms are the most common reason Indian creators refuse repeat work. Here is how payment protection on Zusty works, when a payment is released, and what happens in a dispute.',
+ 'Ask any working creator about their worst brand experience and you will hear about a payment, not a brief.\n\n## The old default was 60 to 90 days\n\nA creator delivers, the brand posts, and the invoice enters a procurement queue. Two months later the creator is sending polite follow-ups to a marketing manager who has changed jobs. That dynamic broke trust across the whole category.\n\n## How payment protection changes it\n\nWhen a booking is confirmed, the brand''s payment is held by Zusty. The creator can see that the booking is paid for before shooting anything, and the brand knows the money is released only when the work is approved.\n\n## The release rules\n\n- The payment is held by Zusty from confirmation, and the booking shows it as held to both sides\n- On delivery, the brand approves the work or asks for changes within the revision rounds in the booking\n- If the brand does not respond within 7 days of delivery, the payment is released to the creator automatically\n- When the work is approved, the creator''s earning, after the platform commission, moves to their Zusty wallet\n- Earnings are held in the wallet for three days. After that the creator can request a withdrawal to a verified payout account, and our team checks every withdrawal before it is paid\n\n## Disputes\n\nEither side can raise a dispute before the work is approved. The payment stays held while our team reviews the brief, the delivered work and the chat, and no money is released until that review is done.\n\n## Why it matters\n\nA creator who can see that a booking is paid for can plan the shoot without chasing anyone, and a brand that pays once knows exactly when the money moves.',
+ 'https://picsum.photos/seed/zuste-blog-payment-protection/1200/630',
+ 1, 'Zusty Product', '["payment-protection","payments","product-update","trust"]', 6, 9240,
  'published', 0, DATE_SUB(NOW(), INTERVAL 145 DAY),
- 'Escrow, milestones and why creators stopped chasing payments | Zusty',
- 'How escrow works on Zusty: when brand funds are held, how delivery releases them, how milestone splits work on large bookings and what happens during a dispute.',
- 'influencer escrow india, creator payments, milestone payouts',
- 'https://picsum.photos/seed/zuste-blog-escrow-payments/1200/630',
+ 'Payment protection and why creators stopped chasing payments | Zusty',
+ 'How payment protection works on Zusty: when a brand''s payment is held, how approval releases it and what happens during a dispute.',
+ 'creator payment protection india, creator payments, held payments',
+ 'https://picsum.photos/seed/zuste-blog-payment-protection/1200/630',
  DATE_SUB(NOW(), INTERVAL 147 DAY), DATE_SUB(NOW(), INTERVAL 120 DAY)),
 
-(1320, 3, 'product-update-instant-payouts-and-upi-settlement', 'Product update: instant payouts and UPI settlement',
- 'Creator payouts now settle in minutes instead of days, UPI is supported alongside bank transfer, and the payout ledger shows commission and GST on every line.',
- 'Payout speed was the most requested change in every creator survey we ran last year. It is live.\n\n## What changed\n\nOnce a booking is accepted and funds release from escrow, the payout is initiated immediately rather than batched into a settlement cycle. For most creators the money lands within minutes, and within a few hours in the worst case.\n\n## UPI is now a payout method\n\nYou can settle to a verified UPI handle or to a bank account. UPI payouts are subject to the usual per-transaction limits, so large bookings still route to bank transfer automatically. The choice is per payout, not per account, so you can send a small booking to UPI and a large one to your business account.\n\n## A ledger you can actually reconcile\n\nEvery payout line now shows the gross booking amount, the 15 percent platform commission, GST on the platform fee, any TDS applied, and the net credited. You can export a date range as CSV and hand it straight to your accountant.\n\n## Failed payouts are handled properly\n\nIf a transfer fails because of a bank outage or a stale account detail, the amount returns to your Zusty wallet balance rather than disappearing into a support ticket. You get a notification, you fix the account detail, and you retry from the wallet screen.\n\n## What is next\n\nWe are working on scheduled weekly settlements for creators who prefer a single consolidated transfer, and on a downloadable annual earnings summary ahead of filing season.',
- 'https://picsum.photos/seed/zuste-blog-instant-payouts/1200/630',
+(1320, 3, 'product-update-payouts-to-bank-or-upi', 'Product update: payouts to your bank account or UPI ID',
+ 'Creators can now add a UPI ID to their payout account, see each held earning with the date it becomes available, and follow every withdrawal from request to payment.',
+ 'Payouts were the topic creators asked about most last year, so here is exactly how they work today.\n\n## From approval to your wallet\n\nWhen a brand approves the work, or the booking completes automatically 7 days after delivery, your earning after the platform commission is credited to your Zusty wallet. It is held there for three days and then becomes available to withdraw. The wallet shows each held amount with the date it becomes available.\n\n## Withdrawing to a bank account or UPI ID\n\nYou request a withdrawal from the wallet screen, from Rs 1,000 upwards, to a payout account you have added. A payout account is your bank account, and it can carry a UPI ID as well. Withdrawals need your verification to be approved, and our team checks every request before it is paid, so a payout is not instant. The wallet shows each request until it is paid.\n\n## If a withdrawal cannot be paid\n\nIf the account details do not match, our team rejects the request with a reason and the amount returns to your available balance. Fix the detail and request the withdrawal again.\n\n## A history you can reconcile\n\nEvery earning, hold, release and withdrawal is its own line in the wallet history, with the booking it came from, so you can match each payout to the work behind it.',
+ 'https://picsum.photos/seed/zuste-blog-payouts-upi/1200/630',
  1, 'Zusty Product', '["product-update","payouts","upi","wallet"]', 4, 7810,
  'published', 0, DATE_SUB(NOW(), INTERVAL 132 DAY),
- 'Product update: instant payouts and UPI settlement | Zusty',
- 'Zusty creator payouts now settle in minutes, support UPI alongside bank transfer, and expose commission, GST and TDS on every ledger line.',
- 'creator payouts india, upi settlement, zusty product update',
- 'https://picsum.photos/seed/zuste-blog-instant-payouts/1200/630',
+ 'Product update: payouts to your bank account or UPI ID | Zusty',
+ 'How creator payouts work on Zusty: earnings reach the wallet on approval, are held for three days, and are withdrawn to a bank account or UPI ID after a check by our team.',
+ 'creator payouts india, upi payout, zusty product update',
+ 'https://picsum.photos/seed/zuste-blog-payouts-upi/1200/630',
  DATE_SUB(NOW(), INTERVAL 134 DAY), DATE_SUB(NOW(), INTERVAL 110 DAY)),
 
-(1321, 3, 'new-in-zuste-campaign-briefs-applicants-and-shortlists', 'New in Zusty: campaign briefs, applicants and shortlists',
+(1321, 3, 'new-in-zusty-campaign-briefs-applicants-and-shortlists', 'New in Zusty: campaign briefs, applicants and shortlists',
  'Post a brief once, let creators apply, and compare them side by side before you send a single offer. The campaign workflow is out of beta for every brand account.',
- 'Until now, booking creators on Zusty meant finding them one at a time. Campaigns change that.\n\n## Post a brief\n\nCreate a campaign with your deliverables, budget band, timeline, category and city preferences. Publish it and matching creators see it in their opportunities feed. You can keep the budget hidden if you would rather negotiate, though briefs showing a band get roughly twice the applications.\n\n## Review applicants in one place\n\nEvery application arrives with the creator profile, their rate for your exact deliverable, their delivery history on the platform and a short pitch. Shortlist, decline, or ask a question without leaving the screen.\n\n## Compare side by side\n\nSelect up to four shortlisted creators and see them in a comparison view: audience cities, engagement rate, average delivery time, completed bookings and quoted price. It replaces the spreadsheet every brand team was building by hand.\n\n## Convert to bookings in bulk\n\nOnce you have picked, send offers to the whole shortlist at once. Each becomes a normal booking with its own thread, escrow and delivery tracking, so nothing about the rest of the workflow changes.\n\n## For creators\n\nThe opportunities feed is filtered by your categories, city and rate band, so you should not see briefs you would never take. Applying is free and does not count against anything.\n\n## Availability\n\nLive for all brand accounts now. Campaign analytics, including per-applicant response times, arrives next month.',
+ 'Until now, booking creators on Zusty meant finding them one at a time. Campaigns change that.\n\n## Post a brief\n\nCreate a campaign with your deliverables, budget band, timeline, category and city preferences. Publish it and matching creators see it in their opportunities feed. You can keep the budget hidden if you would rather negotiate, though briefs showing a band get roughly twice the applications.\n\n## Review applicants in one place\n\nEvery application arrives with the creator profile, their rate for your exact deliverable, their delivery history on the platform and a short pitch. Shortlist, decline, or ask a question without leaving the screen.\n\n## Compare side by side\n\nSelect up to four shortlisted creators and see them in a comparison view: audience cities, engagement rate, average delivery time, completed bookings and quoted price. It replaces the spreadsheet every brand team was building by hand.\n\n## Convert to bookings in bulk\n\nOnce you have picked, send offers to the whole shortlist at once. Each becomes a normal booking with its own thread, payment protection and delivery tracking, so nothing about the rest of the workflow changes.\n\n## For creators\n\nThe opportunities feed is filtered by your categories, city and rate band, so you should not see briefs you would never take. Applying is free and does not count against anything.\n\n## Availability\n\nLive for all brand accounts now. Campaign analytics, including per-applicant response times, arrives next month.',
  'https://picsum.photos/seed/zuste-blog-campaigns-launch/1200/630',
  1, 'Zusty Product', '["product-update","campaigns","shortlist","workflow"]', 5, 6420,
  'published', 0, DATE_SUB(NOW(), INTERVAL 119 DAY),
@@ -332,7 +339,7 @@ VALUES
 
 (1324, 2, 'the-creator-kyc-checklist-pan-gst-bank', 'The creator KYC checklist: PAN, GST, bank and why we ask',
  'Every document we ask for, what it is used for, how long verification takes and what to do when a submission is rejected. Nothing here is optional theatre.',
- 'KYC is the least popular screen on any marketplace. Here is exactly why each field exists.\n\n## What we ask for\n\n- **PAN card.** Required for any payout, and for TDS reporting against your PAN. Name must match your bank account holder name.\n- **Aadhaar or another government ID.** Identity verification and address proof.\n- **Bank account or UPI handle.** Where money lands. We run a penny-drop verification to confirm the name matches.\n- **GSTIN, if registered.** Lets us generate compliant invoices and apply the correct tax treatment automatically.\n- **A selfie or liveness check.** Prevents someone else opening a payout account against your documents.\n\n## Why the name matching is strict\n\nIf your PAN says Priyanka and your bank account says Priya, the payout will fail at the bank, not at us. Fixing it after a failed transfer takes days. Fixing it before takes minutes.\n\n## How long it takes\n\nMost submissions are verified within a few hours. Anything requiring manual review is usually resolved within one working day. You will get a notification either way, and the status is always visible on your KYC screen.\n\n## When something is rejected\n\nThe most common reasons are a blurred document edge, a screenshot instead of a scan, a mismatch between the name on PAN and the bank account, and an expired ID. Rejection is never final. Fix the specific issue listed and resubmit from the same screen.\n\n## What we do not do\n\nWe do not share your documents with brands. Brands see a verification badge, not your PAN. Documents are stored encrypted and are accessible only to the compliance reviewers who need them.\n\n## Do it before you need it\n\nComplete verification before your first booking, not after. A creator with pending KYC cannot receive a payout even when the brand has already funded escrow.',
+ 'KYC is the least popular screen on any marketplace. Here is exactly why each field exists.\n\n## What we ask for\n\n- **PAN card.** Required for any payout, and for TDS reporting against your PAN. Name must match your bank account holder name.\n- **Aadhaar or another government ID.** Identity verification and address proof.\n- **Bank account or UPI handle.** Where money lands. We run a penny-drop verification to confirm the name matches.\n- **GSTIN, if registered.** Lets us generate compliant invoices and apply the correct tax treatment automatically.\n- **A selfie or liveness check.** Prevents someone else opening a payout account against your documents.\n\n## Why the name matching is strict\n\nIf your PAN says Priyanka and your bank account says Priya, the payout will fail at the bank, not at us. Fixing it after a failed transfer takes days. Fixing it before takes minutes.\n\n## How long it takes\n\nMost submissions are verified within a few hours. Anything requiring manual review is usually resolved within one working day. You will get a notification either way, and the status is always visible on your KYC screen.\n\n## When something is rejected\n\nThe most common reasons are a blurred document edge, a screenshot instead of a scan, a mismatch between the name on PAN and the bank account, and an expired ID. Rejection is never final. Fix the specific issue listed and resubmit from the same screen.\n\n## What we do not do\n\nWe do not share your documents with brands. Brands see a verification badge, not your PAN. Documents are stored encrypted and are accessible only to the compliance reviewers who need them.\n\n## Do it before you need it\n\nComplete verification before your first booking, not after. A creator with pending KYC cannot receive a payout even when the brand has already paid for the booking.',
  'https://picsum.photos/seed/zuste-blog-creator-kyc/1200/630',
  1, 'Zusty Editorial', '["kyc","verification","payouts","creator-onboarding"]', 6, 15720,
  'published', 0, DATE_SUB(NOW(), INTERVAL 84 DAY),
@@ -404,7 +411,7 @@ VALUES
 
 (1330, 4, 'the-2026-indian-creator-economy-report', 'The 2026 Indian creator economy report',
  'Our annual read on rates, category growth, regional expansion and payment behaviour, built from every booking, offer and payout that moved through Zusty this year.',
- 'This is the full-year report. It publishes with the underlying rate tables so you can check our working.\n\n## Headline findings\n\n- Median creator rate rose 14 percent year on year, with the sharpest increase in the 25k to 75k follower band\n- Regional-language bookings grew 61 percent, the fastest-growing segment on the platform\n- Average time from offer to acceptance fell from 31 hours to 9 hours\n- Barter-only deals fell to under 8 percent of all agreed collaborations\n\n## Category movement\n\nFinance, education and home decor grew fastest by booking volume. Fashion remains the largest category by spend but grew slowest, and saw the most competitive rate pressure as supply expanded.\n\n## Rates by tier\n\nThe full tier table covers Instagram Reels, stories, YouTube Shorts, long-form integrations and UGC-only production, split by category and by metro against non-metro. The gap between metro and non-metro rates for equivalent engagement narrowed from 38 percent to 29 percent.\n\n## Payment behaviour\n\nEscrow-funded bookings completed at a materially higher rate than unfunded offers, and the median time from delivery acceptance to money in a creator account is now under an hour.\n\n## What we expect next year\n\nContinued rate convergence between metro and regional creators, more UGC-only production budgets moving from agencies to creators, and further consolidation of brand spend into repeat relationships rather than one-off bookings.\n\n## Method\n\nEvery figure is computed from completed transactions on the platform over the last twelve months. Offers that never converted are excluded from rate medians. Nothing here is survey data.',
+ 'This is the full-year report. It publishes with the underlying rate tables so you can check our working.\n\n## Headline findings\n\n- Median creator rate rose 14 percent year on year, with the sharpest increase in the 25k to 75k follower band\n- Regional-language bookings grew 61 percent, the fastest-growing segment on the platform\n- Average time from offer to acceptance fell from 31 hours to 9 hours\n- Barter-only deals fell to under 8 percent of all agreed collaborations\n\n## Category movement\n\nFinance, education and home decor grew fastest by booking volume. Fashion remains the largest category by spend but grew slowest, and saw the most competitive rate pressure as supply expanded.\n\n## Rates by tier\n\nThe full tier table covers Instagram Reels, stories, YouTube Shorts, long-form integrations and UGC-only production, split by category and by metro against non-metro. The gap between metro and non-metro rates for equivalent engagement narrowed from 38 percent to 29 percent.\n\n## Payment behaviour\n\nBookings paid for upfront completed at a materially higher rate than unpaid offers, and the median time from delivery acceptance to money in a creator account is now under an hour.\n\n## What we expect next year\n\nContinued rate convergence between metro and regional creators, more UGC-only production budgets moving from agencies to creators, and further consolidation of brand spend into repeat relationships rather than one-off bookings.\n\n## Method\n\nEvery figure is computed from completed transactions on the platform over the last twelve months. Offers that never converted are excluded from rate medians. Nothing here is survey data.',
  'https://picsum.photos/seed/zuste-blog-creator-economy-2026/1200/630',
  1, 'Zusty Editorial', '["report","creator-economy","rates","annual"]', 11, 0,
  'scheduled', 1, DATE_ADD(NOW(), INTERVAL 12 DAY),
@@ -447,8 +454,8 @@ VALUES
 (1416,'local','blogs',3,'case-chutneyverse-cover.jpg','chutneyverse case study cover.jpg','blogs/2026/case-chutneyverse-cover.jpg','https://picsum.photos/seed/zuste-case-chutneyverse/1200/630','https://picsum.photos/seed/zuste-case-chutneyverse/320/180','image/jpeg','jpg',291630,758410,1,1200,630,NULL,'Festive spice gifting box photographed on a wooden surface','admin',1,MD5('media-1416'),DATE_SUB(NOW(), INTERVAL 186 DAY)),
 (1417,'local','blogs',3,'case-kiranapay-cover.jpg','kiranapay case study cover.jpg','blogs/2026/case-kiranapay-cover.jpg','https://picsum.photos/seed/zuste-case-kiranapay/1200/630','https://picsum.photos/seed/zuste-case-kiranapay/320/180','image/jpeg','jpg',228740,592330,1,1200,630,NULL,'Finance creator recording a UPI savings explainer','admin',1,MD5('media-1417'),DATE_SUB(NOW(), INTERVAL 173 DAY)),
 (1418,'local','blogs',3,'case-homestay-hopper-cover.jpg','homestay hopper case study cover.jpg','blogs/2026/case-homestay-hopper-cover.jpg','https://picsum.photos/seed/zuste-case-homestay-hopper/1200/630','https://picsum.photos/seed/zuste-case-homestay-hopper/320/180','image/jpeg','jpg',303210,791560,1,1200,630,NULL,'Western Ghats trail photographed during a creator hosted trip','admin',1,MD5('media-1418'),DATE_SUB(NOW(), INTERVAL 160 DAY)),
-(1419,'local','blogs',3,'escrow-and-milestones-cover.jpg','escrow explainer cover.jpg','blogs/2026/escrow-and-milestones-cover.jpg','https://picsum.photos/seed/zuste-blog-escrow-payments/1200/630','https://picsum.photos/seed/zuste-blog-escrow-payments/320/180','image/jpeg','jpg',214380,552700,1,1200,630,NULL,'Escrow status shown on a booking screen in the Zusty app','admin',1,MD5('media-1419'),DATE_SUB(NOW(), INTERVAL 147 DAY)),
-(1420,'local','blogs',3,'instant-payouts-upi-cover.jpg','instant payout cover.jpg','blogs/2026/instant-payouts-upi-cover.jpg','https://picsum.photos/seed/zuste-blog-instant-payouts/1200/630','https://picsum.photos/seed/zuste-blog-instant-payouts/320/180','image/jpeg','jpg',207940,536480,1,1200,630,NULL,'Creator wallet screen showing an instant UPI settlement','admin',1,MD5('media-1420'),DATE_SUB(NOW(), INTERVAL 134 DAY)),
+(1419,'local','blogs',3,'payment-protection-cover.jpg','payment protection explainer cover.jpg','blogs/2026/payment-protection-cover.jpg','https://picsum.photos/seed/zuste-blog-payment-protection/1200/630','https://picsum.photos/seed/zuste-blog-payment-protection/320/180','image/jpeg','jpg',214380,552700,1,1200,630,NULL,'Payment status shown on a booking screen in the Zusty app','admin',1,MD5('media-1419'),DATE_SUB(NOW(), INTERVAL 147 DAY)),
+(1420,'local','blogs',3,'payouts-upi-cover.jpg','payouts cover.jpg','blogs/2026/payouts-upi-cover.jpg','https://picsum.photos/seed/zuste-blog-payouts-upi/1200/630','https://picsum.photos/seed/zuste-blog-payouts-upi/320/180','image/jpeg','jpg',207940,536480,1,1200,630,NULL,'Creator wallet screen showing a withdrawal to a UPI ID','admin',1,MD5('media-1420'),DATE_SUB(NOW(), INTERVAL 134 DAY)),
 (1421,'local','blogs',3,'campaigns-launch-cover.jpg','campaign briefs launch cover.jpg','blogs/2026/campaigns-launch-cover.jpg','https://picsum.photos/seed/zuste-blog-campaigns-launch/1200/630','https://picsum.photos/seed/zuste-blog-campaigns-launch/320/180','image/jpeg','jpg',225610,583140,1,1200,630,NULL,'Campaign applicants list with shortlisted creators highlighted','admin',1,MD5('media-1421'),DATE_SUB(NOW(), INTERVAL 121 DAY)),
 (1422,'local','blogs',3,'search-ranking-update-cover.jpg','search ranking cover.jpg','blogs/2026/search-ranking-update-cover.jpg','https://picsum.photos/seed/zuste-blog-search-ranking/1200/630','https://picsum.photos/seed/zuste-blog-search-ranking/320/180','image/jpeg','jpg',219450,566020,1,1200,630,NULL,'Creator search results ranked by response time and reliability','admin',1,MD5('media-1422'),DATE_SUB(NOW(), INTERVAL 106 DAY)),
 (1423,'local','blogs',3,'pricing-first-brand-deal-cover.jpg','first brand deal cover.jpg','blogs/2026/pricing-first-brand-deal-cover.jpg','https://picsum.photos/seed/zuste-blog-first-brand-deal/1200/630','https://picsum.photos/seed/zuste-blog-first-brand-deal/320/180','image/jpeg','jpg',241870,624310,1,1200,630,NULL,'Creator drafting a rate card on a laptop at home','admin',1,MD5('media-1423'),DATE_SUB(NOW(), INTERVAL 100 DAY)),
@@ -471,7 +478,7 @@ VALUES
 (1432,'local','banners',2,'diwali-festive-banner.webp','diwali banner final.png','banners/festive/diwali-festive-banner.webp','https://picsum.photos/seed/zuste-banner-diwali/1440/720','https://picsum.photos/seed/zuste-banner-diwali/320/160','image/webp','webp',212840,1084730,1,1440,720,NULL,'Diwali festive campaign banner with diya and marigold styling','admin',1,MD5('media-1432'),DATE_SUB(NOW(), INTERVAL 262 DAY)),
 (1433,'local','banners',2,'creator-signup-banner.webp','creator signup banner.png','banners/creators/creator-signup-banner.webp','https://picsum.photos/seed/zuste-banner-creator-signup/1440/720','https://picsum.photos/seed/zuste-banner-creator-signup/320/160','image/webp','webp',176450,892340,1,1440,720,NULL,'Banner encouraging creators to complete their Zusty profile','admin',1,MD5('media-1433'),DATE_SUB(NOW(), INTERVAL 341 DAY)),
 (1434,'local','banners',2,'brand-first-campaign-banner.webp','brand onboarding banner.png','banners/brands/brand-first-campaign-banner.webp','https://picsum.photos/seed/zuste-banner-brand-first-campaign/1440/720','https://picsum.photos/seed/zuste-banner-brand-first-campaign/320/160','image/webp','webp',181920,918660,1,1440,720,NULL,'Banner prompting brands to post their first campaign brief','admin',1,MD5('media-1434'),DATE_SUB(NOW(), INTERVAL 318 DAY)),
-(1435,'local','banners',2,'instant-payout-banner.webp','payout banner.png','banners/product/instant-payout-banner.webp','https://picsum.photos/seed/zuste-banner-instant-payout/1440/720','https://picsum.photos/seed/zuste-banner-instant-payout/320/160','image/webp','webp',169730,861420,1,1440,720,NULL,'Banner announcing instant creator payouts over UPI','admin',1,MD5('media-1435'),DATE_SUB(NOW(), INTERVAL 133 DAY)),
+(1435,'local','banners',2,'upi-payout-banner.webp','payout banner.png','banners/product/upi-payout-banner.webp','https://picsum.photos/seed/zuste-banner-upi-payout/1440/720','https://picsum.photos/seed/zuste-banner-upi-payout/320/160','image/webp','webp',169730,861420,1,1440,720,NULL,'Banner announcing creator payouts to a UPI ID','admin',1,MD5('media-1435'),DATE_SUB(NOW(), INTERVAL 133 DAY)),
 (1436,'local','banners',2,'republic-day-sale-banner.webp','republic day banner.png','banners/festive/republic-day-sale-banner.webp','https://picsum.photos/seed/zuste-banner-republic-day/1440/720','https://picsum.photos/seed/zuste-banner-republic-day/320/160','image/webp','webp',194180,983570,1,1440,720,NULL,'Republic Day offer banner for brand subscriptions','admin',1,MD5('media-1436'),DATE_SUB(NOW(), INTERVAL 191 DAY)),
 (1437,'local','banners',2,'search-empty-state-banner.webp','search empty state.png','banners/app/search-empty-state-banner.webp','https://picsum.photos/seed/zuste-banner-search-empty/960/540','https://picsum.photos/seed/zuste-banner-search-empty/320/180','image/webp','webp',98240,412870,1,960,540,NULL,'Illustration shown when a creator search returns no results','admin',1,MD5('media-1437'),DATE_SUB(NOW(), INTERVAL 296 DAY)),
 (1438,'local','banners',2,'kyc-reminder-banner.webp','kyc reminder banner.png','banners/app/kyc-reminder-banner.webp','https://picsum.photos/seed/zuste-banner-kyc-reminder/1200/600','https://picsum.photos/seed/zuste-banner-kyc-reminder/320/160','image/webp','webp',142360,678930,1,1200,600,NULL,'In-app banner reminding creators to finish KYC verification','admin',1,MD5('media-1438'),DATE_SUB(NOW(), INTERVAL 209 DAY)),
@@ -487,12 +494,12 @@ INSERT INTO media
      mime_type, extension, size_bytes, original_size_bytes, is_optimized,
      width, height, duration_secs, alt_text, uploader_type, uploader_id, checksum, created_at)
 VALUES
-(1443,'local','marketing',5,'zuste-brand-deck-2026.pdf','Zuste Brand Deck 2026 v7.pdf','marketing/decks/zuste-brand-deck-2026.pdf','https://picsum.photos/seed/zuste-marketing-brand-deck/1200/675','https://picsum.photos/seed/zuste-marketing-brand-deck/320/180','application/pdf','pdf',4821340,4821340,0,NULL,NULL,NULL,'Zusty brand sales deck for 2026','admin',1,MD5('media-1443'),DATE_SUB(NOW(), INTERVAL 214 DAY)),
+(1443,'local','marketing',5,'zusty-brand-deck-2026.pdf','Zusty Brand Deck 2026 v7.pdf','marketing/decks/zusty-brand-deck-2026.pdf','https://picsum.photos/seed/zuste-marketing-brand-deck/1200/675','https://picsum.photos/seed/zuste-marketing-brand-deck/320/180','application/pdf','pdf',4821340,4821340,0,NULL,NULL,NULL,'Zusty brand sales deck for 2026','admin',1,MD5('media-1443'),DATE_SUB(NOW(), INTERVAL 214 DAY)),
 (1444,'local','marketing',5,'creator-rate-card-template.pdf','Creator rate card template.pdf','marketing/templates/creator-rate-card-template.pdf','https://picsum.photos/seed/zuste-marketing-rate-card/1200/675','https://picsum.photos/seed/zuste-marketing-rate-card/320/180','application/pdf','pdf',1284730,1284730,0,NULL,NULL,NULL,'Downloadable rate card template for Indian creators','admin',1,MD5('media-1444'),DATE_SUB(NOW(), INTERVAL 189 DAY)),
 (1445,'local','marketing',5,'campaign-brief-template.pdf','Campaign brief one pager.pdf','marketing/templates/campaign-brief-template.pdf','https://picsum.photos/seed/zuste-marketing-brief-template/1200/675','https://picsum.photos/seed/zuste-marketing-brief-template/320/180','application/pdf','pdf',987420,987420,0,NULL,NULL,NULL,'One page campaign brief template for brand teams','admin',1,MD5('media-1445'),DATE_SUB(NOW(), INTERVAL 176 DAY)),
 (1446,'local','marketing',5,'gst-invoice-checklist.pdf','GST invoice checklist for creators.pdf','marketing/guides/gst-invoice-checklist.pdf','https://picsum.photos/seed/zuste-marketing-gst-checklist/1200/675','https://picsum.photos/seed/zuste-marketing-gst-checklist/320/180','application/pdf','pdf',742160,742160,0,NULL,NULL,NULL,'Printable GST invoice checklist for creators','admin',1,MD5('media-1446'),DATE_SUB(NOW(), INTERVAL 302 DAY)),
-(1447,'local','marketing',5,'zuste-explainer-60s.mp4','Zuste explainer final 60s.mp4','marketing/video/zuste-explainer-60s.mp4','https://picsum.photos/seed/zuste-marketing-explainer/1920/1080','https://picsum.photos/seed/zuste-marketing-explainer/320/180','video/mp4','mp4',28471920,64328400,1,1920,1080,61,'Sixty second product explainer for the Zusty marketplace','admin',1,MD5('media-1447'),DATE_SUB(NOW(), INTERVAL 245 DAY)),
-(1448,'local','marketing',5,'creator-testimonial-aanya.mp4','Aanya testimonial cut.mp4','marketing/video/creator-testimonial-aanya.mp4','https://picsum.photos/seed/zuste-marketing-testimonial-aanya/1080/1920','https://picsum.photos/seed/zuste-marketing-testimonial-aanya/320/180','video/mp4','mp4',19238470,41208630,1,1080,1920,38,'Creator testimonial video about escrow payments','admin',1,MD5('media-1448'),DATE_SUB(NOW(), INTERVAL 138 DAY)),
+(1447,'local','marketing',5,'zusty-explainer-60s.mp4','Zusty explainer final 60s.mp4','marketing/video/zusty-explainer-60s.mp4','https://picsum.photos/seed/zuste-marketing-explainer/1920/1080','https://picsum.photos/seed/zuste-marketing-explainer/320/180','video/mp4','mp4',28471920,64328400,1,1920,1080,61,'Sixty second product explainer for the Zusty marketplace','admin',1,MD5('media-1447'),DATE_SUB(NOW(), INTERVAL 245 DAY)),
+(1448,'local','marketing',5,'creator-testimonial-aanya.mp4','Aanya testimonial cut.mp4','marketing/video/creator-testimonial-aanya.mp4','https://picsum.photos/seed/zuste-marketing-testimonial-aanya/1080/1920','https://picsum.photos/seed/zuste-marketing-testimonial-aanya/320/180','video/mp4','mp4',19238470,41208630,1,1080,1920,38,'Creator video about payment protection','admin',1,MD5('media-1448'),DATE_SUB(NOW(), INTERVAL 138 DAY)),
 (1449,'local','marketing',5,'brand-testimonial-velvetfern.mp4','Velvetfern testimonial.mp4','marketing/video/brand-testimonial-velvetfern.mp4','https://picsum.photos/seed/zuste-marketing-testimonial-velvetfern/1080/1920','https://picsum.photos/seed/zuste-marketing-testimonial-velvetfern/320/180','video/mp4','mp4',22104580,47831260,1,1080,1920,44,'Skincare brand founder describing a nano creator launch','admin',1,MD5('media-1449'),DATE_SUB(NOW(), INTERVAL 122 DAY)),
 (1450,'local','marketing',5,'festive-campaign-social-1.jpg','festive social 1.jpg','marketing/social/festive-campaign-social-1.jpg','https://picsum.photos/seed/zuste-marketing-festive-social-1/1080/1080','https://picsum.photos/seed/zuste-marketing-festive-social-1/320/320','image/jpeg','jpg',287340,731920,1,1080,1080,NULL,'Festive social post announcing the Diwali creator wave','admin',1,MD5('media-1450'),DATE_SUB(NOW(), INTERVAL 256 DAY)),
 (1451,'local','marketing',5,'festive-campaign-social-2.jpg','festive social 2.jpg','marketing/social/festive-campaign-social-2.jpg','https://picsum.photos/seed/zuste-marketing-festive-social-2/1080/1080','https://picsum.photos/seed/zuste-marketing-festive-social-2/320/320','image/jpeg','jpg',274180,708440,1,1080,1080,NULL,'Second festive social post with creator rate highlights','admin',1,MD5('media-1451'),DATE_SUB(NOW(), INTERVAL 254 DAY)),
@@ -511,12 +518,12 @@ INSERT INTO media
      mime_type, extension, size_bytes, original_size_bytes, is_optimized,
      width, height, duration_secs, alt_text, uploader_type, uploader_id, checksum, created_at)
 VALUES
-(1459,'local','branding',4,'zuste-logo-primary.png','Zuste logo primary.png','branding/logo/zuste-logo-primary.png','https://picsum.photos/seed/zuste-branding-logo-primary/800/240','https://picsum.photos/seed/zuste-branding-logo-primary/320/96','image/png','png',48730,124860,1,800,240,NULL,'Zusty primary wordmark on a light background','admin',1,MD5('media-1459'),DATE_SUB(NOW(), INTERVAL 421 DAY)),
-(1460,'local','branding',4,'zuste-logo-reverse.png','Zuste logo reverse.png','branding/logo/zuste-logo-reverse.png','https://picsum.photos/seed/zuste-branding-logo-reverse/800/240','https://picsum.photos/seed/zuste-branding-logo-reverse/320/96','image/png','png',46210,119340,1,800,240,NULL,'Zusty wordmark in reverse for dark backgrounds','admin',1,MD5('media-1460'),DATE_SUB(NOW(), INTERVAL 421 DAY)),
-(1461,'local','branding',4,'zuste-app-icon.png','app icon 1024.png','branding/logo/zuste-app-icon.png','https://picsum.photos/seed/zuste-branding-app-icon/1024/1024','https://picsum.photos/seed/zuste-branding-app-icon/320/320','image/png','png',134280,318420,1,1024,1024,NULL,'Zusty application icon at 1024 pixels','admin',1,MD5('media-1461'),DATE_SUB(NOW(), INTERVAL 420 DAY)),
-(1462,'local','branding',4,'zuste-favicon.png','favicon 512.png','branding/logo/zuste-favicon.png','https://picsum.photos/seed/zuste-branding-favicon/512/512','https://picsum.photos/seed/zuste-branding-favicon/128/128','image/png','png',41870,96240,1,512,512,NULL,'Favicon used across the Zusty web properties','admin',1,MD5('media-1462'),DATE_SUB(NOW(), INTERVAL 420 DAY)),
-(1463,'local','branding',4,'zuste-brand-guidelines.pdf','Zuste brand guidelines v3.pdf','branding/guidelines/zuste-brand-guidelines.pdf','https://picsum.photos/seed/zuste-branding-guidelines/1200/675','https://picsum.photos/seed/zuste-branding-guidelines/320/180','application/pdf','pdf',6284310,6284310,0,NULL,NULL,NULL,'Zusty brand guidelines covering logo, colour and type','admin',1,MD5('media-1463'),DATE_SUB(NOW(), INTERVAL 398 DAY)),
-(1464,'local','branding',4,'zuste-colour-palette.png','colour palette sheet.png','branding/guidelines/zuste-colour-palette.png','https://picsum.photos/seed/zuste-branding-palette/1600/900','https://picsum.photos/seed/zuste-branding-palette/320/180','image/png','png',218460,486730,1,1600,900,NULL,'Zusty colour palette reference sheet','admin',1,MD5('media-1464'),DATE_SUB(NOW(), INTERVAL 398 DAY)),
+(1459,'local','branding',4,'zusty-logo-primary.png','Zusty logo primary.png','branding/logo/zusty-logo-primary.png','https://picsum.photos/seed/zuste-branding-logo-primary/800/240','https://picsum.photos/seed/zuste-branding-logo-primary/320/96','image/png','png',48730,124860,1,800,240,NULL,'Zusty primary wordmark on a light background','admin',1,MD5('media-1459'),DATE_SUB(NOW(), INTERVAL 421 DAY)),
+(1460,'local','branding',4,'zusty-logo-reverse.png','Zusty logo reverse.png','branding/logo/zusty-logo-reverse.png','https://picsum.photos/seed/zuste-branding-logo-reverse/800/240','https://picsum.photos/seed/zuste-branding-logo-reverse/320/96','image/png','png',46210,119340,1,800,240,NULL,'Zusty wordmark in reverse for dark backgrounds','admin',1,MD5('media-1460'),DATE_SUB(NOW(), INTERVAL 421 DAY)),
+(1461,'local','branding',4,'zusty-app-icon.png','app icon 1024.png','branding/logo/zusty-app-icon.png','https://picsum.photos/seed/zuste-branding-app-icon/1024/1024','https://picsum.photos/seed/zuste-branding-app-icon/320/320','image/png','png',134280,318420,1,1024,1024,NULL,'Zusty application icon at 1024 pixels','admin',1,MD5('media-1461'),DATE_SUB(NOW(), INTERVAL 420 DAY)),
+(1462,'local','branding',4,'zusty-favicon.png','favicon 512.png','branding/logo/zusty-favicon.png','https://picsum.photos/seed/zuste-branding-favicon/512/512','https://picsum.photos/seed/zuste-branding-favicon/128/128','image/png','png',41870,96240,1,512,512,NULL,'Favicon used across the Zusty web properties','admin',1,MD5('media-1462'),DATE_SUB(NOW(), INTERVAL 420 DAY)),
+(1463,'local','branding',4,'zusty-brand-guidelines.pdf','Zusty brand guidelines v3.pdf','branding/guidelines/zusty-brand-guidelines.pdf','https://picsum.photos/seed/zuste-branding-guidelines/1200/675','https://picsum.photos/seed/zuste-branding-guidelines/320/180','application/pdf','pdf',6284310,6284310,0,NULL,NULL,NULL,'Zusty brand guidelines covering logo, colour and type','admin',1,MD5('media-1463'),DATE_SUB(NOW(), INTERVAL 398 DAY)),
+(1464,'local','branding',4,'zusty-colour-palette.png','colour palette sheet.png','branding/guidelines/zusty-colour-palette.png','https://picsum.photos/seed/zuste-branding-palette/1600/900','https://picsum.photos/seed/zuste-branding-palette/320/180','image/png','png',218460,486730,1,1600,900,NULL,'Zusty colour palette reference sheet','admin',1,MD5('media-1464'),DATE_SUB(NOW(), INTERVAL 398 DAY)),
 (1465,'local','branding',4,'og-default-share-card.png','og default card.png','branding/social/og-default-share-card.png','https://picsum.photos/seed/zuste-branding-og-default/1200/630','https://picsum.photos/seed/zuste-branding-og-default/320/168','image/png','png',196340,442180,1,1200,630,NULL,'Default Open Graph share card for Zusty pages','admin',1,MD5('media-1465'),DATE_SUB(NOW(), INTERVAL 386 DAY)),
 (1466,'local','branding',4,'email-signature-strip.png','email signature strip.png','branding/email/email-signature-strip.png','https://picsum.photos/seed/zuste-branding-signature/600/120','https://picsum.photos/seed/zuste-branding-signature/300/60','image/png','png',28940,64230,1,600,120,NULL,'Email signature strip used by the Zusty team','admin',1,MD5('media-1466'),DATE_SUB(NOW(), INTERVAL 372 DAY)),
 (1467,'local','branding',4,'invoice-letterhead.png','invoice letterhead.png','branding/documents/invoice-letterhead.png','https://picsum.photos/seed/zuste-branding-letterhead/1240/1754','https://picsum.photos/seed/zuste-branding-letterhead/320/452','image/png','png',312840,689420,1,1240,1754,NULL,'Letterhead artwork applied to platform generated invoices','admin',1,MD5('media-1467'),DATE_SUB(NOW(), INTERVAL 344 DAY)),
@@ -649,7 +656,7 @@ ON DUPLICATE KEY UPDATE id = VALUES(id);
 
 
 /* ==========================================================================
- * 4. COUPON REDEMPTIONS  (1701 - 1760, 37 rows produced)
+ * 4. COUPON REDEMPTIONS  (1701 - 1760, 36 rows produced)
  * --------------------------------------------------------------------------
  * Derived from real bookings 401-480 so the redeeming user, the booking and
  * the discount are always internally consistent. The discount is recomputed
@@ -700,6 +707,10 @@ FROM (
       AND b.status IN ('confirmed', 'in_progress', 'delivered', 'completed', 'disputed')
       AND b.amount >= c.min_booking_amount
 ) t
+-- Booking 452 is the store-screenshot booking and is priced without a
+-- discount, so it carries no redemption (filtered after numbering, so the
+-- other rows keep their ids).
+WHERE t.booking_id <> 452
 ON DUPLICATE KEY UPDATE
     coupon_id       = VALUES(coupon_id),
     user_id         = VALUES(user_id),
@@ -717,10 +728,13 @@ UPDATE coupons c
 /* ==========================================================================
  * 5. POPUPS  (1516 - 1520)
  * --------------------------------------------------------------------------
- * The API suite asserts audience targeting against /app/config, so this set
- * deliberately contains one audience = 'all' row (1516) and one
- * audience = 'creators' row (1517), both active, both placement = 'all' and
- * both inside their schedule window.
+ * One row per audience: all (1516), creators (1517), brands (1518), guests
+ * (1519). 1517, the creator verification nudge, is retired (inactive, its
+ * window over): a popup cannot target unverified creators only, so it also
+ * reached verified creators beside their delivered bookings. 1516, the
+ * report modal for everyone, is retired as well, so the only live popups are
+ * the brand Home banner (1518) and the guest bar (1519). The API suite
+ * asserts audience targeting with its own fixture popups.
  * ========================================================================== */
 
 INSERT INTO popups
@@ -731,22 +745,22 @@ INSERT INTO popups
 VALUES
 (1516, 'Creator economy report announcement', 'modal',
  'The 2026 creator economy report is almost here',
- 'A full year of Indian creator rates, category growth and payment data, drawn from every booking that moved through Zusty. Join the list and we will send it the day it publishes.',
+ 'A year of Indian creator rates and category trends, written up by the Zusty team. Join the list and we will send it the day it publishes.',
  'https://picsum.photos/seed/zuste-popup-report-2026/900/600',
  '#0F172A', '#FFFFFF',
  'Notify me', 'screen', '/blog/the-2026-indian-creator-economy-report',
  'all', 'all', 'delay', 4, 'once_per_day', 1, 48920, 3714, 12480,
- DATE_SUB(NOW(), INTERVAL 9 DAY), DATE_ADD(NOW(), INTERVAL 21 DAY), 1, 90,
- DATE_SUB(NOW(), INTERVAL 11 DAY), DATE_SUB(NOW(), INTERVAL 9 DAY)),
+ DATE_SUB(NOW(), INTERVAL 40 DAY), DATE_SUB(NOW(), INTERVAL 10 DAY), 0, 90,
+ DATE_SUB(NOW(), INTERVAL 42 DAY), DATE_SUB(NOW(), INTERVAL 10 DAY)),
 
 (1517, 'Creator KYC completion nudge', 'slide_in',
- 'Finish KYC so your payouts land instantly',
- 'Brands can fund a booking in minutes, but we cannot release your money until PAN and bank verification are done. It takes about four minutes.',
+ 'Finish verification to unlock payouts',
+ 'Verified creators can accept bookings and withdraw earnings. A person on our team reviews every submission.',
  'https://picsum.photos/seed/zuste-popup-kyc-nudge/900/600',
  '#065F46', '#FFFFFF',
  'Complete KYC', 'screen', '/kyc',
  'all', 'creators', 'delay', 8, 'once_per_day', 1, 31480, 6120, 7940,
- DATE_SUB(NOW(), INTERVAL 64 DAY), DATE_ADD(NOW(), INTERVAL 120 DAY), 1, 80,
+ DATE_SUB(NOW(), INTERVAL 64 DAY), DATE_SUB(NOW(), INTERVAL 12 DAY), 0, 80,
  DATE_SUB(NOW(), INTERVAL 66 DAY), DATE_SUB(NOW(), INTERVAL 12 DAY)),
 
 (1518, 'Brand first campaign prompt', 'banner',
@@ -761,7 +775,7 @@ VALUES
 
 (1519, 'Guest sign up prompt', 'announcement_bar',
  'Create a free account to save creators',
- 'Shortlists, saved searches and rate history stay with your account. Signing up takes a phone number and about thirty seconds.',
+ 'Shortlists, saved searches and rate history stay with your account. Signing up takes an email address and about thirty seconds.',
  NULL,
  '#111827', '#F9FAFB',
  'Sign up free', 'screen', '/auth/register',
@@ -906,11 +920,11 @@ VALUES
  DATE_SUB(NOW(), INTERVAL 96 HOUR), DATE_SUB(NOW(), INTERVAL 88 HOUR)),
 
 (1615, 'ZT100315', 1003, 454,
- 'Can we split ZB2400454 into two milestones before the shoot',
+ 'Can we pay ZB2400454 in two parts before the shoot',
  'booking', 'normal', 'resolved', 1,
  DATE_SUB(NOW(), INTERVAL 666 HOUR), DATE_SUB(NOW(), INTERVAL 648 HOUR), 'agent',
  DATE_SUB(NOW(), INTERVAL 636 HOUR), NULL, 5,
- 'Milestone split was set up exactly as we asked and the creator was happy with it.',
+ 'Clear answer, and two bookings suited us better anyway.',
  DATE_SUB(NOW(), INTERVAL 672 HOUR), DATE_SUB(NOW(), INTERVAL 636 HOUR)),
 
 (1616, 'ZT100316', 2004, 459,
@@ -920,12 +934,12 @@ VALUES
  NULL, NULL, NULL, NULL,
  DATE_SUB(NOW(), INTERVAL 264 HOUR), DATE_SUB(NOW(), INTERVAL 246 HOUR)),
 
-(1617, 'ZT100317', 1001, 452,
- 'Platform fee and GST on ZB2400452 do not match our purchase order',
+(1617, 'ZT100317', 1001, 432,
+ 'GST on ZB2400432 does not match our purchase order',
  'payment', 'normal', 'closed', 1,
  DATE_SUB(NOW(), INTERVAL 1770 HOUR), DATE_SUB(NOW(), INTERVAL 1728 HOUR), 'agent',
  DATE_SUB(NOW(), INTERVAL 1728 HOUR), DATE_SUB(NOW(), INTERVAL 1704 HOUR), 5,
- 'Clear breakdown of the 15 percent commission and 18 percent GST. Query closed.',
+ 'Explained the GST on the booking. Query closed.',
  DATE_SUB(NOW(), INTERVAL 1776 HOUR), DATE_SUB(NOW(), INTERVAL 1704 HOUR)),
 
 (1618, 'ZT100318', 2037, 449,
@@ -970,7 +984,7 @@ VALUES
  'I delivered the baby skincare Reel on ZB2400429 eleven days ago and the brand accepted it in the chat. The booking now says disputed and my payout of Rs 80,750 after commission is still held. Nobody has told me what the dispute is about.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 144 HOUR)),
 (1622, 1601, 'agent', 1, 'Zusty Support',
- 'Thanks for flagging this Sourav. The brand raised a scope dispute on 4 November, which is why escrow is holding rather than releasing. I have pulled both the brief and your delivery thread and I am reviewing them now. Funds stay protected while this is open, so nothing is at risk.',
+ 'Thanks for flagging this Sourav. The brand raised a scope dispute on 4 November, which is why the payment is held rather than released. I have pulled both the brief and your delivery thread and I am reviewing them now. The payment stays held by Zusty while our team reviews it, and nothing is released until the dispute is resolved.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 138 HOUR)),
 (1623, 1601, 'user', 2011, 'Sourav Dutta',
  'The brief asked for one Reel plus two story frames and that is exactly what I sent. I have the approval message from their marketing manager on 2 November if that helps.',
@@ -981,12 +995,12 @@ VALUES
  'The delivered Reel on ZB2400429 does not include the ingredient callout we specified as a mandatory in the brief, and the product label is out of focus for most of the video. We have asked for a fix twice in the booking chat.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 120 HOUR)),
 (1625, 1602, 'agent', 1, 'Zusty Support',
- 'Understood. I have this linked with the creator side of the same dispute and I am comparing the delivered asset against the mandatories in your brief. Escrow stays held until we close this. I will come back to both of you with a single decision rather than two separate threads.',
+ 'Understood. I have this linked with the creator side of the same dispute and I am comparing the delivered asset against the mandatories in your brief. The payment stays held until we close this. I will come back to both of you with a single decision rather than two separate threads.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 116 HOUR)),
 
 -- 1603 pending_agent, revision scope dispute
 (1626, 1603, 'user', 2015, 'Harmeet Singh',
- 'ZB2400434 was booked with two revision rounds written into the deliverables. I have done three. The brand is now asking for a fourth reshoot with a different location and my payout is still sitting in escrow.',
+ 'ZB2400434 was booked with two revision rounds written into the deliverables. I have done three. The brand is now asking for a fourth reshoot with a different location and my payment is still on hold.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 216 HOUR)),
 (1627, 1603, 'agent', 1, 'Zusty Support',
  'The booking record does show two included revisions. A fourth round is out of scope and the brand would need to agree a variation and fee for it. Could you send me the last two change requests so I can date them against your deliveries?',
@@ -1055,7 +1069,7 @@ VALUES
  'ZB2400442 was booked for an itinerary carousel. The creator has delivered a Reel. The Reel is good but a carousel is what our audience screenshots, which is the whole reason we specified it.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 792 HOUR)),
 (1646, 1607, 'agent', 1, 'Zusty Support',
- 'The booking deliverable type does read carousel, so this is a genuine mismatch and not a preference. I have opened a change request with the creator asking for the carousel as originally scoped, with the Reel kept as a bonus asset at no extra cost. Escrow stays held meanwhile.',
+ 'The booking deliverable type does read carousel, so this is a genuine mismatch and not a preference. I have opened a change request with the creator asking for the carousel as originally scoped, with the Reel kept as a bonus asset at no extra cost. The payment stays held meanwhile.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 786 HOUR)),
 (1647, 1607, 'user', 1011, 'Homestay Hopper Trips',
  'That works for us. We are happy to keep the Reel.',
@@ -1066,7 +1080,7 @@ VALUES
 
 -- 1608 open, untriaged wallet query
 (1649, 1608, 'user', 2031, 'Nandini Rao',
- 'My wallet shows a zero balance but the booking screen for ZB2400453 says the milestone was released two days ago. The transaction list is empty as well. Has something failed on your side?',
+ 'My wallet shows a zero balance but the booking screen for ZB2400453 says the payment was released two days ago. The transaction list is empty as well. Has something failed on your side?',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 72 HOUR)),
 (1650, 1608, 'system', NULL, 'Zusty System',
  'Ticket received and queued for a support agent. Typical first response time on wallet queries is under 6 hours.',
@@ -1141,30 +1155,30 @@ VALUES
 
 -- 1614 open, account change
 (1670, 1614, 'user', 2022, 'Rohan Verma',
- 'I have changed my number and the app will not let me update it. It sends the OTP to the old number, which I no longer have access to.',
+ 'I have changed my number and the old one still shows on my profile. How do I update it?',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 96 HOUR)),
 (1671, 1614, 'agent', 1, 'Zusty Support',
- 'A number change needs verification through a second factor since the old SIM is gone. I can send a verification link to the email on your account instead. Please confirm the email address ending in the same domain you registered with, and I will trigger it.',
+ 'You can change it under Profile > Email & mobile. We never send codes to a phone number. If the screen does not let you save it, reply here and I will update it for you once I have checked it is you.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 92 HOUR)),
 (1672, 1614, 'user', 2022, 'Rohan Verma',
- 'Confirmed, that is the right email. I have not received the link yet, checked spam too.',
+ 'Thanks. It still will not save the new number, so please update it for me.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 88 HOUR)),
 
--- 1615 resolved, milestone split request
+-- 1615 resolved, request to pay in two parts
 (1673, 1615, 'user', 1003, 'Chutneyverse Foods',
  'ZB2400454 is Rs 82,500 and involves a two day shoot. We would like to release part of it on concept approval and the rest on final delivery. Is that possible after the booking is already confirmed?',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 672 HOUR)),
 (1674, 1615, 'agent', 1, 'Zusty Support',
- 'Yes, milestone splits can be applied to a confirmed booking as long as the creator agrees. The usual structure is 40 percent on concept or script approval and 60 percent on accepted delivery. Would that split work for you?',
+ 'A booking is paid once and the whole payment is held by Zusty until you approve the delivered work, so it cannot be released in parts. If you want to sign off the concept separately, the usual route is two bookings with the same creator: one for the concept and script, one for the final shoot.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 666 HOUR)),
 (1675, 1615, 'user', 1003, 'Chutneyverse Foods',
- 'Yes. 40 and 60 is fine.',
+ 'Understood. We will keep this booking for the shoot and send a separate one for the script.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 660 HOUR)),
 (1676, 1615, 'agent', 1, 'Zusty Support',
- 'Done. The booking now shows two milestones, Rs 33,000 on concept approval and Rs 49,500 on accepted delivery, both funded from the escrow you already paid. The creator has accepted the change and confirmed the shoot dates are unaffected.',
+ 'That works. Nothing changes on ZB2400454: the payment stays held until you approve the final delivery. The creator has confirmed the shoot dates are unaffected.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 648 HOUR)),
 (1677, 1615, 'system', NULL, 'Zusty System',
- 'Ticket marked resolved. Booking ZB2400454 updated with a two milestone escrow schedule.',
+ 'Ticket marked resolved. No change to booking ZB2400454.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 636 HOUR)),
 
 -- 1616 pending_agent, GSTIN validation
@@ -1181,24 +1195,24 @@ VALUES
  'Following up on this. I have a booking worth Rs 4,50,000 confirmed and I would rather not hold up the invoice at the end of it.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 246 HOUR)),
 
--- 1617 closed, fee and tax breakdown query
+-- 1617 closed, GST breakdown query
 (1682, 1617, 'user', 1001, 'Velvetfern Skincare',
- 'Our PO for ZB2400452 was raised for Rs 3,25,000 but the amount charged was Rs 3,83,500. Finance has flagged it. Can you break down the difference?',
+ 'Our PO for ZB2400432 covered the Rs 1,25,000 creator fee only, so the Rs 1,47,500 charged was higher than finance expected. Can you break down the difference?',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1776 HOUR)),
 (1683, 1617, 'agent', 1, 'Zusty Support',
- 'The Rs 3,25,000 is the creator fee only. On top of that sits the platform fee of 15 percent, Rs 48,750, and GST at 18 percent on that platform fee, Rs 8,775. That gives a total of Rs 3,82,525. I will check the remaining difference against your booking and come back.',
+ 'Your PO covered the creator fee. The difference is GST at 18 percent on that fee, Rs 22,500, split on the invoice as Rs 11,250 CGST and Rs 11,250 SGST, and shown on the booking before you pay. I will attach the itemised invoice so finance can match it line by line.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1770 HOUR)),
 (1684, 1617, 'user', 1001, 'Velvetfern Skincare',
- 'Understood on the fee and tax. What is the remaining Rs 975?',
+ 'Understood. Could the summary screen show those lines before checkout as well?',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1764 HOUR)),
 (1685, 1617, 'agent', 1, 'Zusty Support',
- 'That is a rush turnaround surcharge agreed in the booking chat when you moved the delivery date forward by four days. It was accepted on the thread but it was not itemised clearly on the summary screen, which is a fair complaint.',
+ 'It does, under the price breakdown on the booking, but it is easy to miss on a small screen, which is a fair complaint.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1752 HOUR)),
 (1686, 1617, 'user', 1001, 'Velvetfern Skincare',
- 'That reconciles. Please do surface surcharges as their own line, it would have saved this thread.',
+ 'That reconciles. Please make the breakdown easier to spot, it would have saved this thread.',
  NULL, 0, DATE_SUB(NOW(), INTERVAL 1740 HOUR)),
 (1687, 1617, 'agent', 1, 'Zusty Support',
- 'Agreed, and I have logged it as a product request. A fully itemised invoice with the surcharge on its own line is now attached to the booking. Closing this, thanks for the clear write up.',
+ 'Agreed, and I have logged it as a product request. The itemised invoice is attached to the booking. Closing this, thanks for the clear write up.',
  '["https://picsum.photos/seed/zuste-ticket-1617-invoice/1240/1754"]', 0, DATE_SUB(NOW(), INTERVAL 1728 HOUR)),
 
 -- 1618 pending_user, failed UPI withdrawal
@@ -1244,124 +1258,124 @@ INSERT INTO contact_messages
     (id, name, email, phone, subject, message, source, status,
      replied_by, replied_at, reply_body, ip_address, created_at)
 VALUES
-(1801, 'Ritika Sharma', 'ritika@thebrewbarcafe.in', '+919820114477',
+(1801, 'Ritika Sharma', 'ritika.sharma@example.com', '+919000001801',
  'Do you have creators in Nagpur',
  'We run a small cafe chain in Nagpur and want to work with local food creators for our new outlet. Most platforms only show Mumbai and Pune. Do you have anyone in tier two cities in Maharashtra?',
  'web', 'replied', 1, DATE_SUB(NOW(), INTERVAL 386 DAY),
  'We do. There are food and lifestyle creators listed in Nagpur, Nashik and Aurangabad. Filter by city on the search screen and set the category to Food. Happy to shortlist a few for you if you share your budget band.',
- '49.36.184.22', DATE_SUB(NOW(), INTERVAL 388 DAY)),
+ '198.51.100.11', DATE_SUB(NOW(), INTERVAL 388 DAY)),
 
-(1802, 'Aniruddh Menon', 'aniruddh.menon@kavyacreatives.com', '+919845220913',
+(1802, 'Aniruddh Menon', 'aniruddh.menon@example.com', '+919000001802',
  'Agency partnership enquiry',
  'We are a 14 person influencer agency in Kochi managing about 60 creators. Is there an agency account type where we can manage multiple creator profiles and consolidated invoicing from one login?',
  'web', 'replied', 1, DATE_SUB(NOW(), INTERVAL 352 DAY),
  'Agency accounts are on the roadmap. Today the cleanest route is a brand account for booking plus individual creator accounts for your roster. I have added you to the early access list for agency billing.',
- '106.51.72.140', DATE_SUB(NOW(), INTERVAL 354 DAY)),
+ '203.0.113.12', DATE_SUB(NOW(), INTERVAL 354 DAY)),
 
-(1803, 'Farhan Sheikh', 'farhan@zaykadelights.in', '+919920448101',
+(1803, 'Farhan Sheikh', 'farhan.sheikh@example.com', '+919000001803',
  'Payment failed but money debited',
  'I tried to fund a booking of Rs 34,000 twice and both times the payment page said failed, but my bank shows two debits. Please help, this is urgent.',
  'app', 'replied', 1, DATE_SUB(NOW(), INTERVAL 296 DAY),
  'Both debits were authorisation holds that the gateway did not capture, and they auto-reverse within five working days. I have raised a manual reversal so it should be quicker. Your booking was funded on the third attempt only, so you have been charged once.',
- '223.190.87.53', DATE_SUB(NOW(), INTERVAL 297 DAY)),
+ '192.0.2.13', DATE_SUB(NOW(), INTERVAL 297 DAY)),
 
-(1804, 'Devika Nair', 'devika.nair@outlook.com', NULL,
+(1804, 'Devika Nair', 'devika.nair@example.com', NULL,
  'How do I become a verified creator',
  'I have 31,000 followers on Instagram and post about Kerala home cooking. What do I need to do to get the verified badge on my profile so brands take me seriously?',
  'app', 'replied', 1, DATE_SUB(NOW(), INTERVAL 268 DAY),
- 'Complete KYC with your PAN, a government ID and a bank account. Once identity verification passes you get the blue identity badge. The business badge needs a GSTIN and the premium badge is earned after ten completed bookings with a rating above 4.5.',
- '117.203.44.198', DATE_SUB(NOW(), INTERVAL 270 DAY)),
+ 'Complete verification in the app with your PAN and a masked copy of your Aadhaar. A person on our team reviews every submission, and the blue tick appears only after that approval.',
+ '198.51.100.14', DATE_SUB(NOW(), INTERVAL 270 DAY)),
 
-(1805, 'Karan Bhatia', 'karan@urbanleaforganics.com', '+919711045522',
+(1805, 'Karan Bhatia', 'karan.bhatia@example.com', '+919000001805',
  'Bulk booking for a 20 creator campaign',
  'Planning a Diwali wave with roughly 20 nano creators across Delhi NCR. Is there a way to send the same brief to all of them at once instead of messaging each profile?',
  'web', 'replied', 1, DATE_SUB(NOW(), INTERVAL 244 DAY),
  'Yes. Post a campaign brief with your deliverables, budget band and city preference and matching creators apply to it. You can then shortlist, compare side by side and send offers to the whole shortlist in one action.',
- '103.87.56.210', DATE_SUB(NOW(), INTERVAL 246 DAY)),
+ '203.0.113.15', DATE_SUB(NOW(), INTERVAL 246 DAY)),
 
-(1806, 'Sneha Iyengar', 'sneha.iyengar@gmail.com', '+919886321470',
+(1806, 'Sneha Iyengar', 'sneha.iyengar@example.com', '+919000001806',
  'Creator rates seem inconsistent',
  'I looked at four creators with similar follower counts in Bengaluru and their Reel rates ranged from Rs 8,000 to Rs 41,000. How am I supposed to judge what is fair?',
  'app', 'replied', 1, DATE_SUB(NOW(), INTERVAL 208 DAY),
  'Follower count is a weak predictor of rate. Compare on average delivered views instead, which is on each profile, and check what usage rights are included. Our rate benchmark article on the blog has the tier ranges we see across the platform.',
- '49.207.181.66', DATE_SUB(NOW(), INTERVAL 210 DAY)),
+ '192.0.2.16', DATE_SUB(NOW(), INTERVAL 210 DAY)),
 
-(1807, 'Rahul Deshmukh', 'rahul.deshmukh@fitfuel.co.in', '+919673302188',
+(1807, 'Rahul Deshmukh', 'rahul.deshmukh@example.com', '+919000001807',
  'Invoice needed for a completed booking',
  'We completed a booking last month and our accounts team needs a tax invoice with our GSTIN on it. I cannot find where to download it.',
  'app', 'replied', 1, DATE_SUB(NOW(), INTERVAL 176 DAY),
  'The platform fee invoice sits on the booking detail screen under Billing. If your GSTIN was added after the booking was created you will need to add it in Business profile and then regenerate. I have regenerated this one for you.',
- '106.212.90.14', DATE_SUB(NOW(), INTERVAL 177 DAY)),
+ '198.51.100.17', DATE_SUB(NOW(), INTERVAL 177 DAY)),
 
-(1808, 'Meenakshi Rao', 'meenakshi@saanjhstudio.in', '+919845667102',
+(1808, 'Meenakshi Rao', 'meenakshi.rao@example.com', '+919000001808',
  'Partnership for a creator workshop in Hyderabad',
  'We run creator workshops and would like to co-host one on pricing and contracts in Hyderabad. Is there someone on your team who handles community partnerships?',
  'web', 'read', NULL, NULL, NULL,
- '49.37.211.88', DATE_SUB(NOW(), INTERVAL 132 DAY)),
+ '203.0.113.18', DATE_SUB(NOW(), INTERVAL 132 DAY)),
 
-(1809, 'Vikas Chandra', 'vikas@northstarmedia.in', '+919312778045',
+(1809, 'Vikas Chandra', 'vikas.chandra@example.com', '+919000001809',
  'Press enquiry about your creator economy report',
  'I write for a business daily and would like to cover the rate data in your annual report. Can someone share the methodology and an embargoed copy?',
  'web', 'read', NULL, NULL, NULL,
- '182.68.144.203', DATE_SUB(NOW(), INTERVAL 96 DAY)),
+ '192.0.2.19', DATE_SUB(NOW(), INTERVAL 96 DAY)),
 
-(1810, 'Pooja Kulkarni', 'pooja.kulkarni@yahoo.in', NULL,
- 'Cannot log in after changing my phone',
- 'I changed my SIM and now I cannot receive the OTP. My email is on the account. Please help me get back in.',
+(1810, 'Pooja Kulkarni', 'pooja.kulkarni@example.com', NULL,
+ 'Cannot log in after changing my password',
+ 'I changed my password last week and now the app says it is wrong. My email is on the account. Please help me get back in.',
  'app', 'replied', 1, DATE_SUB(NOW(), INTERVAL 88 DAY),
- 'I have sent a verification link to the email on your account. Open it on the device you want to sign in from and you will be able to set a new phone number without the old OTP.',
- '157.32.19.77', DATE_SUB(NOW(), INTERVAL 89 DAY)),
+ 'Choose Forgot password on the login screen, or sign in with a code sent to the email on your account, and then set a new password in Settings.',
+ '198.51.100.20', DATE_SUB(NOW(), INTERVAL 89 DAY)),
 
-(1811, 'Imran Qureshi', 'imran@hyperloopgaming.gg', '+919990018822',
+(1811, 'Imran Qureshi', 'imran.qureshi@example.com', '+919000001811',
  'Do you support YouTube long form bookings',
  'Most of our spend is on 8 to 12 minute YouTube integrations rather than Reels. Can creators list a long form integration package on your platform?',
  'web', 'replied', 1, DATE_SUB(NOW(), INTERVAL 64 DAY),
  'Yes. Creators can list a YouTube integration package with their own duration and pricing, and the deliverable type on a booking supports video and bundle. Filter by platform YouTube on search to see who offers it.',
- '103.108.5.91', DATE_SUB(NOW(), INTERVAL 65 DAY)),
+ '203.0.113.21', DATE_SUB(NOW(), INTERVAL 65 DAY)),
 
-(1812, 'Anjali Verma', 'anjali.verma@rootsandroast.in', '+919845120033',
- 'Creator ghosted us after taking the advance',
- 'A creator accepted our booking, took the milestone release and has not responded in nine days. What is the process here?',
+(1812, 'Anjali Verma', 'anjali.verma@example.com', '+919000001812',
+ 'Creator stopped responding after we paid',
+ 'A creator accepted our paid booking and has not responded in nine days. What is the process here?',
  'app', 'replied', 1, DATE_SUB(NOW(), INTERVAL 51 DAY),
- 'Please raise this from the booking itself so it opens a dispute and freezes any remaining escrow. I have opened one on your behalf. If the creator does not respond within the review window the released milestone can be reversed.',
- '49.36.240.15', DATE_SUB(NOW(), INTERVAL 52 DAY)),
+ 'Please raise this from the booking itself so it opens a dispute. The payment stays held by Zusty while our team reviews it, and nothing is released to the creator until the review is done. I have opened one on your behalf.',
+ '192.0.2.22', DATE_SUB(NOW(), INTERVAL 52 DAY)),
 
-(1813, 'Tanmay Ghosh', 'tanmay@bengalbitesco.in', '+919831442277',
+(1813, 'Tanmay Ghosh', 'tanmay.ghosh@example.com', '+919000001813',
  'Bengali creators for a sweets brand',
  'We are launching a packaged mishti brand in Kolkata and want Bengali language food creators. How many are listed and can we filter by language?',
  'web', 'replied', 1, DATE_SUB(NOW(), INTERVAL 38 DAY),
  'Language is a filter on the search screen alongside city and category. There are Bengali food and lifestyle creators listed across Kolkata, Howrah and Siliguri. Regional language content has been our fastest growing segment this year.',
- '43.241.146.208', DATE_SUB(NOW(), INTERVAL 39 DAY)),
+ '198.51.100.23', DATE_SUB(NOW(), INTERVAL 39 DAY)),
 
-(1814, 'Nishant Kalra', 'nishant.kalra@proton.me', NULL,
+(1814, 'Nishant Kalra', 'nishant.kalra@example.com', NULL,
  'Suggestion for the app',
  'It would be genuinely useful if the search results could be sorted by average delivery time. Right now I have to open each profile to see it.',
  'app', 'read', NULL, NULL, NULL,
- '152.58.203.44', DATE_SUB(NOW(), INTERVAL 27 DAY)),
+ '203.0.113.24', DATE_SUB(NOW(), INTERVAL 27 DAY)),
 
-(1815, 'Growth Partners Team', 'partnerships@boostmyreach.biz', NULL,
- 'Guaranteed 100k followers in 30 days',
- 'Hello sir we provide guaranteed follower growth and engagement packages at lowest price in market. Reply for rate list. We also do YouTube subscribers and Instagram verification.',
+(1815, 'Growth Partners Team', 'spam.followers@example.com', NULL,
+ 'Get 100k followers in 30 days',
+ 'Hello sir we provide fast follower growth and engagement packages at lowest price in market. Reply for rate list. We also do YouTube subscribers and Instagram verification.',
  'web', 'spam', NULL, NULL, NULL,
- '45.116.232.19', DATE_SUB(NOW(), INTERVAL 21 DAY)),
+ '192.0.2.25', DATE_SUB(NOW(), INTERVAL 21 DAY)),
 
-(1816, 'SEO Outreach', 'links@rankfasterpro.net', NULL,
+(1816, 'SEO Outreach', 'spam.backlinks@example.com', NULL,
  'Guest post opportunity on your blog',
  'We noticed your blog has good domain authority. We would like to publish a sponsored guest post with two dofollow links. Please share your pricing.',
  'web', 'spam', NULL, NULL, NULL,
- '185.220.101.47', DATE_SUB(NOW(), INTERVAL 16 DAY)),
+ '198.51.100.26', DATE_SUB(NOW(), INTERVAL 16 DAY)),
 
-(1817, 'Shruti Balan', 'shruti@olivetreekitchen.in', '+919900773311',
+(1817, 'Shruti Balan', 'shruti.balan@example.com', '+919000001817',
  'Is there a minimum spend to start',
  'We are a very small brand with a monthly influencer budget of about Rs 25,000. Is that too small to be useful on Zusty?',
  'app', 'new', NULL, NULL, NULL,
- '117.216.44.129', DATE_SUB(NOW(), INTERVAL 9 DAY)),
+ '203.0.113.27', DATE_SUB(NOW(), INTERVAL 9 DAY)),
 
-(1818, 'Abhinav Rastogi', 'abhinav@quiltandcotton.in', '+919711220054',
+(1818, 'Abhinav Rastogi', 'abhinav.rastogi@example.com', '+919000001818',
  'Whitelisting and dark posts',
  'Can we run dark posts from a creator handle through your platform, or does that have to be arranged privately with each creator?',
  'web', 'new', NULL, NULL, NULL,
- '103.211.18.60', DATE_SUB(NOW(), INTERVAL 4 DAY))
+ '192.0.2.28', DATE_SUB(NOW(), INTERVAL 4 DAY))
 ON DUPLICATE KEY UPDATE id = VALUES(id);
 
 
@@ -1377,46 +1391,46 @@ INSERT INTO newsletter_subscribers
     (id, email, name, user_id, source, status, unsubscribe_token,
      subscribed_at, unsubscribed_at)
 VALUES
-(1851, 'hello@glowtheory.in',            'Velvetfern Skincare',  1001, 'app',    'subscribed',   MD5('ns-1851'), DATE_SUB(NOW(), INTERVAL 418 DAY), NULL),
-(1852, 'team@masalamonkfoods.in',        'Chutneyverse Foods',     1003, 'app',    'subscribed',   MD5('ns-1852'), DATE_SUB(NOW(), INTERVAL 410 DAY), NULL),
-(1853, 'brand@paysetu.com',              'Kiranapay Labs',  1005, 'app',    'subscribed',   MD5('ns-1853'), DATE_SUB(NOW(), INTERVAL 402 DAY), NULL),
-(1854, 'hello@korathreads.com',          'Sanganera Looms',          1007, 'app',    'subscribed',   MD5('ns-1854'), DATE_SUB(NOW(), INTERVAL 396 DAY), NULL),
-(1855, 'growth@scholarleap.in',          'Doubtbuster Academy',       1009, 'app',    'unsubscribed', MD5('ns-1855'), DATE_SUB(NOW(), INTERVAL 388 DAY), DATE_SUB(NOW(), INTERVAL 122 DAY)),
-(1856, 'trips@wanderloom.in',            'Homestay Hopper Trips',     1011, 'app',    'subscribed',   MD5('ns-1856'), DATE_SUB(NOW(), INTERVAL 379 DAY), NULL),
-(1857, 'press@pixelforgegames.in',       'Tiffinbox Games',      1013, 'app',    'subscribed',   MD5('ns-1857'), DATE_SUB(NOW(), INTERVAL 371 DAY), NULL),
-(1858, 'connect@torqline.in',            'Detailbay Motors',       1015, 'app',    'subscribed',   MD5('ns-1858'), DATE_SUB(NOW(), INTERVAL 362 DAY), NULL),
-(1859, 'care@ayurbloom.in',              'Kashayam Kendra Wellness',   1017, 'app',    'subscribed',   MD5('ns-1859'), DATE_SUB(NOW(), INTERVAL 354 DAY), NULL),
-(1860, 'studio@terracottahome.in',       'Dhokra Den Home',       1019, 'app',    'subscribed',   MD5('ns-1860'), DATE_SUB(NOW(), INTERVAL 347 DAY), NULL),
-(1861, 'aanya.kapoor@gmail.com',         'Aanya Kapoor',          2001, 'app',    'subscribed',   MD5('ns-1861'), DATE_SUB(NOW(), INTERVAL 340 DAY), NULL),
-(1862, 'kabirlivesit@gmail.com',         'Kabir Sethi',           2003, 'app',    'subscribed',   MD5('ns-1862'), DATE_SUB(NOW(), INTERVAL 332 DAY), NULL),
-(1863, 'draped.by.ishita@gmail.com',     'Ishita Rane',           2005, 'app',    'subscribed',   MD5('ns-1863'), DATE_SUB(NOW(), INTERVAL 324 DAY), NULL),
-(1864, 'tanvitrails@gmail.com',          'Tanvi Deshpande',       2007, 'app',    'subscribed',   MD5('ns-1864'), DATE_SUB(NOW(), INTERVAL 316 DAY), NULL),
-(1865, 'chefaditi.eats@gmail.com',       'Aditi Ranganathan',     2010, 'app',    'subscribed',   MD5('ns-1865'), DATE_SUB(NOW(), INTERVAL 308 DAY), NULL),
-(1866, 'masalamemoirs@gmail.com',        'Preeti Ahuja',          2012, 'app',    'unsubscribed', MD5('ns-1866'), DATE_SUB(NOW(), INTERVAL 300 DAY), DATE_SUB(NOW(), INTERVAL 74 DAY)),
-(1867, 'fitwithsanaya@gmail.com',        'Sanaya Kotak',          2014, 'app',    'subscribed',   MD5('ns-1867'), DATE_SUB(NOW(), INTERVAL 292 DAY), NULL),
-(1868, 'gadgetgirlneha@gmail.com',       'Neha Kulkarni',         2017, 'app',    'subscribed',   MD5('ns-1868'), DATE_SUB(NOW(), INTERVAL 284 DAY), NULL),
-(1869, 'skinwithkavya@gmail.com',        'Kavya Reddy',           2020, 'app',    'subscribed',   MD5('ns-1869'), DATE_SUB(NOW(), INTERVAL 276 DAY), NULL),
-(1870, 'yogawithmeera@gmail.com',        'Meera Subramanian',     2025, 'app',    'subscribed',   MD5('ns-1870'), DATE_SUB(NOW(), INTERVAL 268 DAY), NULL),
-(1871, 'paisawithpriya@gmail.com',       'Priya Jain',            2033, 'app',    'subscribed',   MD5('ns-1871'), DATE_SUB(NOW(), INTERVAL 260 DAY), NULL),
-(1872, 'evwithkrishna@gmail.com',        'Krishna Menon',         2039, 'app',    'bounced',      MD5('ns-1872'), DATE_SUB(NOW(), INTERVAL 252 DAY), NULL),
-(1873, 'inkbyanushka@gmail.com',         'Anushka Pathak',        2044, 'app',    'subscribed',   MD5('ns-1873'), DATE_SUB(NOW(), INTERVAL 244 DAY), NULL),
-(1874, 'ritika@thebrewbarcafe.in',       'Ritika Sharma',         NULL, 'web',    'subscribed',   MD5('ns-1874'), DATE_SUB(NOW(), INTERVAL 388 DAY), NULL),
-(1875, 'aniruddh.menon@kavyacreatives.com', 'Aniruddh Menon',     NULL, 'web',    'subscribed',   MD5('ns-1875'), DATE_SUB(NOW(), INTERVAL 354 DAY), NULL),
-(1876, 'karan@urbanleaforganics.com',    'Karan Bhatia',          NULL, 'web',    'subscribed',   MD5('ns-1876'), DATE_SUB(NOW(), INTERVAL 246 DAY), NULL),
-(1877, 'sneha.iyengar@gmail.com',        'Sneha Iyengar',         NULL, 'web',    'subscribed',   MD5('ns-1877'), DATE_SUB(NOW(), INTERVAL 210 DAY), NULL),
-(1878, 'meenakshi@saanjhstudio.in',      'Meenakshi Rao',         NULL, 'web',    'subscribed',   MD5('ns-1878'), DATE_SUB(NOW(), INTERVAL 132 DAY), NULL),
-(1879, 'vikas@northstarmedia.in',        'Vikas Chandra',         NULL, 'web',    'subscribed',   MD5('ns-1879'), DATE_SUB(NOW(), INTERVAL 96 DAY),  NULL),
-(1880, 'tanmay@bengalbitesco.in',        'Tanmay Ghosh',          NULL, 'web',    'subscribed',   MD5('ns-1880'), DATE_SUB(NOW(), INTERVAL 39 DAY),  NULL),
-(1881, 'abhinav@quiltandcotton.in',      'Abhinav Rastogi',       NULL, 'web',    'subscribed',   MD5('ns-1881'), DATE_SUB(NOW(), INTERVAL 4 DAY),   NULL),
-(1882, 'nandita.pillai@brandhaus.in',    'Nandita Pillai',        NULL, 'web',    'subscribed',   MD5('ns-1882'), DATE_SUB(NOW(), INTERVAL 318 DAY), NULL),
-(1883, 'sameer.joshi@dhaninutrition.in', 'Sameer Joshi',          NULL, 'web',    'unsubscribed', MD5('ns-1883'), DATE_SUB(NOW(), INTERVAL 296 DAY), DATE_SUB(NOW(), INTERVAL 188 DAY)),
-(1884, 'reena.mathew@coastalcoco.in',    'Reena Mathew',          NULL, 'web',    'subscribed',   MD5('ns-1884'), DATE_SUB(NOW(), INTERVAL 271 DAY), NULL),
-(1885, 'harsh.vardhan@arcadelabs.in',    'Harsh Vardhan',         NULL, 'web',    'subscribed',   MD5('ns-1885'), DATE_SUB(NOW(), INTERVAL 233 DAY), NULL),
-(1886, 'lavanya.s@threadandloomco.in',   'Lavanya Srinivasan',    NULL, 'import', 'subscribed',   MD5('ns-1886'), DATE_SUB(NOW(), INTERVAL 214 DAY), NULL),
-(1887, 'gaurav.sethi@mintleafhome.in',   'Gaurav Sethi',          NULL, 'import', 'subscribed',   MD5('ns-1887'), DATE_SUB(NOW(), INTERVAL 214 DAY), NULL),
-(1888, 'ayesha.rehman@nooragoods.in',    'Ayesha Rehman',         NULL, 'import', 'bounced',      MD5('ns-1888'), DATE_SUB(NOW(), INTERVAL 214 DAY), NULL),
-(1889, 'editor@creatordeskindia.com',    'Creator Desk India',    NULL, 'admin',  'subscribed',   MD5('ns-1889'), DATE_SUB(NOW(), INTERVAL 143 DAY), NULL),
-(1890, 'insights@d2cweeklyindia.com',    'D2C Weekly India',      NULL, 'admin',  'subscribed',   MD5('ns-1890'), DATE_SUB(NOW(), INTERVAL 78 DAY),  NULL)
+(1851, 'velvetfern@example.com',            'Velvetfern Skincare',  1001, 'app',    'subscribed',   MD5('ns-1851'), DATE_SUB(NOW(), INTERVAL 418 DAY), NULL),
+(1852, 'chutneyverse@example.com',        'Chutneyverse Foods',     1003, 'app',    'subscribed',   MD5('ns-1852'), DATE_SUB(NOW(), INTERVAL 410 DAY), NULL),
+(1853, 'kiranapay@example.com',              'Kiranapay Labs',  1005, 'app',    'subscribed',   MD5('ns-1853'), DATE_SUB(NOW(), INTERVAL 402 DAY), NULL),
+(1854, 'sanganera@example.com',          'Sanganera Looms',          1007, 'app',    'subscribed',   MD5('ns-1854'), DATE_SUB(NOW(), INTERVAL 396 DAY), NULL),
+(1855, 'doubtbuster@example.com',          'Doubtbuster Academy',       1009, 'app',    'unsubscribed', MD5('ns-1855'), DATE_SUB(NOW(), INTERVAL 388 DAY), DATE_SUB(NOW(), INTERVAL 122 DAY)),
+(1856, 'homestayhopper@example.com',            'Homestay Hopper Trips',     1011, 'app',    'subscribed',   MD5('ns-1856'), DATE_SUB(NOW(), INTERVAL 379 DAY), NULL),
+(1857, 'tiffinboxgames@example.com',       'Tiffinbox Games',      1013, 'app',    'subscribed',   MD5('ns-1857'), DATE_SUB(NOW(), INTERVAL 371 DAY), NULL),
+(1858, 'detailbay@example.com',            'Detailbay Motors',       1015, 'app',    'subscribed',   MD5('ns-1858'), DATE_SUB(NOW(), INTERVAL 362 DAY), NULL),
+(1859, 'kashayamkendra@example.com',              'Kashayam Kendra Wellness',   1017, 'app',    'subscribed',   MD5('ns-1859'), DATE_SUB(NOW(), INTERVAL 354 DAY), NULL),
+(1860, 'dhokraden@example.com',       'Dhokra Den Home',       1019, 'app',    'subscribed',   MD5('ns-1860'), DATE_SUB(NOW(), INTERVAL 347 DAY), NULL),
+(1861, 'aanya.sample.life@example.com',         'Aanya Kapoor',          2001, 'app',    'subscribed',   MD5('ns-1861'), DATE_SUB(NOW(), INTERVAL 340 DAY), NULL),
+(1862, 'kabir.sample.city@example.com',         'Kabir Sethi',           2003, 'app',    'subscribed',   MD5('ns-1862'), DATE_SUB(NOW(), INTERVAL 332 DAY), NULL),
+(1863, 'ishita.sample.drapes@example.com',     'Ishita Rane',           2005, 'app',    'subscribed',   MD5('ns-1863'), DATE_SUB(NOW(), INTERVAL 324 DAY), NULL),
+(1864, 'tanvi.sample.trails@example.com',          'Tanvi Deshpande',       2007, 'app',    'subscribed',   MD5('ns-1864'), DATE_SUB(NOW(), INTERVAL 316 DAY), NULL),
+(1865, 'aditi.sample.eats@example.com',       'Aditi Ranganathan',     2010, 'app',    'subscribed',   MD5('ns-1865'), DATE_SUB(NOW(), INTERVAL 308 DAY), NULL),
+(1866, 'preeti.sample.masala@example.com',        'Preeti Ahuja',          2012, 'app',    'unsubscribed', MD5('ns-1866'), DATE_SUB(NOW(), INTERVAL 300 DAY), DATE_SUB(NOW(), INTERVAL 74 DAY)),
+(1867, 'sanaya.sample.fit@example.com',        'Sanaya Kotak',          2014, 'app',    'subscribed',   MD5('ns-1867'), DATE_SUB(NOW(), INTERVAL 292 DAY), NULL),
+(1868, 'neha.sample.gadgets@example.com',       'Neha Kulkarni',         2017, 'app',    'subscribed',   MD5('ns-1868'), DATE_SUB(NOW(), INTERVAL 284 DAY), NULL),
+(1869, 'kavya.sample.skin@example.com',        'Kavya Reddy',           2020, 'app',    'subscribed',   MD5('ns-1869'), DATE_SUB(NOW(), INTERVAL 276 DAY), NULL),
+(1870, 'meera.sample.yoga@example.com',        'Meera Subramanian',     2025, 'app',    'subscribed',   MD5('ns-1870'), DATE_SUB(NOW(), INTERVAL 268 DAY), NULL),
+(1871, 'priya.sample.paisa@example.com',       'Priya Jain',            2033, 'app',    'subscribed',   MD5('ns-1871'), DATE_SUB(NOW(), INTERVAL 260 DAY), NULL),
+(1872, 'krishna.sample.ev@example.com',        'Krishna Menon',         2039, 'app',    'bounced',      MD5('ns-1872'), DATE_SUB(NOW(), INTERVAL 252 DAY), NULL),
+(1873, 'anushka.sample.ink@example.com',         'Anushka Pathak',        2044, 'app',    'subscribed',   MD5('ns-1873'), DATE_SUB(NOW(), INTERVAL 244 DAY), NULL),
+(1874, 'ritika.sharma@example.com',       'Ritika Sharma',         NULL, 'web',    'subscribed',   MD5('ns-1874'), DATE_SUB(NOW(), INTERVAL 388 DAY), NULL),
+(1875, 'aniruddh.menon@example.com', 'Aniruddh Menon',     NULL, 'web',    'subscribed',   MD5('ns-1875'), DATE_SUB(NOW(), INTERVAL 354 DAY), NULL),
+(1876, 'karan.bhatia@example.com',    'Karan Bhatia',          NULL, 'web',    'subscribed',   MD5('ns-1876'), DATE_SUB(NOW(), INTERVAL 246 DAY), NULL),
+(1877, 'sneha.iyengar@example.com',        'Sneha Iyengar',         NULL, 'web',    'subscribed',   MD5('ns-1877'), DATE_SUB(NOW(), INTERVAL 210 DAY), NULL),
+(1878, 'meenakshi.rao@example.com',      'Meenakshi Rao',         NULL, 'web',    'subscribed',   MD5('ns-1878'), DATE_SUB(NOW(), INTERVAL 132 DAY), NULL),
+(1879, 'vikas.chandra@example.com',        'Vikas Chandra',         NULL, 'web',    'subscribed',   MD5('ns-1879'), DATE_SUB(NOW(), INTERVAL 96 DAY),  NULL),
+(1880, 'tanmay.ghosh@example.com',        'Tanmay Ghosh',          NULL, 'web',    'subscribed',   MD5('ns-1880'), DATE_SUB(NOW(), INTERVAL 39 DAY),  NULL),
+(1881, 'abhinav.rastogi@example.com',      'Abhinav Rastogi',       NULL, 'web',    'subscribed',   MD5('ns-1881'), DATE_SUB(NOW(), INTERVAL 4 DAY),   NULL),
+(1882, 'nandita.pillai@example.com',    'Nandita Pillai',        NULL, 'web',    'subscribed',   MD5('ns-1882'), DATE_SUB(NOW(), INTERVAL 318 DAY), NULL),
+(1883, 'sameer.joshi@example.com', 'Sameer Joshi',          NULL, 'web',    'unsubscribed', MD5('ns-1883'), DATE_SUB(NOW(), INTERVAL 296 DAY), DATE_SUB(NOW(), INTERVAL 188 DAY)),
+(1884, 'reena.mathew@example.com',    'Reena Mathew',          NULL, 'web',    'subscribed',   MD5('ns-1884'), DATE_SUB(NOW(), INTERVAL 271 DAY), NULL),
+(1885, 'harsh.vardhan@example.com',    'Harsh Vardhan',         NULL, 'web',    'subscribed',   MD5('ns-1885'), DATE_SUB(NOW(), INTERVAL 233 DAY), NULL),
+(1886, 'lavanya.s@example.com',   'Lavanya Srinivasan',    NULL, 'import', 'subscribed',   MD5('ns-1886'), DATE_SUB(NOW(), INTERVAL 214 DAY), NULL),
+(1887, 'gaurav.sethi@example.com',   'Gaurav Sethi',          NULL, 'import', 'subscribed',   MD5('ns-1887'), DATE_SUB(NOW(), INTERVAL 214 DAY), NULL),
+(1888, 'ayesha.rehman@example.com',    'Ayesha Rehman',         NULL, 'import', 'bounced',      MD5('ns-1888'), DATE_SUB(NOW(), INTERVAL 214 DAY), NULL),
+(1889, 'inkpot.digest@example.com',    'Inkpot Creator Digest',    NULL, 'admin',  'subscribed',   MD5('ns-1889'), DATE_SUB(NOW(), INTERVAL 143 DAY), NULL),
+(1890, 'shelfline.letter@example.com',    'Shelfline D2C Letter',      NULL, 'admin',  'subscribed',   MD5('ns-1890'), DATE_SUB(NOW(), INTERVAL 78 DAY),  NULL)
 ON DUPLICATE KEY UPDATE id = VALUES(id);
 
 
@@ -1490,7 +1504,7 @@ VALUES
  'Booking was cancelled by the brand after I had already shot and edited the content. No cancellation fee has been offered despite the terms on the booking.',
  NULL,
  'resolved', 1, DATE_SUB(NOW(), INTERVAL 206 DAY),
- 'Cancellation terms applied. Fifty percent kill fee released to the creator from the held escrow and the balance refunded to the brand.',
+ 'Cancellation terms applied. Fifty percent kill fee released to the creator from the held payment and the balance refunded to the brand.',
  DATE_SUB(NOW(), INTERVAL 209 DAY), DATE_SUB(NOW(), INTERVAL 206 DAY)),
 
 (1910, 1011, 'creator', 137, 'spam',

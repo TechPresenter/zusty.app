@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/booking.dart';
 import '../../models/safety.dart';
+import '../../providers/app_config_provider.dart';
 import '../../providers/booking_provider.dart';
 import '../../providers/core_providers.dart';
 import '../../router/routes.dart';
@@ -444,7 +445,7 @@ class _NextStepBanner {
         title: 'Under review by Zusty',
         message:
             'Our team is looking at the brief, chat and deliverables. '
-            'Escrow stays frozen until they decide.',
+            'Zusty keeps holding the payment until they decide.',
       );
     }
 
@@ -490,8 +491,8 @@ class _NextStepBanner {
         icon: Icons.lock_clock_rounded,
         title: 'Payment needed to confirm',
         message:
-            '$name accepted. Your payment is held in escrow and only '
-            'released when you approve the work.',
+            '$name accepted. Once you pay, Zusty holds your payment until '
+            'you approve the work.',
       );
     }
 
@@ -835,7 +836,7 @@ class _ScheduleCard extends StatelessWidget {
       if (awaitingAnswer)
         ('Respond by', detail.expiresAt, Icons.hourglass_bottom_rounded),
       ('Accepted', detail.acceptedAt, Icons.handshake_outlined),
-      ('Paid into escrow', detail.paidAt, Icons.lock_outline_rounded),
+      ('Paid', detail.paidAt, Icons.lock_outline_rounded),
       ('Delivered', detail.deliveredAt, Icons.upload_file_rounded),
       ('Completed', detail.completedAt, Icons.task_alt_rounded),
       ('Cancelled', detail.cancelledAt, Icons.event_busy_rounded),
@@ -1164,16 +1165,19 @@ class _PaymentCard extends ConsumerWidget {
 }
 
 /// Where the money currently sits, in plain language, from the viewer's side.
-class _EscrowStatus extends StatelessWidget {
+/// Zusty holds a paid booking's money ("payment protection", never
+/// "escrow"): released on approval, or automatically after the review window.
+class _EscrowStatus extends ConsumerWidget {
   const _EscrowStatus({required this.detail});
 
   final BookingDetail detail;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final brand = detail.isBrandView;
     final payment = detail.booking.paymentStatus;
     final escrow = detail.escrowStatus;
+    final window = ref.watch(reviewWindowProvider);
 
     // `escrow_status` is the precise field; `payment_status` values are kept
     // for rows written before it existed.
@@ -1189,9 +1193,10 @@ class _EscrowStatus extends StatelessWidget {
       'held' => (
         Icons.lock_rounded,
         brand
-            ? 'Held safely in escrow until you approve the work.'
-            : 'Paid into escrow. Released to you once the brand approves '
-                  'the work.',
+            ? 'Held by Zusty until you approve the work, or until $window '
+                  'after delivery if you don\'t respond.'
+            : 'Paid and held by Zusty. Released to you when the brand '
+                  'approves the work, or automatically $window after delivery.',
         StatusTone.info,
       ),
       'released' => (
@@ -1217,7 +1222,7 @@ class _EscrowStatus extends StatelessWidget {
         Icons.schedule_rounded,
         brand
             ? 'Payment has not been made yet.'
-            : 'Not paid yet. Work starts once the brand pays into escrow.',
+            : 'Not paid yet. Work starts once the brand pays.',
         StatusTone.warning,
       ),
     };
@@ -1285,11 +1290,7 @@ List<TimelineStep> _timelineSteps(BookingDetail detail) {
 
   const upcoming = <(int, String, String)>[
     (1, 'Accepted', 'The creator agrees to the brief and fee.'),
-    (
-      2,
-      'Paid into escrow',
-      'Payment is held safely until the work is approved.',
-    ),
+    (2, 'Paid', 'Zusty holds the payment until the work is approved.'),
     (3, 'Delivered', 'The creator submits the finished work.'),
     (4, 'Completed', 'Approved, and payment released to the creator.'),
   ];
@@ -1656,7 +1657,10 @@ class _ActionBarState extends ConsumerState<_ActionBar> {
           icon: Icons.upload_rounded,
           isLoading: _busy,
           onPressed: () async {
-            final result = await DeliverSheet.show(context);
+            final result = await DeliverSheet.show(
+              context,
+              reviewWindow: ref.read(reviewWindowProvider),
+            );
             if (result == null) return;
             await _run(
               () =>
@@ -1679,8 +1683,8 @@ class _ActionBarState extends ConsumerState<_ActionBar> {
               context,
               title: 'Release payment?',
               message:
-                  'This approves the delivered work and releases the escrowed '
-                  'amount to the creator, minus the platform commission. '
+                  'This approves the delivered work and releases the held '
+                  'payment to the creator, minus the platform commission. '
                   'This cannot be undone.',
               confirmLabel: 'Approve and release',
               icon: Icons.lock_open_rounded,
@@ -1838,7 +1842,7 @@ class _ActionBarState extends ConsumerState<_ActionBar> {
                 const SizedBox(width: 4),
                 Flexible(
                   child: Text(
-                    'Held in escrow until you approve the work',
+                    'Held by Zusty until you approve the work',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTypography.labelSmall.copyWith(

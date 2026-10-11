@@ -104,7 +104,7 @@ $canRefund      = $refundable > 0 && $this->can('payments.refund');
                 <?= $this->e(ucfirst(str_replace('_', ' ', (string) $booking['payment_status']))) ?>
               </span>
               <?php if ($booking['escrow_status'] === 'held'): ?>
-                <span class="chip chip--info"><?= $this->icon('shield', 'ic ic--sm') ?> Escrow held</span>
+                <span class="chip chip--info"><?= $this->icon('shield', 'ic ic--sm') ?> Payment held</span>
               <?php endif; ?>
             </div>
             <p class="muted"><?= $this->e($booking['title']) ?></p>
@@ -451,9 +451,9 @@ $canRefund      = $refundable > 0 && $this->can('payments.refund');
           <form method="post" action="/admin/bookings/<?= (int) $booking['id'] ?>/complete">
             <?= $this->csrf() ?>
             <button type="submit" class="btn btn--success btn--block"
-                    data-confirm="Escrow will be released to the creator immediately."
+                    data-confirm="The held payment will be released to the creator immediately."
                     data-confirm-title="Force-complete this booking?" data-confirm-label="Complete" data-confirm-tone="info">
-              <?= $this->icon('check', 'ic ic--sm') ?> Complete &amp; release escrow
+              <?= $this->icon('check', 'ic ic--sm') ?> Complete &amp; release payment
             </button>
           </form>
         <?php endif; ?>

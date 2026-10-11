@@ -17,7 +17,10 @@ declare(strict_types=1);
  * 053): the privacy policy covers what the Play Data safety form declares,
  * the terms quote the auto-complete window and per-booking Cashfree payment,
  * nothing offers a wallet top-up, a text message or a phone number, and no
- * banner or onboarding slide makes a promise the app cannot keep.
+ * banner or onboarding slide makes a promise the app cannot keep. Since
+ * migration 059 nothing a user reads calls the held payment "escrow", the
+ * privacy policy names the Grievance Officer and says what the code keeps
+ * of a payment, and the store and invite links use the current names.
  *
  * Fixtures: the "unpublished page" check switches one seeded page off and
  * restores its original state in a `finally`.
@@ -26,6 +29,7 @@ declare(strict_types=1);
 use Zuste\Core\Config;
 use Zuste\Core\Database;
 use Zuste\Services\AccountDeletionService;
+use Zuste\Services\PaymentService;
 use Zuste\Tests\Http;
 use Zuste\Tests\Suite;
 
@@ -190,6 +194,127 @@ Suite::equals(
     'no home banner or onboarding slide promises what the app cannot back',
     array_column(array_filter($promises, static fn (array $r): bool => preg_match('/\bevery time\b|\bguarantee|\bevery creator\b|\beffortless/i', (string) $r['text']) === 1), 'row'),
     []
+);
+
+// ---------------------------------------------------------------------
+Suite::group('Public pages — payment protection and the Grievance Officer');
+// ---------------------------------------------------------------------
+
+// P-ESCROW (migration 059): the money settles to Zusty's own account, so no
+// copy a user or a reviewer reads may call it escrow (or nodal, a trust
+// account, guaranteed or 100% safe). Every active row of every table the app
+// or the website shows as text, plus the templates notifications are sent
+// from. Internal names (escrow_status, escrow:release) are not copy.
+$userCopy = $copy;
+$userTables = [
+    'template' => "SELECT `code` AS `k`, CONCAT_WS(' ', `title`, `body`, `email_subject`, `email_body`, `sms_body`) AS `t` FROM `notification_templates` WHERE `is_active` = 1",
+    'banner'   => "SELECT `id` AS `k`, CONCAT_WS(' ', `title`, `subtitle`, `cta_label`) AS `t` FROM `banners` WHERE `is_active` = 1",
+    'slide'    => "SELECT `id` AS `k`, CONCAT_WS(' ', `title`, `subtitle`, `cta_label`) AS `t` FROM `onboarding_slides` WHERE `is_active` = 1",
+    'popup'    => "SELECT `id` AS `k`, CONCAT_WS(' ', `title`, `content`, `cta_label`) AS `t` FROM `popups` WHERE `is_active` = 1 AND `deleted_at` IS NULL",
+    'testimonial' => "SELECT `id` AS `k`, `content` AS `t` FROM `testimonials` WHERE `is_active` = 1",
+];
+foreach ($userTables as $label => $sql) {
+    foreach (Database::select($sql) as $row) {
+        $userCopy[$label . ' ' . $row['k']] = html_entity_decode(strip_tags((string) $row['t']), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+}
+Suite::equals(
+    'no page, FAQ, template, banner, slide, popup or testimonial says escrow, nodal, trust account, guaranteed or 100% safe',
+    array_keys(array_filter($userCopy, static fn (string $text): bool => preg_match('/escrow|\bnodal\b|trust account|guaranteed|100\s*%\s*safe/i', $text) === 1)),
+    []
+);
+// A switched-off testimonial is one panel toggle away from the home screen.
+Suite::equals(
+    '…nor does a switched-off testimonial',
+    array_column(Database::select("SELECT `id` FROM `testimonials` WHERE `content` LIKE '%escrow%'"), 'id'),
+    []
+);
+Suite::check(
+    'the terms say who holds the payment, when it is released and that disputes are reviewed first',
+    str_contains($terms, 'held by Zusty and released to the creator')
+        && str_contains($terms, 'our team reviews it before any money is released')
+);
+
+// P-GRIEVANCE: a designation at the one public mailbox, with the IT Rules
+// timelines, and the DPDP Act contact. No personal name, address or phone:
+// the officer is named by the company, and no page prints a number (above).
+Suite::check(
+    'the privacy policy names the Grievance Officer of Appsgain at support@zusty.app',
+    str_contains($privacy, 'Grievance Officer, Appsgain Technologies Private Limited, at support@zusty.app'),
+    'missing the designation and mailbox'
+);
+Suite::check(
+    '…acknowledges within 24 hours and resolves within 15 days',
+    str_contains($privacy, 'within 24 hours') && str_contains($privacy, 'within 15 days')
+);
+Suite::check('…and takes data-protection requests under the DPDP Act', str_contains($privacy, 'Digital Personal Data Protection Act'));
+Suite::check(
+    '…and gives no phone number or postal address for it',
+    preg_match('/\+91|\b\d{3}[\s-]?\d{3}[\s-]?\d{4}\b|\b\d{6}\b|\b(?:road|floor|street|nagar|sector)\b/i', $privacy) === 0
+);
+Suite::check('the terms point complaints to the Grievance Officer', str_contains($terms, 'Grievance Officer'));
+Suite::check('the contact page does too', str_contains($contact, 'Grievance Officer') && str_contains($contact, '15 days'));
+
+// What the code keeps (PaymentService::scrubGatewayResponse drops the card,
+// UPI and contact fields; the card_last4, upi_vpa and bank_name columns are
+// never written), and what the wallet holds (ReferralService credits it).
+Suite::check(
+    'the privacy policy does not claim to keep card digits or the UPI ID',
+    $privacy !== '' && stripos($privacy, 'card network and last four digits') === false
+        && str_contains($privacy, 'with the card details, UPI ID and contact details taken out')
+);
+// Whichever method the payer picked: Cashfree's app (wallet), pay_later and
+// cardless_emi objects carry the payer's phone, and a card EMI carries the
+// card under `emi`. The method type and provider stay.
+$scrubbed = PaymentService::scrubGatewayResponse([
+    'cf_payment_id'  => 'cf_1',
+    'payment_group'  => 'wallet',
+    'payment_amount' => 100,
+    'payment_method' => [
+        'app'          => ['channel' => 'link', 'provider' => 'paytm', 'phone' => '9876543210'],
+        'pay_later'    => ['channel' => 'link', 'provider' => 'simpl', 'phone' => '9876543210'],
+        'cardless_emi' => ['channel' => 'link', 'provider' => 'zestmoney', 'phone' => '9876543210'],
+        'emi'          => ['card_number' => 'XXXXXXXXXXXX1111', 'card_network' => 'visa', 'emi_tenure' => 3],
+        'upi'          => ['channel' => 'collect', 'upi_id' => 'payer@upi'],
+        'netbanking'   => ['channel' => 'link', 'netbanking_bank_name' => 'Example Bank'],
+    ],
+]);
+$scrubbedJson = (string) json_encode($scrubbed);
+Suite::check(
+    '…and every stored Cashfree reply loses the payer\'s phone, card and UPI ID, whatever the method',
+    !str_contains($scrubbedJson, '9876543210') && !str_contains($scrubbedJson, '1111') && !str_contains($scrubbedJson, 'payer@upi')
+        && !array_key_exists('emi', $scrubbed['payment_method'] ?? [])
+        && ($scrubbed['payment_group'] ?? '') === 'wallet'
+        && (($scrubbed['payment_method'] ?? [])['app']['provider'] ?? '') === 'paytm',
+    $scrubbedJson
+);
+Suite::check(
+    '…says the checkout phone goes to Cashfree with that order and is kept only masked',
+    str_contains($privacy, 'send it to Cashfree with that order only') && str_contains($privacy, 'shows only its last four digits')
+);
+Suite::check(
+    '…and lists referral rewards among what the wallet holds',
+    !Config::settingBool('referral', 'enabled', true) || stripos($privacy, 'referral rewards') !== false
+);
+
+// The links the app hands out (migration 059 fixed live installs that still
+// had the old package name and domain).
+$storeSetting = trim(Config::settingString('app', 'android_store_url', ''));
+Suite::check(
+    'the Play Store URL names the app\'s package, com.zuste.zuste',
+    str_contains($storeSetting, 'id=com.zuste.zuste') && preg_match('/[?&]id=com\.zuste\.app\b/', $storeSetting) === 0,
+    $storeSetting
+);
+$shareSetting = trim(Config::settingString('referral', 'share_base_url', ''));
+Suite::check(
+    'invite links are on zusty.app, not the old domains',
+    $shareSetting !== '' && preg_match('#^https?://([a-z0-9-]+\.)*(zuste\.app|zustee\.com)(:\d+)?(/|$)#i', $shareSetting) === 0,
+    $shareSetting
+);
+Suite::equals(
+    '/app/config tells the app the review window it quotes',
+    (int) (($config['booking'] ?? [])['auto_complete_days'] ?? 0),
+    $reviewDays
 );
 
 // Search orders by featured, search_boost and rating only, and withdrawals

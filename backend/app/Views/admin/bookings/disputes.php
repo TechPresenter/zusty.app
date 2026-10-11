@@ -35,7 +35,7 @@ $status = (string) ($filters['status'] ?? 'open');
     <p class="small" style="color:var(--warning)">
       Resolving a dispute moves real money. The refund goes back to the brand's original payment method
       unless you choose the wallet, and the payout goes to the creator's wallet — they must together not
-      exceed what is held in escrow. Both amounts are recorded with your resolution note.
+      exceed the payment held for the booking. Both amounts are recorded with your resolution note.
     </p>
   </div>
 </div>
@@ -71,7 +71,7 @@ $status = (string) ($filters['status'] ?? 'open');
             </p>
           </div>
           <div class="text-right">
-            <div class="label">Escrow</div>
+            <div class="label">Held</div>
             <div class="h3"><?= $this->money($dispute['total_amount'], (string) $dispute['currency']) ?></div>
           </div>
         </div>

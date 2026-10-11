@@ -153,7 +153,7 @@ $tabs = [
                   <?= $this->e(ucfirst(str_replace('_', ' ', (string) $booking['payment_status']))) ?>
                 </span>
                 <?php if ($booking['escrow_status'] === 'held'): ?>
-                  <div class="tiny faint mt-1">In escrow</div>
+                  <div class="tiny faint mt-1">Payment held</div>
                 <?php endif; ?>
               </td>
 

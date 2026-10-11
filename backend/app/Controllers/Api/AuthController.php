@@ -97,7 +97,7 @@ final class AuthController extends BaseApiController
             'identifier' => 'required|string|max:191',
             'password'   => 'required|string|max:128',
         ], [
-            'identifier.required' => 'Enter your email address or phone number.',
+            'identifier.required' => 'Enter your email address.',
         ]);
 
         $result = AuthService::login(

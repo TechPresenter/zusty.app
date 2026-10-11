@@ -40,7 +40,7 @@ VALUES
 
   ('campaign.hired', 'Hired for a campaign', 'booking',
    'You have been hired',
-   '{{campaign}} is yours. The brand will raise a booking so the payment can be held in escrow.',
+   '{{campaign}} is yours. The brand will raise a booking, and Zusty holds its payment until the work is approved.',
    'You have been hired for {{campaign}}', '',
    'Zusty: you have been hired for "{{campaign}}". Check the app for next steps.',
    'check_circle', 'url', '["in_app","push","email"]', 1),

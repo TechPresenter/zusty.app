@@ -465,7 +465,7 @@ void main() {
       final login = await dio.post<Map<String, dynamic>>(
         '/auth/login',
         data: {
-          'identifier': 'aanya.kapoor@gmail.com',
+          'identifier': 'aanya.sample.life@example.com',
           'password': 'Password123!',
         },
       );

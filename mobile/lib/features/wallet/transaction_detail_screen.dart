@@ -243,8 +243,8 @@ class _Body extends StatelessWidget {
 
   static String _categoryLabel(String category) => switch (category) {
     'booking_earning' => 'Campaign earning',
-    'escrow_release' => 'Escrow release',
-    'escrow_hold' => 'Escrow hold',
+    'escrow_release' => 'Earnings released',
+    'escrow_hold' => 'Earnings on hold',
     'withdrawal' => 'Withdrawal',
     'deposit' => 'Wallet top-up',
     'refund' => 'Refund',

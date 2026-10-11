@@ -234,7 +234,7 @@ No token required.
 | Method | Path | Notes |
 |---|---|---|
 | `GET` | `/health` | Liveness check. Stays up during maintenance mode. |
-| `GET` | `/app/config` | Feature flags (`features.sms_enabled`: whether a text message can go out at all), minimum app version, public keys, sign-in methods (`auth`), wallet options (`wallet.topup_enabled`, `wallet.wallet_payment`). `app.support_email` is the one public contact; `app.support_phone` is `""` (no phone number is published, so the app shows no call option) |
+| `GET` | `/app/config` | Feature flags (`features.sms_enabled`: whether a text message can go out at all), minimum app version, public keys, sign-in methods (`auth`), wallet options (`wallet.topup_enabled`, `wallet.wallet_payment`), booking rules (`booking.min_amount`, `max_amount`, `request_expiry_hours`, `free_cancellation_days`, and `auto_complete_days`: days after delivery before an unanswered booking completes and its held payment is released, at least 1 — the app quotes it when it explains payment protection). `app.support_email` is the one public contact; `app.support_phone` is `""` (no phone number is published, so the app shows no call option) |
 | `GET` | `/home` | Home feed: categories, featured and trending creators, banners |
 | `GET` | `/explore` | Discovery feed |
 | `GET` | `/categories` | All active categories |
@@ -282,7 +282,7 @@ The core flow. All endpoints require authentication.
 | `POST` | `/bookings/{id}/counter-offer` | creator | Propose different terms |
 | `POST` | `/bookings/{id}/accept-offer` | brand | Accept a counter |
 | `POST` | `/bookings/{id}/deliver` | creator | Submit deliverables |
-| `POST` | `/bookings/{id}/complete` | brand | Approve — **releases escrow** |
+| `POST` | `/bookings/{id}/complete` | brand | Approve — **releases the held payment** (`escrow_status` → `released`) |
 | `GET` | `/bookings/{id}/cancellation-preview` | both | What a cancellation would cost |
 | `POST` | `/bookings/{id}/cancel` | both | Cancel |
 | `GET` | `/bookings/{id}/invoice` | both | Invoice |
@@ -315,7 +315,7 @@ after any action.
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/wallet` | Balance and locked (escrow) balance; `topup_enabled` |
+| `GET` | `/wallet` | Balance and locked balance (earnings on hold, payouts in flight); `topup_enabled` |
 | `GET` | `/wallet/transactions` | Ledger, paginated |
 | `POST` | `/wallet/topup` | Add funds — **off by default**, see below |
 | `POST` | `/wallet/withdraw` | Request a payout |
@@ -512,7 +512,7 @@ so the app can offer to unblock. Reviews by someone the viewer has a block with 
 left out of a creator's reviews for that viewer (not for the creator themselves, and
 the rating still counts them). Notifications one causes the other are not sent.
 
-The escrow rule: a block never strands money. A booking that already exists can still
+The held-payment rule: a block never strands money. A booking that already exists can still
 be paid once accepted, delivered, sent back for changes, approved, disputed, rejected,
 cancelled and reviewed, and the platform's booking notices still reach both sides.
 The error message tells the person who made the block how to undo it; the other side
@@ -583,8 +583,9 @@ row that is not the caller's answers `404`, never someone else's data.
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET`/`PUT` | `/creator` | Own creator profile |
+| `GET`/`PUT` | `/creator` | Own creator profile. `badges` is the catalogue with what is `held`; while SMS is off, Mobile verified is listed only when already held |
 | `GET` | `/creator/analytics` | Views, conversion, earnings |
+| `GET` | `/creator/completion` | `completion`: `overall`, `required_percent`, `status`, and `sections` keyed by section, each with `percent`, `rules_total`, `mandatory_missing`, `missing` (rule keys), `applicable` (false when no rule applies, so there is nothing to finish) and `complete`. `gates`: each feature gate's `allowed` and `reasons`. While SMS is off, rules and badges only a text message can meet (the mobile number, its confirmation, Mobile verified) are not scored, listed or required by a gate; a stored breakdown that no longer matches the rules in force is recomputed on read |
 | `GET` | `/creator/packages` | `packages` (hidden ones too, each with `is_active`), `locked`, `limits {min_price, max_price, max_includes, include_max_length}` |
 | `POST` | `/creator/packages` | `title` (3–150), `description?` (≤ 1000), `platform` (`platform` taxonomy), `deliverable_type` (`deliverable_type` taxonomy), `quantity?` (1–100, default 1), `price` (within `booking.min_booking_amount`…`max_booking_amount`), `turnaround_days?` (1–180, default 7), `revisions?` (0–10, default 1), `includes?` (≤ 10 lines of ≤ 120 characters). `201 {package}` |
 | `PUT` | `/creator/packages/{id}` | Any of the above, plus `is_active`. An explicit `null` description or `[]` includes clears it |

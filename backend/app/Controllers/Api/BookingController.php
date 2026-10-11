@@ -405,7 +405,7 @@ final class BookingController extends BaseApiController
 
         Response::created(
             ['booking' => $booking],
-            'Dispute raised. Your payment stays in escrow until our team has reviewed it.'
+            'Dispute raised. Zusty keeps holding the payment until our team has reviewed it.'
         );
     }
 

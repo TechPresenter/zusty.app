@@ -55,7 +55,9 @@ VALUES
  'Comma-separated fields no creator may edit, whatever their individual section locks say. Leave empty to allow all.',
  1, 0, 50, NOW()),
 
-('creator', 'required_verifications', 'email_verified,mobile_verified', 'string',
+-- Email only: mobile_verified needs a text message, and SMS is off
+-- (migration 058 drops it from existing installs).
+('creator', 'required_verifications', 'email_verified', 'string',
  'Required verifications',
  'Badge slugs a creator must hold before their profile is approved. Values come from the verification_badge taxonomy.',
  0, 0, 60, NOW()),

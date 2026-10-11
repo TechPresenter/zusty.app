@@ -23,9 +23,13 @@ import 'widgets/booking_ui.dart';
 /// Deliverable Review — the brand's approval gate.
 ///
 /// Implements the three branches of `Zuste_Workflow.md` § 5:
-///   * **Approve** → releases escrow, commission is deducted, booking completes
-///   * **Request changes** → back to the creator, escrow stays held
-///   * **Dispute** → opens a support ticket; an admin rules on the escrow
+///   * **Approve** → releases the held payment, commission is deducted,
+///     booking completes
+///   * **Request changes** → back to the creator, the payment stays held
+///   * **Dispute** → our team reviews it and rules on the held payment
+///
+/// The copy calls it payment protection, never "escrow" (decision
+/// P-ESCROW); `escrow_status` stays the API's field name.
 ///
 /// Approving moves real money, so it is confirmed explicitly and the amount
 /// being released is restated at the point of decision.
@@ -200,7 +204,7 @@ class _EscrowNotice extends StatelessWidget {
     return ZInfoBanner(
       tone: StatusTone.warning,
       icon: Icons.lock_rounded,
-      title: '${detail.amounts.total} held in escrow',
+      title: '${detail.amounts.total} held by Zusty',
       message:
           'Approving releases ${detail.amounts.earning} to '
           '${detail.booking.counterparty.name} and closes this booking. '
@@ -459,8 +463,8 @@ class _ActionBarState extends ConsumerState<_ActionBar> {
       context,
       title: 'Request changes',
       message:
-          'The work goes back to the creator. Your payment stays in '
-          'escrow until you approve.',
+          'The work goes back to the creator. Zusty keeps holding your '
+          'payment until you approve.',
       fieldLabel: 'What needs to change?',
       hint: 'Be specific so the creator can fix it in one pass.',
       confirmLabel: 'Send request',
@@ -475,7 +479,7 @@ class _ActionBarState extends ConsumerState<_ActionBar> {
       () => ref
           .read(bookingActionsProvider)
           .requestRevision(_detail.booking.id, note: note),
-      'Sent back to the creator. Escrow stays held.',
+      'Sent back to the creator. Your payment stays held.',
     );
   }
 
@@ -485,7 +489,7 @@ class _ActionBarState extends ConsumerState<_ActionBar> {
       title: 'Raise a dispute',
       message:
           'Our team reviews the brief, chat and deliverables before '
-          'deciding. Escrow is frozen until then.',
+          'deciding. Zusty keeps holding the payment until then.',
       fieldLabel: 'What went wrong?',
       hint: 'Tell us what happened, with as much detail as you can.',
       confirmLabel: 'Open dispute',

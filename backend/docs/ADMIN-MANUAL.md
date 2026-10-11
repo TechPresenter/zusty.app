@@ -209,6 +209,26 @@ Creators manage their own **packages, portfolio and social accounts** in the app
 - **Section locks** (a creator's page → *Profile section locks*: pricing,
   portfolio, social) refuse the creator's changes with your reason, and the app
   shows the section as locked.
+- **Profile completion** (Marketplace → Profile completion) scores each profile
+  against the completion rules. While SMS is off (Settings → SMS), the rules and
+  the badge that only a text message can meet — *Add a mobile number*, *Confirm
+  your mobile number* and *Mobile verified* — are not scored, not shown to the
+  creator and not required by any feature gate, because nobody can add or confirm
+  a number without one. Migration 058 also made them optional and took Mobile
+  verified off the gates and out of `creator.required_verifications`. Switch SMS on
+  and they count again, as optional items (make one mandatory again in the rules
+  table if you want it to be). After changing SMS or a rule, run
+  `creators:completion` under System → Jobs to refresh the list at once; each
+  creator's own breakdown refreshes the next time it is opened, and every profile
+  is rescored nightly. The *Email verified* and *Mobile verified* badges are
+  re-checked whenever a breakdown is read or rescored, for creators in review as
+  well as approved ones (the nightly `creators:badges` sweep covers approved
+  creators only), so a confirmed address is never listed as a missing badge. The
+  app lists only
+  the sections a creator can finish in the app (contact details, social accounts,
+  portfolio, packages, KYC and the profile photo), and leaves KYC out while it is
+  under review or approved; feature gates are shown here
+  but nothing on the platform withholds a feature by them yet.
 
 ### Categories
 
@@ -235,10 +255,23 @@ The operational heart. Every booking with its full status history, participants,
 deliverables, payment and messages.
 
 Operator actions: force a status change (recorded with your name and reason), release
-or refund escrow, resolve a dispute, and cancel with a fee override.
+or refund the held payment, resolve a dispute, and cancel with a fee override.
 
-The sidebar badge counts open disputes. **Escrow decisions are irreversible** — read
-the deliverables and the message thread before releasing or refunding.
+The sidebar badge counts open disputes. **Decisions on a held payment are
+irreversible** — read the deliverables and the message thread before releasing or
+refunding.
+
+**"Escrow" is an internal name only.** The code and database still say escrow
+(`bookings.escrow_status`, the `escrow_hold` / `escrow_release` ledger categories, the
+`escrow:release` job), but the money settles to Zusty's own Cashfree account and no
+regulated escrow or nodal arrangement exists, so nothing users or Google read may call
+it escrow (decision P-ESCROW, migration 059). The panel shows **Payment held**; in copy
+you write (pages, FAQs, banners, notification templates, popups), say *payment
+protection* or *held by Zusty*: the brand's payment is held by Zusty, released to the
+creator on approval or automatically `booking.auto_complete_days` after delivery, and
+reviewed by our team before any money moves if there is a dispute. Never write escrow,
+nodal, trust account, guaranteed or 100% safe; the `17_public_pages` suite checks every
+active page, FAQ, template, banner, slide, popup and testimonial for those words.
 
 ### Reviews
 
@@ -299,7 +332,10 @@ switch them off: the app no longer offers it.
 
 ### Wallets
 
-Balance and locked (escrow) balance per user, with the full append-only ledger.
+Balance and locked balance per user, with the full append-only ledger. Locked ("on
+hold" in the app) is a creator's earnings during `wallet.withdrawal_hold_days` after a
+completed booking, or money reserved against a payout in flight; a booking's own
+payment is held on the booking, not in a wallet.
 
 Manual adjustments require a reason and are written as ledger rows like any other
 movement. **Nothing in this panel edits a balance directly** — the ledger is the
@@ -337,18 +373,31 @@ Banners, Home Sections, FAQs, Testimonials, Redirects, Menus, Sitemap, Media**.
   the two in step: a new kind of data, a new service provider (today Cashfree,
   Firebase and Hostinger) or a new permission needs a sentence in the policy before
   the build that uses it is released. Some pages quote settings as numbers, written in
-  when migration 053 ran; edit the copy if you change the setting:
-  `booking.auto_complete_days` (terms section 6, the refund policy's Escrow section and
-  the "Is my payment secure?" FAQ), the KYC `retention_days_*` and
+  when migrations 053 and 059 ran; edit the copy if you change the setting:
+  `booking.auto_complete_days` (terms section 6, the refund policy's Payment protection
+  section, the about page's "Pay securely" step and the "Is my payment secure?" FAQ;
+  the website's landing page and the app read the setting live), the KYC
+  `retention_days_*` and
   `purge_superseded_after_days` settings and `BACKUP_RETENTION_DAYS` (privacy policy
   section 5). Copy must stay truthful: no ratings, user counts or guarantees, no phone
-  number (support is `support@zusty.app` only) and no SMS. The policy also says that
+  number (support is `support@zusty.app` only), no SMS and no "escrow" (see Bookings).
+  Privacy section 8, terms section 17 and the contact page name the **Grievance
+  Officer, Appsgain Technologies Private Limited** at `support@zusty.app`: a
+  designation, never a person's name, address or phone. Complaints with "Grievance" in
+  the subject must be acknowledged within 24 hours and resolved within 15 days (IT
+  Rules 2021, rule 3(2)); the same mailbox takes DPDP Act requests (access,
+  correction, erasure, withdrawing consent). The policy also says that
   accounts created before sign-up asked for marketing consent had product updates on
   by default, because migration 055 kept that stored choice; if those accounts are
   ever switched off, delete that sentence (the `17_public_pages` suite checks it only
   while such accounts exist).
 - **Blog** — posts with categories, cover images, scheduling and view counts.
 - **Banners** — app and web placements with date windows and click tracking.
+  On the app Home, a banner shows its title and its subtitle on up to two lines
+  each, about 35 characters a line on a phone; anything longer ends in "…".
+  Keep a subtitle to about 70 characters. The brand banner "Verified creators,
+  transparent pricing, and payment protection on every booking." (81
+  characters) loses its last word on a phone.
 - **Home Sections** — what appears on the app home screen, and in what order.
 - **FAQs** — grouped, orderable, with helpful-vote counts from the app.
 - **Testimonials** — quotes with an approve step. Publish only quotes a real customer
@@ -521,6 +570,13 @@ Diagnostics. Restricted to the `developer.*` permissions, which only **Super Adm
 - **Overview** — PHP version, extensions, database size, cache driver, disk.
 - **API Logs** — every API request: endpoint, status, duration, query count, memory,
   user. The place to look when the app reports something the panel says is fine.
+  The body of a failed request is kept with secrets (passwords, tokens, codes, card,
+  bank, UPI and identity numbers) replaced by `[REDACTED]`, and any phone number or
+  email address masked to its last four digits or its first characters and domain,
+  under any field name that says what it is (`customer_phone`, `alternateMobile`,
+  `billing_email` …). So is the `value` of a contact change or an additional contact
+  (`{"channel": "email|phone", "value": …}`), a phone-shaped `value` anywhere, and an
+  email address wherever it appears in the body. Field names are always kept.
 - **Query Monitor** — slow queries collapsed by normalised shape with occurrence
   counts, so one slow query run 400 times reads as one row with a count of 400 rather
   than 400 rows. Threshold under Settings → Security.
@@ -744,7 +800,7 @@ The ones that change behaviour most:
 | Fees & tax → Commission rate | Applied to every new booking quote |
 | Fees & tax → GST | Applied on top of the platform fee |
 | Bookings → Auto-expire hours | How long a creator has to respond |
-| Bookings → Escrow release days | When `escrow:release` matures a hold |
+| Wallet → Payout hold (days) | How long a creator's earnings stay on hold before the `escrow:release` job ("Release held earnings") makes them withdrawable |
 | Bookings → Minimum / maximum booking amount | Also the range every creator package price must fall in |
 | Wallet → Minimum withdrawal | Floor on payout requests, for brands (whose wallets hold only refunds) as for creators |
 | Wallet → Wallet top-up ("Add money") | **Off by default.** Off: brands pay each booking at checkout, the app shows no "Add money" and `POST /wallet/topup` is refused. Switching it on lets brands preload money, which makes the wallet a prepaid payment instrument under RBI rules — take advice before you do |
@@ -823,7 +879,7 @@ is disabled there does not run, whatever the crontab says.
 | Nothing is being emailed or pushed | System → Jobs, `queue:dispatch` |
 | Dashboard numbers are stale | System → Jobs, `analytics:rollup` |
 | A payment shows unpaid but the user paid | Payments → the webhook trail |
-| Escrow did not release | System → Jobs, `escrow:release`; then the booking's status history |
+| Held earnings did not become withdrawable | System → Jobs, `escrow:release` ("Release held earnings"); then the booking's status history |
 | The panel is slow | Developer → Query Monitor |
 | The app reports an error the panel does not show | Developer → API Logs |
 | An integration silently stopped working | Integrations → its error log and last sync |

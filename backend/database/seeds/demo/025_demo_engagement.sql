@@ -9,9 +9,9 @@
  *   favorites               composite pk (brand user 1001-1020 x creator 101-145)
  *   follows                 composite pk (user 1001-1020 / 2001-2045 x creator 101-145)
  *   notifications          2101 - 2300
- *   conversations           801 - 830
+ *   conversations           801 - 831  (831 is the store-screenshot thread)
  *   conversation_participants  composite pk on conversations 801-830
- *   messages                901 - 1280
+ *   messages                901 - 1291
  *   message_receipts        composite pk on messages 901-1280
  *   referrals                  1 - 12
  *   search_histories        3001 - 3110
@@ -176,7 +176,7 @@ SELECT
         'Good campaign, approvals were slow',
         'Would happily collaborate again'),
     ELT(1 + (t.rn % 5),
-        'The brief was clear from day one, the product reached me well before the shoot date and the escrow was released the same week the campaign went live. Very easy brand to work with.',
+        'The brief was clear from day one, the product reached me well before the shoot date and the payment was released the same week the campaign went live. Very easy brand to work with.',
         'Great team to collaborate with. They gave me full freedom on the hook and only asked for factual corrections on the specifications. Payout came through without a single reminder.',
         'Smooth booking overall. Approvals took a little longer than promised over the long weekend, but everything else was handled professionally.',
         'Genuinely enjoyed this campaign. The moodboard was detailed, the shipping was tracked end to end and nobody asked me to soften my honest opinion in the video.',
@@ -435,7 +435,7 @@ JOIN (
     UNION ALL SELECT 1,  9, 'c', 'text', 'This is helpful, thank you. I will keep the same palette. I usually shoot at the bathroom counter and on the balcony, both fit this direction well.'
     UNION ALL SELECT 1, 10, 'b', 'offer', 'Sending across the formal offer on the platform so we can lock it in.'
     UNION ALL SELECT 1, 11, 'c', 'text', 'Offer accepted. The booking is confirmed from my side.'
-    UNION ALL SELECT 1, 12, 'b', 'text', 'Payment is done and sitting in escrow. It releases to your Zusty wallet the moment we mark the campaign complete.'
+    UNION ALL SELECT 1, 12, 'b', 'text', 'Payment is done and held by Zusty. It is released to your Zusty wallet as soon as we approve the work.'
     UNION ALL SELECT 1, 13, 'c', 'text', 'Perfect. Shoot is planned for Saturday morning and I will have the draft with you by Tuesday.'
     UNION ALL SELECT 1, 14, 'c', 'image', 'Quick behind the scenes frame from today. Wanted to check whether the background shade works for you.'
     UNION ALL SELECT 1, 15, 'b', 'text', 'The background is lovely. Only one ask, please keep the label facing the camera while you apply the serum.'
@@ -537,9 +537,9 @@ JOIN (
     UNION ALL SELECT 5,  3, 'b', 'text', 'One reel and four stories a month, plus a mention in your workout posts wherever it fits naturally.'
     UNION ALL SELECT 5,  4, 'c', 'text', 'For a three month lock in I would quote INR {amt3} per month. Organic usage only, ads would be a separate conversation.'
     UNION ALL SELECT 5,  5, 'b', 'text', 'That is a little above our band. If we commit to all three months upfront, can you do better on the monthly rate?'
-    UNION ALL SELECT 5,  6, 'c', 'text', 'If the full amount goes into escrow upfront I can bring it down to INR {amt} per month. I have been burned by month to month deals before.'
+    UNION ALL SELECT 5,  6, 'c', 'text', 'If the full amount is paid upfront I can bring it down to INR {amt} per month. I have been burned by month to month deals before.'
     UNION ALL SELECT 5,  7, 'b', 'text', 'That is reasonable. Let me confirm the budget with our founder and revert today.'
-    UNION ALL SELECT 5,  8, 'b', 'text', 'Founder is on board. We will fund all three months into escrow at the start.'
+    UNION ALL SELECT 5,  8, 'b', 'text', 'Founder is on board. We will pay for all three months at the start.'
     UNION ALL SELECT 5,  9, 'c', 'text', 'Then we have a deal. Please send the product for the first month, chocolate and unflavoured if you have both.'
     UNION ALL SELECT 5, 10, 'b', 'text', 'Both are going out today from our Bengaluru warehouse.'
     UNION ALL SELECT 5, 11, 'b', 'offer', 'Sending the offer for month one so we can start. The remaining two months follow the same terms.'
@@ -554,7 +554,7 @@ JOIN (
     UNION ALL SELECT 5, 20, 'b', 'text', 'Month one numbers are strong, 28k reach and 340 saves. Sending the month two brief shortly.'
     UNION ALL SELECT 5, 21, 'b', 'text', 'For month two we want to push the recovery angle ahead of the marathon season.'
     UNION ALL SELECT 5, 22, 'c', 'text', 'That fits my calendar nicely. I am training for the half marathon anyway, so it will be honest content.'
-    UNION ALL SELECT 5, 23, 'b', 'text', 'Even better. Same deliverable split, and we will release month two from escrow this week.'
+    UNION ALL SELECT 5, 23, 'b', 'text', 'Even better. Same deliverable split, and we will approve month two this week so the payment is released.'
     UNION ALL SELECT 5, 24, 'c', 'text', 'Received the month two release, thank you. Starting the shoot on Sunday.'
     UNION ALL SELECT 5, 25, 'b', 'text', 'Great. Keeping the same rhythm for month three, I will send that brief at the end of this month.'
 ) sc ON sc.scr = 1 + (k.cid % 5) AND sc.seq = q.seq
@@ -572,8 +572,52 @@ LEFT JOIN creators cr ON cr.id = bk.crid;
 
 
 /* ==========================================================================
+ * 5b. STORE-SCREENSHOT THREAD (conversation 831, messages 1281-1291)
+ *    The chat the Play screenshots show: Velvetfern Skincare and Aanya
+ *    Kapoor on booking 452, which is delivered and waiting for approval.
+ *    Written by hand so it stays on that brief and on policy: no request
+ *    for reviews or ratings, and the payment is described the way the app
+ *    describes it (held by Zusty until the brand approves the work).
+ *    Guarded on booking 452 still belonging to that brand and creator.
+ * ========================================================================== */
+INSERT IGNORE INTO conversations
+    (id, uuid, type, booking_id, subject, messages_count, is_archived, is_locked, created_at, updated_at)
+SELECT 831, 'cafe0000-0000-4000-8000-000000000831', 'booking', b.id, LEFT(b.title, 191), 0, 0, 0,
+       DATE_SUB(NOW(), INTERVAL 362 HOUR), DATE_SUB(NOW(), INTERVAL 362 HOUR)
+FROM bookings b
+WHERE b.id = 452 AND b.brand_user_id = 1001 AND b.creator_user_id = 2001;
+
+INSERT IGNORE INTO conversation_participants
+    (conversation_id, user_id, role, unread_count, is_muted, is_typing, joined_at)
+SELECT c.id, 1001, 'brand', 0, 0, 0, c.created_at FROM conversations c WHERE c.id = 831
+UNION ALL
+SELECT c.id, 2001, 'creator', 0, 0, 0, c.created_at FROM conversations c WHERE c.id = 831;
+
+INSERT IGNORE INTO messages
+    (id, uuid, conversation_id, sender_id, sender_type, type, body,
+     delivered_count, read_count, is_edited, created_at)
+SELECT t.id, CONCAT('beef0000-0000-4000-8000-', LPAD(t.id, 12, '0')), 831, t.sender, 'user', 'text', t.body,
+       0, 0, 0, DATE_SUB(NOW(), INTERVAL t.h HOUR)
+FROM (
+              SELECT 1281 AS id, 1001 AS sender, 362 AS h, 'Hi Aanya, this is Velvetfern Skincare. Your Sunday reset Reels are exactly the tone we want for our SPF 50 daily ritual brief. Would you be open to it?' AS body
+    UNION ALL SELECT 1282, 2001, 361, 'Hi! Thank you, I would love to hear more. Is it Reels or Stories, and what is the timeline?'
+    UNION ALL SELECT 1283, 1001, 360, 'Two Reels and a three-frame Story set, live within three weeks. I have sent the booking request with the full brief.'
+    UNION ALL SELECT 1284, 2001, 341, 'Accepted. Two revision rounds are included, as the brief says.'
+    UNION ALL SELECT 1285, 1001, 334, 'Payment is done. Zusty holds it until we approve the work, so you can start whenever you are ready.'
+    UNION ALL SELECT 1286, 2001, 329, 'Thank you. The product arrived today and I am shooting this weekend in natural light.'
+    UNION ALL SELECT 1287, 2001,  97, 'Reel 1 is up on the booking. Let me know if the opening works for you.'
+    UNION ALL SELECT 1288, 1001,  90, 'Looks lovely. One small change: the product name is cut off in the first two seconds on smaller phones. Could you re-cut the opening?'
+    UNION ALL SELECT 1289, 2001,  67, 'Done, the re-cut is up, and Reel 2 and the Story set are in as well. Everything is on the booking for your review.'
+    UNION ALL SELECT 1290, 1001,  66, 'Thank you, Aanya. The team is reviewing all three today.'
+    UNION ALL SELECT 1291, 2001,  65, 'Perfect. Happy to tweak anything else within the second revision round.'
+) t
+WHERE EXISTS (SELECT 1 FROM conversations c WHERE c.id = 831);
+
+
+/* ==========================================================================
  * 6. MESSAGE RECEIPTS — one row per recipient per message.
- *    Threads whose id is divisible by 3 keep their last three messages unread.
+ *    Threads whose id is divisible by 3 keep their last three messages unread
+ *    (except the screenshot thread 831, which is read on both sides).
  * ========================================================================== */
 INSERT IGNORE INTO message_receipts (message_id, user_id, delivered_at, read_at)
 SELECT
@@ -581,7 +625,7 @@ SELECT
     p.user_id,
     LEAST(NOW(), DATE_ADD(m.created_at, INTERVAL (1 + m.id % 3) MINUTE)),
     CASE
-        WHEN m.conversation_id % 3 = 0
+        WHEN m.conversation_id % 3 = 0 AND m.conversation_id <> 831
              AND m.id > (SELECT MAX(x.id) - 3 FROM messages x WHERE x.conversation_id = m.conversation_id)
         THEN NULL
         ELSE LEAST(NOW(), DATE_ADD(m.created_at, INTERVAL (4 + (m.id * 7) % 55) MINUTE))
@@ -590,7 +634,7 @@ FROM messages m
 JOIN conversation_participants p
   ON p.conversation_id = m.conversation_id
  AND p.user_id <> m.sender_id
-WHERE m.conversation_id BETWEEN 801 AND 830
+WHERE m.conversation_id BETWEEN 801 AND 831
   AND m.id BETWEEN 901 AND 1300;
 
 UPDATE messages m
@@ -612,11 +656,11 @@ UPDATE conversation_participants p
           FROM message_receipts r
           JOIN messages m ON m.id = r.message_id
          WHERE r.read_at IS NULL
-           AND m.conversation_id BETWEEN 801 AND 830
+           AND m.conversation_id BETWEEN 801 AND 831
          GROUP BY m.conversation_id, r.user_id
        ) x ON x.conversation_id = p.conversation_id AND x.user_id = p.user_id
    SET p.unread_count = LEAST(x.n, 65535)
- WHERE p.conversation_id BETWEEN 801 AND 830;
+ WHERE p.conversation_id BETWEEN 801 AND 831;
 
 UPDATE conversation_participants p
   JOIN (
@@ -626,18 +670,18 @@ UPDATE conversation_participants p
           FROM message_receipts r
           JOIN messages m ON m.id = r.message_id
          WHERE r.read_at IS NOT NULL
-           AND m.conversation_id BETWEEN 801 AND 830
+           AND m.conversation_id BETWEEN 801 AND 831
          GROUP BY m.conversation_id, r.user_id
        ) y ON y.conversation_id = p.conversation_id AND y.user_id = p.user_id
    SET p.last_read_message_id = y.mx,
        p.last_read_at         = y.rt
- WHERE p.conversation_id BETWEEN 801 AND 830;
+ WHERE p.conversation_id BETWEEN 801 AND 831;
 
 UPDATE conversations c
   JOIN (
         SELECT m.conversation_id, COUNT(*) AS n, MAX(m.id) AS mx
           FROM messages m
-         WHERE m.conversation_id BETWEEN 801 AND 830
+         WHERE m.conversation_id BETWEEN 801 AND 831
            AND m.deleted_at IS NULL
          GROUP BY m.conversation_id
        ) a ON a.conversation_id = c.id
@@ -647,7 +691,7 @@ UPDATE conversations c
        c.last_message_text = LEFT(COALESCE(lm.body, '[attachment]'), 255),
        c.last_message_at   = lm.created_at,
        c.updated_at        = lm.created_at
- WHERE c.id BETWEEN 801 AND 830;
+ WHERE c.id BETWEEN 801 AND 831;
 
 
 /* ==========================================================================
@@ -658,6 +702,12 @@ UPDATE conversations c
  *    (none|booking|creator|chat|wallet|payment|url|review|ticket) — note the
  *    template table stores its own action verbs such as open_kyc which are NOT
  *    valid here, so kyc.* rows use 'none'.
+ *    A booking notification whose booking does not belong to its recipient
+ *    is pointed at the recipient's booking with the named counterparty when
+ *    there is one. Ticket notifications go to the ticket's owner, after the
+ *    agent's reply. KYC notifications go to creators whose kyc_status fits
+ *    them, and the store-screenshot accounts (Velvetfern 1001, Aanya 2001,
+ *    Preeti 2012) have no unread demo notification, so no badge shows.
  * ========================================================================== */
 INSERT IGNORE INTO notifications
     (id, user_id, type, category, title, body, image_url, icon,
@@ -693,13 +743,27 @@ SELECT
     IF(n.cat IN ('payment','wallet','account'), 1, 0),
     DATE_ADD(DATE_SUB(NOW(), INTERVAL n.dago DAY), INTERVAL (n.id % 640) MINUTE)
 FROM (
+  SELECT u.id, u.uid, u.ref, u.ntype, u.cat, u.icon, u.atype,
+         CASE WHEN u.atype = 'booking' THEN COALESCE((
+             SELECT CAST(b.id AS CHAR)
+               FROM bookings b
+              WHERE b.id BETWEEN 401 AND 480
+                AND ((b.brand_user_id = u.uid AND b.creator_user_id = u.ref)
+                  OR (b.brand_user_id = u.ref AND b.creator_user_id = u.uid))
+                AND NOT EXISTS (SELECT 1 FROM bookings o
+                                 WHERE o.id = u.aval AND u.uid IN (o.brand_user_id, o.creator_user_id))
+              ORDER BY ABS(b.id - u.aval)
+              LIMIT 1), u.aval)
+         ELSE u.aval END AS aval,
+         u.ttl, u.bdy, u.rd, u.dago
+  FROM (
     /* id , recipient , counterparty , type , category , icon , action_type , action_value , title , body , is_read , days_ago */
               SELECT 2101 AS id, 1001 AS uid, 2003 AS ref, 'booking.accepted' AS ntype, 'booking' AS cat, 'check_circle' AS icon, 'booking' AS atype, '403' AS aval, 'Booking accepted' AS ttl, '{who} accepted your request for the monsoon skincare reel. Complete the payment to lock the shoot dates.' AS bdy, 1 AS rd, 71 AS dago
-    UNION ALL SELECT 2102, 1001, 2009, 'booking.delivered', 'booking', 'task_alt', 'booking', '407', 'Deliverables submitted', '{who} has submitted the reel and two stories for review. You have 72 hours to approve or request changes.', 1, 64
-    UNION ALL SELECT 2103, 1001, 2014, 'message.new', 'message', 'chat_bubble', 'chat', '805', 'New message', '{who}: Draft link is in your inbox. It is 38 seconds and the two stories are cut from the same footage.', 1, 60
+    UNION ALL SELECT 2102, 1001, 2001, 'booking.delivered', 'booking', 'task_alt', 'booking', '452', 'Deliverables submitted', '{who} has submitted two Reels and a Story set for review. Approve them or ask for changes within 7 days of delivery.', 1, 64
+    UNION ALL SELECT 2103, 1001, 2001, 'message.new', 'message', 'chat_bubble', 'chat', '831', 'New message', '{who}: Done, the re-cut is up, and Reel 2 and the Story set are in as well.', 1, 60
     UNION ALL SELECT 2104, 1002, 2005, 'booking.requested', 'booking', 'calendar_today', 'booking', '412', 'Request sent to creator', 'Your booking request has reached {who}. Most creators respond within 12 hours.', 1, 88
     UNION ALL SELECT 2105, 1002, 2005, 'booking.countered', 'booking', 'swap_horiz', 'booking', '412', 'Counter offer received', '{who} sent a counter offer with a revised rate and a 12 day delivery window. Review it before it expires.', 1, 86
-    UNION ALL SELECT 2106, 1002, 2021, 'booking.confirmed', 'booking', 'verified', 'booking', '418', 'Booking confirmed!', 'Your collaboration with {who} is confirmed. The amount is now held in escrow until the deliverables are approved.', 1, 79
+    UNION ALL SELECT 2106, 1002, 2021, 'booking.confirmed', 'booking', 'verified', 'booking', '418', 'Booking confirmed!', 'Your collaboration with {who} is confirmed. The payment is held by Zusty until the work is approved.', 1, 79
     UNION ALL SELECT 2107, 1003, 2011, 'booking.completed', 'booking', 'task_alt', 'review', '705', 'Campaign completed', 'The campaign with {who} is closed. Leave a review to help other brands discover great creators.', 0, 22
     UNION ALL SELECT 2108, 1003, 2027, 'booking.rejected', 'booking', 'cancel', 'booking', '424', 'Booking declined', '{who} is unavailable for the requested dates. Browse similar creators in the same category and city.', 1, 55
     UNION ALL SELECT 2109, 1003, 2004, 'message.new', 'message', 'chat_bubble', 'chat', '812', 'New message', '{who}: Package arrived today and everything fits well. Shooting on Sunday at the location we discussed.', 1, 48
@@ -708,11 +772,11 @@ FROM (
     UNION ALL SELECT 2112, 1004, 2032, 'booking.expiring', 'booking', 'schedule', 'booking', '433', 'Request expiring soon', 'Your request to {who} expires in 6 hours. Send a nudge or pick another creator.', 1, 41
     UNION ALL SELECT 2113, 1005, 2007, 'booking.confirmed', 'booking', 'verified', 'booking', '437', 'Booking confirmed!', 'All set with {who}. Shoot date is locked and the brief has been shared with the creator.', 1, 68
     UNION ALL SELECT 2114, 1005, 2007, 'message.new', 'message', 'chat_bubble', 'chat', '817', 'New message', '{who}: Draft is ready. 52 seconds, opening on the kebab close up.', 0, 12
-    UNION ALL SELECT 2115, 1005, 2019, 'booking.cancelled', 'booking', 'event_busy', 'booking', '441', 'Booking cancelled', '{who} cancelled the booking due to a scheduling clash. Your escrow amount is being refunded in full.', 1, 37
+    UNION ALL SELECT 2115, 1005, 2019, 'booking.cancelled', 'booking', 'event_busy', 'booking', '441', 'Booking cancelled', '{who} cancelled the booking due to a scheduling clash. Your payment is being refunded in full.', 1, 37
     UNION ALL SELECT 2116, 1006, 2024, 'booking.accepted', 'booking', 'check_circle', 'booking', '445', 'Booking accepted', '{who} is on board for the launch campaign. Deliverables are due in 14 days.', 1, 58
     UNION ALL SELECT 2117, 1006, 2024, 'booking.delivered', 'booking', 'task_alt', 'booking', '445', 'Deliverables submitted', '{who} uploaded the long form review and the community post link.', 1, 44
     UNION ALL SELECT 2118, 1006, 2031, 'booking.requested', 'booking', 'calendar_today', 'booking', '449', 'Request sent to creator', 'Your request is with {who}. We will notify you the moment there is a response.', 1, 33
-    UNION ALL SELECT 2119, 1007, 2012, 'booking.countered', 'booking', 'swap_horiz', 'booking', '452', 'Counter offer received', '{who} would like to revise the scope to two reels instead of three. Tap to review the counter.', 0, 9
+    UNION ALL SELECT 2119, 1007, 2029, 'booking.countered', 'booking', 'swap_horiz', 'booking', '422', 'Counter offer received', '{who} would like to revise the scope to two reels instead of three. Tap to review the counter.', 1, 100
     UNION ALL SELECT 2120, 1007, 2012, 'message.new', 'message', 'chat_bubble', 'chat', '821', 'New message', '{who}: I can drop the short, but the community post stays because it is what drives traffic to the video.', 0, 8
     UNION ALL SELECT 2121, 1007, 2038, 'booking.completed', 'booking', 'task_alt', 'review', '712', 'Campaign completed', 'Your campaign with {who} wrapped up. Tell us how it went.', 1, 51
     UNION ALL SELECT 2122, 1008, 2002, 'booking.confirmed', 'booking', 'verified', 'booking', '456', 'Booking confirmed!', '{who} confirmed the three month association. Month one deliverables start next week.', 1, 65
@@ -721,11 +785,11 @@ FROM (
     UNION ALL SELECT 2125, 1009, 2035, 'booking.accepted', 'booking', 'check_circle', 'booking', '463', 'Booking accepted', '{who} accepted your brief for the Diwali gifting campaign.', 1, 47
     UNION ALL SELECT 2126, 1009, 2035, 'message.new', 'message', 'chat_bubble', 'chat', '825', 'New message', '{who}: Location tag corrected on all the stories. Reel draft by Thursday.', 1, 43
     UNION ALL SELECT 2127, 1009, 2018, 'booking.expiring', 'booking', 'schedule', 'booking', '467', 'Request expiring soon', 'Only 12 hours left on your request to {who} before it auto expires.', 0, 4
-    UNION ALL SELECT 2128, 1010, 2006, 'booking.confirmed', 'booking', 'verified', 'booking', '470', 'Booking confirmed!', 'Confirmed with {who}. The amount is safely in escrow until you approve the deliverables.', 1, 56
+    UNION ALL SELECT 2128, 1010, 2006, 'booking.confirmed', 'booking', 'verified', 'booking', '470', 'Booking confirmed!', 'Confirmed with {who}. Your payment is held by Zusty until you approve the work.', 1, 56
     UNION ALL SELECT 2129, 1010, 2006, 'booking.completed', 'booking', 'task_alt', 'review', '718', 'Campaign completed', 'Everything is signed off with {who}. A short review takes 30 seconds and really helps creators.', 0, 15
     UNION ALL SELECT 2130, 1010, 2040, 'booking.requested', 'booking', 'calendar_today', 'booking', '473', 'Request sent to creator', 'Request delivered to {who} along with your brief and moodboard.', 1, 26
     UNION ALL SELECT 2131, 1011, 2013, 'booking.accepted', 'booking', 'check_circle', 'booking', '476', 'Booking accepted', '{who} accepted the brief. Please complete payment within 24 hours to keep the slot.', 1, 61
-    UNION ALL SELECT 2132, 1011, 2013, 'booking.delivered', 'booking', 'task_alt', 'booking', '476', 'Deliverables submitted', 'Deliverables from {who} are in. Approve them to release the escrow payout.', 0, 6
+    UNION ALL SELECT 2132, 1011, 2013, 'booking.delivered', 'booking', 'task_alt', 'booking', '476', 'Deliverables submitted', 'Deliverables from {who} are in. Approve the work to release the payment.', 0, 6
     UNION ALL SELECT 2133, 1012, 2022, 'booking.countered', 'booking', 'swap_horiz', 'booking', '479', 'Counter offer received', '{who} proposed a revised rate for the same scope. Accept, counter again or decline.', 1, 34
     UNION ALL SELECT 2134, 1012, 2022, 'booking.confirmed', 'booking', 'verified', 'booking', '479', 'Booking confirmed!', 'Deal closed with {who}. The shoot is scheduled and the brief has been acknowledged.', 1, 31
     UNION ALL SELECT 2135, 1013, 2043, 'booking.accepted', 'booking', 'check_circle', 'booking', '405', 'Booking accepted', '{who} accepted your request for a product unboxing video.', 1, 77
@@ -735,21 +799,21 @@ FROM (
     UNION ALL SELECT 2139, 1015, 2026, 'booking.cancelled', 'booking', 'event_busy', 'booking', '414', 'Booking cancelled', 'You cancelled the booking with {who}. A full refund has been initiated to the original payment method.', 1, 45
     UNION ALL SELECT 2140, 1015, 2026, 'message.new', 'message', 'chat_bubble', 'chat', '829', 'New message', '{who}: Happy to. Send me the dates and we will work out a small add on.', 0, 3
     UNION ALL SELECT 2141, 2003, 1001, 'booking.requested', 'booking', 'calendar_today', 'booking', '403', 'New booking request', '{who} wants to book you for a skincare launch reel. Respond within 48 hours to keep your response rate high.', 1, 72
-    UNION ALL SELECT 2142, 2003, 1001, 'payment.success', 'payment', 'check_circle', 'booking', '403', 'Payment received in escrow', '{who} has paid for your booking. The amount is held safely and releases the moment the deliverables are approved.', 1, 70
+    UNION ALL SELECT 2142, 2003, 1001, 'payment.success', 'payment', 'check_circle', 'booking', '403', 'Payment received', '{who} has paid for your booking. The payment is held by Zusty until the work is approved.', 1, 70
     UNION ALL SELECT 2143, 2003, 1001, 'wallet.earning', 'wallet', 'payments', 'wallet', '1712', 'You have been paid', 'Your payout for the campaign with {who} has been credited to your Zusty wallet after platform commission and GST.', 1, 62
     UNION ALL SELECT 2144, 2005, 1002, 'booking.requested', 'booking', 'calendar_today', 'booking', '412', 'New booking request', '{who} sent you a brief for a festive styling campaign. Tap to view the scope and the offered rate.', 1, 88
     UNION ALL SELECT 2145, 2005, 1002, 'message.new', 'message', 'chat_bubble', 'chat', '802', 'New message', '{who}: We can cover travel within the city. Styling assistant we would rather you arrange.', 1, 85
-    UNION ALL SELECT 2146, 2005, 1002, 'booking.confirmed', 'booking', 'verified', 'booking', '412', 'Booking confirmed!', 'Your collaboration with {who} is confirmed and the payment is in escrow.', 1, 79
+    UNION ALL SELECT 2146, 2005, 1002, 'booking.confirmed', 'booking', 'verified', 'booking', '412', 'Booking confirmed!', 'Your collaboration with {who} is confirmed and the payment is held by Zusty.', 1, 79
     UNION ALL SELECT 2147, 2007, 1005, 'booking.requested', 'booking', 'calendar_today', 'booking', '437', 'New booking request', '{who} would like you to cover their new outlet tasting. The proposed date is in nine days.', 1, 69
     UNION ALL SELECT 2148, 2007, 1005, 'review.received', 'review', 'star', 'review', '702', 'New review', '{who} left you a 5 star review. Your profile rating has been updated.', 1, 50
-    UNION ALL SELECT 2149, 2007, 1005, 'wallet.earning', 'wallet', 'payments', 'wallet', '1728', 'You have been paid', 'Escrow released for the tasting campaign with {who}. Funds are now withdrawable.', 1, 49
+    UNION ALL SELECT 2149, 2007, 1005, 'wallet.earning', 'wallet', 'payments', 'wallet', '1728', 'You have been paid', 'Payment released for the tasting campaign with {who}. Funds are now withdrawable.', 1, 49
     UNION ALL SELECT 2150, 2009, 1001, 'booking.confirmed', 'booking', 'verified', 'booking', '407', 'Booking confirmed!', 'All confirmed with {who}. Your delivery window opens today.', 1, 66
     UNION ALL SELECT 2151, 2009, 1001, 'booking.completed', 'booking', 'review', 'review', '703', 'Campaign completed', 'Your work for {who} was approved. Leave a review for the brand while it is fresh.', 1, 63
     UNION ALL SELECT 2152, 2011, 1003, 'booking.requested', 'booking', 'calendar_today', 'booking', '421', 'New booking request', '{who} is interested in a two reel package. Their brief is attached to the request.', 1, 57
     UNION ALL SELECT 2153, 2011, 1003, 'review.received', 'review', 'star', 'review', '705', 'New review', '{who} rated your collaboration 5 stars and mentioned your turnaround time.', 0, 21
-    UNION ALL SELECT 2154, 2012, 1007, 'booking.requested', 'booking', 'calendar_today', 'booking', '452', 'New booking request', '{who} wants a long form review of their new earbuds. No script approval required.', 0, 10
-    UNION ALL SELECT 2155, 2012, 1007, 'message.new', 'message', 'chat_bubble', 'chat', '821', 'New message', '{who}: Approved at the revised amount. Sending the offer now.', 0, 8
-    UNION ALL SELECT 2156, 2013, 1011, 'payment.success', 'payment', 'check_circle', 'booking', '476', 'Payment received in escrow', 'Escrow funded by {who}. You can begin production right away.', 1, 60
+    UNION ALL SELECT 2154, 2012, 1008, 'booking.requested', 'booking', 'calendar_today', 'booking', '439', 'New booking request', '{who} sent you a booking request for a home coffee setup video. Tap to see the brief and the offered rate.', 1, 28
+    UNION ALL SELECT 2155, 2012, 1003, 'message.new', 'message', 'chat_bubble', 'chat', '803', 'New message', '{who}: Thank you. We did 40 covers on Sunday and at least a dozen guests mentioned the reel.', 1, 359
+    UNION ALL SELECT 2156, 2013, 1011, 'payment.success', 'payment', 'check_circle', 'booking', '476', 'Payment received', 'Payment received from {who}. You can begin production right away.', 1, 60
     UNION ALL SELECT 2157, 2013, 1011, 'wallet.earning', 'wallet', 'payments', 'wallet', '1745', 'You have been paid', 'Your payout has landed in your wallet. Withdrawals to your linked bank usually settle in 24 to 48 hours.', 0, 5
     UNION ALL SELECT 2158, 2014, 1001, 'message.new', 'message', 'chat_bubble', 'chat', '805', 'New message', '{who}: Legal is fine with that as long as we do not use the phrase clinically proven anywhere.', 1, 59
     UNION ALL SELECT 2159, 2014, 1001, 'review.received', 'review', 'star', 'review', '707', 'New review', '{who} left a 4 star review with a note about the caption revisions.', 1, 46
@@ -774,15 +838,15 @@ FROM (
     UNION ALL SELECT 2178, 2010, 1014, 'booking.accepted', 'booking', 'check_circle', 'booking', '409', 'Booking accepted', 'You accepted the brief from {who}. Deliverables are due in 10 days.', 1, 81
     UNION ALL SELECT 2179, 2002, 1008, 'booking.confirmed', 'booking', 'verified', 'booking', '456', 'Booking confirmed!', 'Three month association with {who} is live. Month one starts next week.', 1, 64
     UNION ALL SELECT 2180, 2006, 1010, 'review.received', 'review', 'star', 'review', '722', 'New review', '{who} rated you 4 stars and left detailed feedback on the hook.', 0, 14
-    UNION ALL SELECT 2181, 1001, 2003, 'payment.success', 'payment', 'check_circle', 'payment', '503', 'Payment successful', 'INR 47,200 including GST has been charged to your card ending 4412 and moved into escrow.', 1, 70
+    UNION ALL SELECT 2181, 1001, 2003, 'payment.success', 'payment', 'check_circle', 'payment', '503', 'Payment successful', 'INR 47,200 including GST has been charged to your card ending 4412 and is held by Zusty until you approve the work.', 1, 70
     UNION ALL SELECT 2182, 1002, 2005, 'payment.success', 'payment', 'check_circle', 'payment', '509', 'Payment successful', 'Your UPI payment went through. The invoice is available under Billing.', 1, 78
     UNION ALL SELECT 2183, 1003, 2011, 'payment.failed', 'payment', 'error', 'payment', '514', 'Payment failed', 'Your card was declined by the issuing bank. No amount has been deducted. Try another method to keep the booking.', 1, 57
     UNION ALL SELECT 2184, 1003, 2011, 'payment.success', 'payment', 'check_circle', 'payment', '515', 'Payment successful', 'Retry succeeded on netbanking. The booking is now confirmed.', 1, 57
     UNION ALL SELECT 2185, 1004, 2016, 'payment.success', 'payment', 'check_circle', 'payment', '521', 'Payment successful', 'Payment captured. GST at 18 percent on the platform fee is included in your invoice.', 1, 74
     UNION ALL SELECT 2186, 1005, 2019, 'payment.refunded', 'payment', 'refresh', 'wallet', '1774', 'Refund processed', 'Your refund for the cancelled booking has been initiated and should reflect in 5 to 7 working days.', 1, 36
-    UNION ALL SELECT 2187, 1006, 2024, 'payment.success', 'payment', 'check_circle', 'payment', '528', 'Payment successful', 'Escrow funded for the earbud review campaign.', 1, 58
+    UNION ALL SELECT 2187, 1006, 2024, 'payment.success', 'payment', 'check_circle', 'payment', '528', 'Payment successful', 'Payment received for the earbud review campaign.', 1, 58
     UNION ALL SELECT 2188, 1007, 2038, 'payment.success', 'payment', 'check_circle', 'payment', '534', 'Payment successful', 'Payment received. You can now chat with the creator and share the detailed brief.', 1, 52
-    UNION ALL SELECT 2189, 1008, 2002, 'payment.success', 'payment', 'check_circle', 'payment', '540', 'Payment successful', 'All three months have been funded into escrow as agreed.', 1, 65
+    UNION ALL SELECT 2189, 1008, 2002, 'payment.success', 'payment', 'check_circle', 'payment', '540', 'Payment successful', 'All three months have been paid for as agreed.', 1, 65
     UNION ALL SELECT 2190, 1009, 2035, 'payment.failed', 'payment', 'error', 'payment', '545', 'Payment failed', 'The transaction timed out at the bank page. Please retry, the creator slot is held for another 6 hours.', 0, 11
     UNION ALL SELECT 2191, 1010, 2006, 'payment.success', 'payment', 'check_circle', 'payment', '549', 'Payment successful', 'Payment of INR 1,18,000 completed. Invoice ZINV-0621 has been emailed to your billing contact.', 1, 56
     UNION ALL SELECT 2192, 1011, 2013, 'payment.success', 'payment', 'check_circle', 'payment', '554', 'Payment successful', 'Card payment captured successfully.', 1, 61
@@ -796,22 +860,22 @@ FROM (
     UNION ALL SELECT 2200, 1019, 2041, 'payment.failed', 'payment', 'error', 'payment', '575', 'Payment failed', 'Payment could not be completed because the daily UPI limit was exceeded. Try a card or netbanking instead.', 0, 2
     UNION ALL SELECT 2201, 2003, 1001, 'wallet.credited', 'wallet', 'arrow_downward', 'wallet', '1712', 'Money added', 'INR 38,250 has been credited to your wallet after 15 percent platform commission and applicable GST.', 1, 62
     UNION ALL SELECT 2202, 2003, 1001, 'withdrawal.approved', 'wallet', 'account_balance', 'wallet', '1955', 'Withdrawal approved', 'Your withdrawal of INR 35,000 has been approved and sent to your HDFC account ending 8841.', 1, 58
-    UNION ALL SELECT 2203, 2005, 1002, 'wallet.earning', 'wallet', 'payments', 'wallet', '1719', 'You have been paid', 'Escrow released for the festive edit campaign.', 1, 71
+    UNION ALL SELECT 2203, 2005, 1002, 'wallet.earning', 'wallet', 'payments', 'wallet', '1719', 'You have been paid', 'Payment released for the festive edit campaign.', 1, 71
     UNION ALL SELECT 2204, 2005, 1002, 'withdrawal.approved', 'wallet', 'account_balance', 'wallet', '1957', 'Withdrawal approved', 'INR 60,000 is on its way to your bank account. UTR will appear in the transaction detail once settled.', 1, 68
     UNION ALL SELECT 2205, 2007, 1005, 'withdrawal.rejected', 'wallet', 'error', 'wallet', '1959', 'Withdrawal rejected', 'Your withdrawal was rejected because the beneficiary name did not match your PAN. Update the bank account and retry.', 1, 47
     UNION ALL SELECT 2206, 2007, 1005, 'withdrawal.approved', 'wallet', 'account_balance', 'wallet', '1960', 'Withdrawal approved', 'Resubmitted withdrawal approved. Funds will settle within 24 hours.', 1, 45
-    UNION ALL SELECT 2207, 2009, 1001, 'wallet.earning', 'wallet', 'payments', 'wallet', '1725', 'You have been paid', 'Your earnings for the reel and story set have been released from escrow.', 1, 61
+    UNION ALL SELECT 2207, 2009, 1001, 'wallet.earning', 'wallet', 'payments', 'wallet', '1725', 'You have been paid', 'Your earnings for the reel and story set have been released to your wallet.', 1, 61
     UNION ALL SELECT 2208, 2011, 1003, 'wallet.credited', 'wallet', 'arrow_downward', 'wallet', '1731', 'Money added', 'Payout credited. Your withdrawable balance is now updated in the wallet.', 1, 50
-    UNION ALL SELECT 2209, 2012, 1007, 'wallet.earning', 'wallet', 'payments', 'wallet', '1737', 'You have been paid', 'Payout for the earbud review has been credited to your wallet.', 0, 6
+    UNION ALL SELECT 2209, 2003, 1001, 'wallet.earning', 'wallet', 'payments', 'wallet', '1737', 'You have been paid', '{who} approved the work. Your earning is in your wallet after the platform commission.', 1, 6
     UNION ALL SELECT 2210, 2013, 1011, 'withdrawal.approved', 'wallet', 'account_balance', 'wallet', '1962', 'Withdrawal approved', 'INR 42,000 has been transferred to your ICICI account.', 1, 39
-    UNION ALL SELECT 2211, 2016, 1004, 'wallet.earning', 'wallet', 'payments', 'wallet', '1743', 'You have been paid', 'Escrow released after the brand approved all three deliverables.', 1, 53
+    UNION ALL SELECT 2211, 2016, 1004, 'wallet.earning', 'wallet', 'payments', 'wallet', '1743', 'You have been paid', 'Payment released after the brand approved all three deliverables.', 1, 53
     UNION ALL SELECT 2212, 2021, 1002, 'wallet.credited', 'wallet', 'arrow_downward', 'wallet', '1749', 'Money added', 'Campaign earnings credited to your Zusty wallet.', 1, 51
     UNION ALL SELECT 2213, 2022, 1012, 'withdrawal.rejected', 'wallet', 'error', 'wallet', '1964', 'Withdrawal rejected', 'Withdrawal could not be processed because your KYC is pending. Complete verification to unlock payouts.', 0, 17
     UNION ALL SELECT 2214, 2024, 1006, 'wallet.earning', 'wallet', 'payments', 'wallet', '1755', 'You have been paid', 'Payout released. Commission and GST breakdown is available in the transaction detail.', 1, 41
     UNION ALL SELECT 2215, 2026, 1015, 'wallet.credited', 'wallet', 'arrow_downward', 'wallet', '1767', 'Money added', 'Referral bonus and campaign earnings have been credited together this week.', 1, 32
     UNION ALL SELECT 2216, 2029, 1008, 'wallet.earning', 'wallet', 'payments', 'wallet', '1773', 'You have been paid', 'Month one payout for the protein association is now in your wallet.', 1, 27
     UNION ALL SELECT 2217, 2031, 1006, 'withdrawal.approved', 'wallet', 'account_balance', 'wallet', '1966', 'Withdrawal approved', 'Your payout request has been approved and queued for the next settlement cycle.', 1, 24
-    UNION ALL SELECT 2218, 2035, 1009, 'wallet.earning', 'wallet', 'payments', 'wallet', '1779', 'You have been paid', 'Diwali campaign payout released from escrow.', 1, 38
+    UNION ALL SELECT 2218, 2035, 1009, 'wallet.earning', 'wallet', 'payments', 'wallet', '1779', 'You have been paid', 'Diwali campaign payment released to your wallet.', 1, 38
     UNION ALL SELECT 2219, 2038, 1007, 'wallet.credited', 'wallet', 'arrow_downward', 'wallet', '1785', 'Money added', 'Your wallet has been credited. You can withdraw any amount above INR 1,000.', 1, 49
     UNION ALL SELECT 2220, 2043, 1013, 'wallet.earning', 'wallet', 'payments', 'wallet', '1791', 'You have been paid', 'Unboxing campaign payout credited after commission.', 1, 51
     UNION ALL SELECT 2221, 1001, 2003, 'message.new', 'message', 'chat_bubble', 'chat', '801', 'New message', '{who}: Shoot is planned for Saturday morning and I will have the draft with you by Tuesday.', 1, 67
@@ -859,44 +923,54 @@ FROM (
     UNION ALL SELECT 2263, 2030, 1001, 'creator.rejected', 'account', 'info', 'creator', '130', 'Profile needs changes', 'Your profile could not be approved yet. The linked Instagram handle does not match the name on your ID.', 1, 86
     UNION ALL SELECT 2264, 2030, 1001, 'creator.approved', 'account', 'verified', 'creator', '130', 'Your profile is live', 'Thank you for the correction, your profile is approved and live.', 1, 84
     UNION ALL SELECT 2265, 2037, 1001, 'creator.approved', 'account', 'verified', 'creator', '137', 'Your profile is live', 'Your creator profile is approved. Set your packages to start receiving booking requests.', 1, 90
-    UNION ALL SELECT 2266, 2003, 1001, 'kyc.verified', 'account', 'verified_user', 'none', NULL, 'Identity verified', 'Your identity has been verified. Payouts and higher booking limits are now unlocked.', 1, 89
+    UNION ALL SELECT 2266, 2009, 1001, 'kyc.verified', 'account', 'verified_user', 'none', NULL, 'Identity verified', 'Your identity has been verified. Payouts and higher booking limits are now unlocked.', 1, 89
     UNION ALL SELECT 2267, 2005, 1001, 'kyc.submitted', 'account', 'verified_user', 'none', NULL, 'Verification submitted', 'We have received your documents. Verification usually completes within 24 to 48 hours.', 1, 88
     UNION ALL SELECT 2268, 2005, 1001, 'kyc.approved', 'account', 'verified', 'none', NULL, 'You are verified', 'Your KYC has been approved. The verified badge is now visible on your profile.', 1, 87
-    UNION ALL SELECT 2269, 2012, 1001, 'kyc.under_review', 'account', 'hourglass_top', 'none', NULL, 'Verification under review', 'Your documents are with our compliance team. We will notify you as soon as there is an update.', 1, 87
-    UNION ALL SELECT 2270, 2012, 1001, 'kyc.info_required', 'account', 'upload_file', 'none', NULL, 'More information needed', 'The address on your utility bill is not readable. Please upload a clearer copy to continue.', 0, 19
-    UNION ALL SELECT 2271, 2022, 1001, 'kyc.rejected', 'account', 'gpp_bad', 'none', NULL, 'Verification needs attention', 'The PAN details did not match our records. Re-check the name and number and submit again.', 1, 62
+    UNION ALL SELECT 2269, 2026, 1001, 'kyc.under_review', 'account', 'hourglass_top', 'none', NULL, 'Verification under review', 'Your documents are with our compliance team. We will notify you as soon as there is an update.', 1, 87
+    UNION ALL SELECT 2270, 2015, 1001, 'kyc.info_required', 'account', 'upload_file', 'none', NULL, 'More information needed', 'The photo of your PAN card is not readable. Please upload a clearer photo to continue.', 0, 19
+    UNION ALL SELECT 2271, 2011, 1001, 'kyc.rejected', 'account', 'gpp_bad', 'none', NULL, 'Verification needs attention', 'The PAN details did not match our records. Re-check the name and number and submit again.', 1, 62
     UNION ALL SELECT 2272, 2028, 1001, 'kyc.expiring', 'account', 'schedule', 'none', NULL, 'Verification expires soon', 'Your verification expires in 30 days. Re-verify now so your payouts are never interrupted.', 0, 8
     UNION ALL SELECT 2273, 2034, 1001, 'kyc.expired', 'account', 'event_busy', 'none', NULL, 'Verification expired', 'Your KYC has expired. Withdrawals are paused until you complete verification again.', 0, 3
     UNION ALL SELECT 2274, 1013, 2003, 'kyc.verified', 'account', 'verified_user', 'none', NULL, 'Identity verified', 'Your business verification is complete. GST invoices will now be generated automatically.', 1, 85
     UNION ALL SELECT 2275, 1017, 2003, 'kyc.under_review', 'account', 'hourglass_top', 'none', NULL, 'Verification under review', 'Your GST certificate is being verified. This usually takes one working day.', 1, 29
-    UNION ALL SELECT 2276, 1001, 2003, 'account.welcome', 'account', 'celebration', 'url', 'https://zuste.com/help/getting-started-brands', 'Welcome to Zusty', 'Welcome aboard. Complete your business profile and browse over 4,000 verified creators across 16 categories.', 1, 90
-    UNION ALL SELECT 2277, 1012, 2003, 'account.welcome', 'account', 'celebration', 'url', 'https://zuste.com/help/getting-started-brands', 'Welcome to Zusty', 'Welcome to Zusty. Your first campaign brief takes about four minutes to set up.', 1, 89
-    UNION ALL SELECT 2278, 2019, 1001, 'account.welcome', 'account', 'celebration', 'url', 'https://zuste.com/help/getting-started-creators', 'Welcome to Zusty', 'Welcome. Add your packages and connect your social accounts to appear in brand searches.', 1, 88
-    UNION ALL SELECT 2279, 2036, 1001, 'account.welcome', 'account', 'celebration', 'url', 'https://zuste.com/help/getting-started-creators', 'Welcome to Zusty', 'Welcome to Zusty. Creators with a complete profile receive around three times more requests.', 1, 86
+    UNION ALL SELECT 2276, 1001, 2003, 'account.welcome', 'account', 'celebration', 'url', 'https://zusty.app/about', 'Welcome to Zusty', 'Welcome aboard. Complete your business profile, then browse creators across 16 categories.', 1, 90
+    UNION ALL SELECT 2277, 1012, 2003, 'account.welcome', 'account', 'celebration', 'url', 'https://zusty.app/about', 'Welcome to Zusty', 'Welcome to Zusty. Your first campaign brief takes about four minutes to set up.', 1, 89
+    UNION ALL SELECT 2278, 2019, 1001, 'account.welcome', 'account', 'celebration', 'url', 'https://zusty.app/about', 'Welcome to Zusty', 'Welcome. Add your packages and connect your social accounts to appear in brand searches.', 1, 88
+    UNION ALL SELECT 2279, 2036, 1001, 'account.welcome', 'account', 'celebration', 'url', 'https://zusty.app/about', 'Welcome to Zusty', 'Welcome to Zusty. A complete profile helps brands decide before they book.', 1, 86
     UNION ALL SELECT 2280, 1005, 2007, 'referral.rewarded', 'promo', 'person_add', 'wallet', '1806', 'Referral reward credited', 'Your referral completed their first paid booking. INR 1,000 has been credited to your wallet.', 1, 66
     UNION ALL SELECT 2281, 1009, 2035, 'referral.rewarded', 'promo', 'person_add', 'wallet', '1810', 'Referral reward credited', 'Referral bonus credited. Share your code again to keep earning.', 1, 40
     UNION ALL SELECT 2282, 2007, 1005, 'referral.rewarded', 'promo', 'person_add', 'wallet', '1814', 'Referral reward credited', 'INR 500 signup bonus has been added to your wallet from the referral code you used.', 1, 65
     UNION ALL SELECT 2283, 2026, 1015, 'referral.rewarded', 'promo', 'person_add', 'wallet', '1818', 'Referral reward credited', 'Your friend joined and completed a booking. Reward credited.', 0, 12
     UNION ALL SELECT 2284, 1016, 2015, 'referral.rewarded', 'promo', 'person_add', 'wallet', '1822', 'Referral reward credited', 'Referral reward of INR 1,000 credited to your Zusty wallet.', 1, 21
     UNION ALL SELECT 2285, 2040, 1010, 'referral.rewarded', 'promo', 'person_add', 'wallet', '1826', 'Referral reward credited', 'Referral bonus credited after your first completed campaign.', 1, 31
-    UNION ALL SELECT 2286, 1001, 2003, 'ticket.replied', 'system', 'support_agent', 'ticket', '1602', 'Support replied', 'Our team has responded to your query about GST on the platform fee.', 1, 52
-    UNION ALL SELECT 2287, 1004, 2016, 'ticket.replied', 'system', 'support_agent', 'ticket', '1605', 'Support replied', 'We have replied about the delayed refund. Please check the ticket for the reference number.', 1, 34
-    UNION ALL SELECT 2288, 2007, 1005, 'ticket.replied', 'system', 'support_agent', 'ticket', '1608', 'Support replied', 'Support has answered your question about the withdrawal rejection.', 1, 46
-    UNION ALL SELECT 2289, 2013, 1011, 'ticket.replied', 'system', 'support_agent', 'ticket', '1611', 'Support replied', 'A support agent has replied to your ticket about bank account verification.', 0, 10
-    UNION ALL SELECT 2290, 1010, 2006, 'ticket.replied', 'system', 'support_agent', 'ticket', '1614', 'Support replied', 'Your invoice correction request has been resolved. The revised invoice is available in Billing.', 1, 27
-    UNION ALL SELECT 2291, 2024, 1006, 'ticket.replied', 'system', 'support_agent', 'ticket', '1617', 'Support replied', 'We have shared the escrow release timeline on your ticket.', 1, 23
-    UNION ALL SELECT 2292, 1018, 2033, 'ticket.replied', 'system', 'support_agent', 'ticket', '1619', 'Support replied', 'Support replied regarding the campaign brief template you requested.', 0, 5
+    UNION ALL SELECT 2286, 1001, 2020, 'ticket.replied', 'system', 'support_agent', 'ticket', '1617', 'Support replied', 'Our team has responded to your query about the GST on ZB2400432.', 1, 74
+    UNION ALL SELECT 2287, 1006, 2016, 'ticket.replied', 'system', 'support_agent', 'ticket', '1609', 'Support replied', 'We have replied about the delayed refund. Please check the ticket for the reference number.', 1, 96
+    UNION ALL SELECT 2288, 2037, 1005, 'ticket.replied', 'system', 'support_agent', 'ticket', '1618', 'Support replied', 'Support has answered your question about the failed withdrawal.', 1, 18
+    UNION ALL SELECT 2289, 2045, 1011, 'ticket.replied', 'system', 'support_agent', 'ticket', '1606', 'Support replied', 'A support agent has replied to your ticket about bank account verification.', 0, 12
+    UNION ALL SELECT 2290, 1005, 2006, 'ticket.replied', 'system', 'support_agent', 'ticket', '1605', 'Support replied', 'Your invoice correction request has been resolved. The revised invoice is available in Billing.', 1, 40
+    UNION ALL SELECT 2291, 2011, 1006, 'ticket.replied', 'system', 'support_agent', 'ticket', '1601', 'Support replied', 'Our team has replied about the payment held on ZB2400429.', 1, 6
+    UNION ALL SELECT 2292, 1014, 2033, 'ticket.replied', 'system', 'support_agent', 'ticket', '1619', 'Support replied', 'Support replied about the profile that used your logo.', 1, 54
     UNION ALL SELECT 2293, 1020, 2044, 'booking.expiring', 'booking', 'schedule', 'booking', '478', 'Request expiring soon', 'Your request to {who} expires tomorrow morning.', 0, 1
     UNION ALL SELECT 2294, 2045, 1020, 'booking.requested', 'booking', 'calendar_today', 'booking', '480', 'New booking request', '{who} sent you a new collaboration request. Respond soon to protect your response rate.', 0, 1
     UNION ALL SELECT 2295, 1016, 2015, 'booking.accepted', 'booking', 'check_circle', 'booking', '415', 'Booking accepted', '{who} accepted your request. Complete payment to move into production.', 0, 2
     UNION ALL SELECT 2296, 1017, 2020, 'booking.confirmed', 'booking', 'verified', 'booking', '419', 'Booking confirmed!', 'Your booking with {who} is confirmed. Chat is now open for briefing.', 1, 20
-    UNION ALL SELECT 2297, 1018, 2033, 'booking.delivered', 'booking', 'task_alt', 'booking', '423', 'Deliverables submitted', '{who} submitted the deliverables. Approve within 72 hours or they auto approve.', 0, 3
+    UNION ALL SELECT 2297, 1018, 2033, 'booking.delivered', 'booking', 'task_alt', 'booking', '423', 'Deliverables submitted', '{who} submitted the deliverables. Approve them or ask for changes within 7 days of delivery.', 0, 3
     UNION ALL SELECT 2298, 1019, 2041, 'booking.cancelled', 'booking', 'event_busy', 'booking', '427', 'Booking cancelled', 'The booking with {who} was cancelled before payment. No amount was charged.', 1, 13
     UNION ALL SELECT 2299, 2044, 1020, 'booking.confirmed', 'booking', 'verified', 'booking', '478', 'Booking confirmed!', 'Confirmed with {who}. The brief and moodboard are in the chat.', 0, 1
-    UNION ALL SELECT 2300, 2015, 1016, 'booking.completed', 'booking', 'review', 'review', '752', 'Campaign completed', 'Campaign with {who} is complete. Your payout has been released from escrow.', 0, 2
+    UNION ALL SELECT 2300, 2015, 1016, 'booking.completed', 'booking', 'review', 'review', '752', 'Campaign completed', 'Campaign with {who} is complete. Your payment has been released to your wallet.', 0, 2
+  ) u
 ) n
 LEFT JOIN users ru ON ru.id = n.ref
 JOIN users tu ON tu.id = n.uid;
+
+-- The screenshot booking's own notifications (2102 delivered, 2103 the
+-- creator's last message) are dated with the delivery, not by whole days.
+UPDATE notifications n
+  JOIN messages m ON m.id = 1289 AND m.conversation_id = 831
+   SET n.created_at = m.created_at,
+       n.read_at    = LEAST(NOW(), DATE_ADD(m.created_at, INTERVAL 2 HOUR))
+ WHERE n.id IN (2102, 2103)
+   AND n.created_at <> m.created_at;
 
 
 /* ==========================================================================

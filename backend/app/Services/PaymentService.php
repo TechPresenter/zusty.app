@@ -2005,10 +2005,16 @@ final class PaymentService
      * Keys dropped from a gateway payload at any depth: raw card data and
      * gateway tokens, and the payer's contact details (email, phone, UPI ID,
      * name). Ids, statuses, amounts, the method and error codes stay.
+     *
+     * Cashfree's payment_method carries card fields under `card` and, for a
+     * card EMI, `emi` / `card_emi`; its app (wallet), pay_later and
+     * cardless_emi objects carry the payer's `phone`. The privacy policy
+     * (migration 059) promises the card details, UPI ID and contact details
+     * are taken out, whichever method was used.
      */
     private const GATEWAY_SCRUBBED_KEYS = [
-        'card', 'payment_method_details', 'client_secret', 'source', 'charges',
-        'email', 'contact', 'vpa', 'upi_id', 'receipt_email', 'billing_details', 'shipping',
+        'card', 'emi', 'card_emi', 'card_number', 'payment_method_details', 'client_secret', 'source', 'charges',
+        'email', 'contact', 'phone', 'vpa', 'upi_id', 'receipt_email', 'billing_details', 'shipping',
         'customer_details', 'customer_email', 'customer_phone', 'customer_name',
     ];
 

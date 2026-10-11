@@ -274,6 +274,98 @@ curl -s  https://yourdomain.com/robots.txt  # Sitemap: line names this domain
   ```bash
   curl -s -H "Authorization: Bearer $TOKEN" https://yourdomain.com/api/v1/me/creator/portfolio | grep -o '"max_items":[0-9]*'   # "max_items":100
   ```
+- **Profile completion with SMS off; masked request logs.** Migration 058. With SMS
+  off nobody can add or confirm a mobile number, yet migration 037 had made *Add a
+  mobile number*, *Confirm your mobile number* and the *Mobile verified* badge
+  mandatory, so every creator, the review account included, carried a mandatory item
+  they could not act on. The migration makes those rules optional (found by what they
+  read, not by name), takes `mobile_verified` out of every feature gate's required
+  badges (`accept_bookings` and `apply_to_campaigns` keep `email_verified`) and out of
+  `creator.required_verifications`, and deletes the stored completion rows that list a
+  mobile rule as missing (a cache; each creator's refills on the next read). Run
+  `creators:completion` from System → Jobs after the deploy to rescore everyone at
+  once, or wait for the nightly run. It also gives `sms.enabled` back its definition
+  (boolean, label, description, sort order) where the row had been re-created bare; the
+  value is never touched. Finally it masks what the request log already holds: phone
+  numbers keep their last four digits behind six stars and email addresses their first
+  character and domain, under any key naming a phone, mobile, msisdn, WhatsApp number
+  or email, plus `identifier`, `destination` and `recipient`; a phone-shaped value
+  under `value`, `new_value`, `old_value` or `contact` (a refused
+  `POST /me/contacts/change` or `/me/contacts/alternates` sends
+  `{"channel": "email|phone", "value": …}`); and every other email address in a body,
+  in a list or inside text (a file name such as `logo@2x.png` is left alone). On a
+  large `api_logs` table those steps scan every stored body once each. The code that
+  goes with it: while
+  SMS is off the completion engine does not score those rules, no gate asks for that
+  badge, `GET /me/creator` does not offer it as a badge to earn and
+  `GET /me/creator/completion` adds `applicable` per section; switching SMS on brings
+  them back as optional items with no data change. The *Email verified* badge is
+  re-checked whenever a breakdown is read or rescored, so a creator in review whose
+  address is confirmed is no longer told it is missing (the nightly badge sweep covers
+  approved creators only). `ApiLogService` now masks by key
+  pattern at any depth (it matched only the exact keys `email` and `phone`, so a failed
+  `POST /payments/booking/{id}` kept `customer_phone` in the clear), the `value` beside
+  a contact channel, a phone-shaped `value` and any email address. Ship the matching
+  app build: its completion card lists only what the creator can finish in the app and
+  opens that screen (KYC only while it needs the creator's action), and the portfolio
+  viewer can report a post. Check after a deploy (with a creator's token):
+
+  ```bash
+  curl -s -H "Authorization: Bearer $TOKEN" https://yourdomain.com/api/v1/me/creator/completion | grep -c 'phone_verified\|Mobile verified'   # 0
+  ```
+- **Payment protection, not escrow; the Grievance Officer.** Migration 059 applies
+  decisions P-ESCROW and P-GRIEVANCE of 2026-10-10. Money settles from Cashfree into
+  Zusty's own account and no regulated escrow or nodal arrangement is confirmed, so no
+  copy users or Google read says "escrow": the brand's payment is *held by Zusty*,
+  released on approval or automatically `booking.auto_complete_days` after delivery,
+  and reviewed by our team before any money moves if there is a dispute. Internal names
+  (`escrow_status`, `escrow_hold` / `escrow_release`, the `escrow:release` job key) are
+  unchanged. Edited in place, each only while it still holds the seeded wording (an
+  admin's rewrite is left alone), each page's version bumped once:
+  - **Privacy** — section 2 says what the code keeps of a payment (Cashfree's
+    references, amount, status and method type, with card details, UPI ID and contact
+    details removed; a net banking reply can still name the bank), that the wallet also
+    holds referral rewards, and that a checkout phone goes to Cashfree with that order
+    only while our request log keeps its last four digits (this relies on the
+    `ApiLogService` masking that ships in the same deploy); section 5 says "on hold";
+    section 8 names the **Grievance Officer, Appsgain Technologies Private Limited** at
+    support@zusty.app (24-hour acknowledgement, 15-day resolution, DPDP Act requests).
+  - **Terms** sections 5, 6 and 17, the **Refund & Cancellation Policy** (heading,
+    subtitle, disputes, meta description), **About** (with the review window printed
+    in), **Community Guidelines** and **Contact** (a Complaints item).
+  - FAQs "How does Zusty work?", "Is my payment secure?" and "What happens if a creator
+    does not deliver?"; templates `payment.success`, `campaign.hired` and
+    `booking.disputed`; the first home banner and the third onboarding slide; the
+    `escrow:release` job's name ("Release held earnings"); and the two booking-timeline
+    notes BookingService wrote before ("Payment captured and held by Zusty.",
+    "Completed by an administrator; payment released.").
+  - Settings: `app.android_store_url` becomes the `com.zuste.zuste` listing when it is
+    empty or names `com.zuste.app`, and `referral.share_base_url` becomes
+    `https://zusty.app/invite/` when it is still on zuste.app or zustee.com. `social.*`
+    and `seo.twitter_handle` are not touched.
+  - The switched-off sample testimonial that opened "Escrow changed everything…" now
+    says "Payment protection changed everything…".
+  - Stored Cashfree replies (`payments.gateway_response`, `payment_webhooks.payload`):
+    a one-time scrub removes the payer's phone from the `app` (wallet), `pay_later` and
+    `cardless_emi` objects and the `card` / `emi` / `card_emi` objects, so the privacy
+    policy's "card details, UPI ID and contact details taken out" holds for every
+    method. `PaymentService` drops the same keys from new replies (same deploy). Each
+    statement removes only keys whose parent exists, because MariaDB 10.4's
+    `JSON_REMOVE` returns NULL for a path whose parent is missing.
+
+  No migration is needed for the rest, which is code: the landing page, the admin
+  labels ("Payment held", "Held for bookings"), the API's dispute message and the
+  deletion blockers ("on hold"), and `/app/config` → `booking.auto_complete_days`,
+  which the app quotes wherever it explains payment protection. The six landing
+  screenshots the page no longer uses were deleted from `public/assets/landing/screens`.
+  Ship the matching app build (older builds still say escrow). Check after a deploy:
+
+  ```bash
+  curl -s https://yourdomain.com/privacy | grep -c 'Grievance Officer'                    # 1 or more
+  curl -s https://yourdomain.com/ https://yourdomain.com/terms | grep -ci 'escrow'         # 0
+  curl -s https://yourdomain.com/api/v1/app/config | grep -o '"auto_complete_days":[0-9]*' # e.g. 7
+  mysql -e "SELECT COUNT(*) FROM payments WHERE JSON_VALID(gateway_response) AND JSON_CONTAINS_PATH(gateway_response,'one','$.payment_method.app.phone','$.payment_method.emi','$.payment_method.card')" zuste_marketplace   # 0
+  ```
 
 ---
 

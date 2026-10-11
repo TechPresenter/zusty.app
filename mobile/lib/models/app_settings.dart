@@ -265,6 +265,30 @@ class WalletOptions {
   static const empty = WalletOptions();
 }
 
+/// `/app/config` → `booking`: the booking rules the app explains to people,
+/// as set in Admin → Settings → Bookings.
+///
+/// [autoCompleteDays] is how long after delivery a booking the brand has not
+/// answered completes on its own, releasing the payment Zusty holds to the
+/// creator. It defaults to the seeded 7 so a build that has not heard from
+/// the server still quotes the usual window.
+class BookingOptions {
+  const BookingOptions({this.autoCompleteDays = 7});
+
+  final int autoCompleteDays;
+
+  /// "7 days", or "1 day", for sentences such as "within 7 days of delivery".
+  String get reviewWindow =>
+      autoCompleteDays == 1 ? '1 day' : '$autoCompleteDays days';
+
+  factory BookingOptions.fromJson(Map<String, dynamic> json) {
+    final days = Json.integer(json['auto_complete_days'], 7);
+    return BookingOptions(autoCompleteDays: days < 1 ? 1 : days);
+  }
+
+  static const empty = BookingOptions();
+}
+
 /// One admin-authored popup from `/app/config` → `popups`.
 ///
 /// The server has already decided this popup is eligible for this account —
@@ -455,6 +479,7 @@ class RemoteAppConfig {
     this.social = SocialLinks.empty,
     this.legal = LegalLinks.empty,
     this.wallet = WalletOptions.empty,
+    this.booking = BookingOptions.empty,
   });
 
   final AppIdentity identity;
@@ -467,6 +492,7 @@ class RemoteAppConfig {
   final SocialLinks social;
   final LegalLinks legal;
   final WalletOptions wallet;
+  final BookingOptions booking;
 
   factory RemoteAppConfig.fromJson(Map<String, dynamic> json) =>
       RemoteAppConfig(
@@ -480,6 +506,7 @@ class RemoteAppConfig {
         social: SocialLinks.fromJson(Json.map(json['social'])),
         legal: LegalLinks.fromJson(Json.map(json['legal'])),
         wallet: WalletOptions.fromJson(Json.map(json['wallet'])),
+        booking: BookingOptions.fromJson(Json.map(json['booking'])),
       );
 
   static const empty = RemoteAppConfig();

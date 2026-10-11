@@ -328,8 +328,13 @@ void main() {
       expect(find.text('Top 10 new creators'), findsNothing);
 
       // Server-set subtitles and CTA labels render too.
-      expect(find.text('Handpicked for your brand'), findsOneWidget);
-      expect(find.text('Most booked this week'), findsOneWidget);
+      expect(find.text('Highest rated first'), findsOneWidget);
+      expect(find.text('Ranked by self-reported followers'), findsOneWidget);
+
+      // The section titles migration 060 replaced as untrue are gone.
+      expect(find.text('Top Creators For You'), findsNothing);
+      expect(find.text('Handpicked for your brand'), findsNothing);
+      expect(find.text('Most booked this week'), findsNothing);
     });
 
     testWidgets('a feed with no sections still renders the old layout',
@@ -339,7 +344,7 @@ void main() {
       await pumpScreen(tester, const HomeScreen());
 
       expect(tester.takeException(), isNull);
-      expect(find.text('Recommended Creators'), findsOneWidget);
+      expect(find.text('Top-rated creators'), findsOneWidget);
     });
   });
 

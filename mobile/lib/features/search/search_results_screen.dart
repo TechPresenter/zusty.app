@@ -65,14 +65,19 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
       backgroundColor: AppColors.surface,
       padded: false,
       constrain: false,
+      maxContentWidth: ContentWidth.wide,
       appBar: ZAppBar(
-        titleWidget: ZSearchField(
-          controller: _controller,
-          hint: 'Search creators...',
-          onSubmitted: (value) =>
-              ref.read(filtersProvider.notifier).setQuery(value),
-          onFilterTap: () => FilterSheet.show(context),
-          filterCount: filters.activeCount,
+        // A readable width on a tablet, not a strip across the whole bar.
+        titleWidget: ContentWidthBox(
+          alignment: AlignmentDirectional.centerStart,
+          child: ZSearchField(
+            controller: _controller,
+            hint: 'Search creators...',
+            onSubmitted: (value) =>
+                ref.read(filtersProvider.notifier).setQuery(value),
+            onFilterTap: () => FilterSheet.show(context),
+            filterCount: filters.activeCount,
+          ),
         ),
         actions: [
           IconButton(
@@ -159,7 +164,8 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                               itemBuilder: (_, i) =>
                                   CreatorGridCard(creator: page.items[i]),
                             )
-                          : ListView.separated(
+                          // Two columns of cards on a tablet.
+                          : AdaptiveCardList(
                               padding: EdgeInsets.fromLTRB(
                                 margin,
                                 AppSpacing.xs,
@@ -167,8 +173,6 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                                 AppSpacing.xl,
                               ),
                               itemCount: page.items.length,
-                              separatorBuilder: (_, _) =>
-                                  const SizedBox(height: AppSpacing.sm),
                               itemBuilder: (_, i) =>
                                   CreatorListCard(creator: page.items[i]),
                             ),

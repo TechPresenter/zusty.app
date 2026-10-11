@@ -9,6 +9,7 @@ import '../../providers/discovery_provider.dart';
 import '../../providers/location_provider.dart';
 import '../../providers/taxonomy_provider.dart';
 import '../../router/routes.dart';
+import '../../shared/widgets/adaptive_layout.dart';
 import '../../shared/widgets/category_card.dart';
 import '../../shared/widgets/creator_card.dart';
 import '../../shared/widgets/states.dart';
@@ -63,42 +64,47 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final margin = AppBreakpoints.pageMargin(context);
     final filters = ref.watch(filtersProvider);
 
+    // On a tablet the page is a centred readable column, header included.
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
-        backgroundColor: AppColors.surface,
-        automaticallyImplyLeading: false,
-        titleSpacing: margin,
-        toolbarHeight: 128,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Search', style: AppTypography.headlineMedium),
-            Text(
-              'Creators by name, niche, city or platform',
-              style: AppTypography.bodySmall,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            ZSearchField(
-              hint: 'Search creators or niches',
-              controller: _controller,
-              autofocus: false,
-              showClear: _query.isNotEmpty,
-              onClear: () {
-                _controller.clear();
-                setState(() => _query = '');
-              },
-              onChanged: (value) => setState(() => _query = value),
-              onSubmitted: _submit,
-              onFilterTap: () => FilterSheet.show(context),
-              filterCount: filters.activeCount,
-            ),
-          ],
+      appBar: ContentWidthAppBar(
+        child: AppBar(
+          backgroundColor: AppColors.surface,
+          automaticallyImplyLeading: false,
+          titleSpacing: margin,
+          toolbarHeight: 128,
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Search', style: AppTypography.headlineMedium),
+              Text(
+                'Creators by name, niche, city or platform',
+                style: AppTypography.bodySmall,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              ZSearchField(
+                hint: 'Search creators or niches',
+                controller: _controller,
+                autofocus: false,
+                showClear: _query.isNotEmpty,
+                onClear: () {
+                  _controller.clear();
+                  setState(() => _query = '');
+                },
+                onChanged: (value) => setState(() => _query = value),
+                onSubmitted: _submit,
+                onFilterTap: () => FilterSheet.show(context),
+                filterCount: filters.activeCount,
+              ),
+            ],
+          ),
         ),
       ),
-      body: _query.isEmpty
-          ? _SearchLanding(onTermTap: _submit, margin: margin)
-          : _Suggestions(query: _query, onTermTap: _submit, margin: margin),
+      body: ContentWidthBox(
+        child: _query.isEmpty
+            ? _SearchLanding(onTermTap: _submit, margin: margin)
+            : _Suggestions(query: _query, onTermTap: _submit, margin: margin),
+      ),
     );
   }
 }

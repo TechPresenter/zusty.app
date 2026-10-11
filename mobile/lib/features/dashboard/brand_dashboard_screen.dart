@@ -15,6 +15,7 @@ import '../../providers/campaign_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../router/routes.dart';
 import '../../shared/motion/motion.dart';
+import '../../shared/widgets/adaptive_layout.dart';
 import '../../shared/widgets/campaign_card.dart';
 import '../../shared/widgets/stat_card.dart';
 import '../../shared/widgets/states.dart';
@@ -71,8 +72,9 @@ class BrandDashboardScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: const ShellHeader(title: 'Dashboard'),
-      body: ZRefresh(
+      // On a tablet the dashboard is a centred readable column.
+      appBar: const ContentWidthAppBar(child: ShellHeader(title: 'Dashboard')),
+      body: ContentWidthBox(child: ZRefresh(
         onRefresh: () => _refresh(ref),
         child: RevealScope(
           child: ListView(
@@ -139,7 +141,7 @@ class BrandDashboardScreen extends ConsumerWidget {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -928,7 +930,7 @@ class _CampaignRow extends ConsumerWidget {
 
     final facts = campaign.status == CampaignStatus.draft
         ? 'Draft · ${campaign.deliverableShortLabel}'
-        : '${campaign.applicationsCount} applicants · '
+        : '${Formatters.count(campaign.applicationsCount, 'applicant')} · '
             '${campaign.hiredCount} hired · ${schedule.label}';
 
     return _TappableRow(

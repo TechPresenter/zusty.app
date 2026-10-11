@@ -363,15 +363,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               loading: const _ThreadSkeleton(),
               builder: (messages) {
                 if (messages.isEmpty && !typing) {
-                  return EmptyState(
-                    title: 'Say hello',
-                    message: conversation == null
-                        ? 'Start the conversation with a quick introduction.'
-                        : 'Introduce yourself to '
-                              '${conversation.otherName.split(' ').first} '
-                              'and share what you have in mind.',
-                    icon: Icons.waving_hand_rounded,
-                    compact: true,
+                  // Centred while it fits; scrolls rather than overflowing
+                  // when the keyboard leaves only a sliver of thread.
+                  return LayoutBuilder(
+                    builder: (context, constraints) => SingleChildScrollView(
+                      primary: false,
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: constraints.maxHeight,
+                        ),
+                        child: EmptyState(
+                          title: 'Say hello',
+                          message: conversation == null
+                              ? 'Start the conversation with a quick '
+                                    'introduction.'
+                              : 'Introduce yourself to '
+                                    '${conversation.otherName.split(' ').first} '
+                                    'and share what you have in mind.',
+                          icon: Icons.waving_hand_rounded,
+                          compact: true,
+                        ),
+                      ),
+                    ),
                   );
                 }
 
@@ -1363,7 +1378,11 @@ class _ThreadSkeleton extends StatelessWidget {
       (true, 120.0),
     ];
 
-    return Padding(
+    // Clipped rather than overflowing when the keyboard leaves only a sliver
+    // of thread (a phone, or a tablet in landscape).
+    return SingleChildScrollView(
+      primary: false,
+      physics: const NeverScrollableScrollPhysics(),
       padding: EdgeInsets.fromLTRB(margin, AppSpacing.md, margin, 0),
       child: Column(
         children: [

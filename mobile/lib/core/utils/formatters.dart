@@ -113,6 +113,13 @@ abstract final class Formatters {
   /// `4.8`
   static String rating(num? value) => (value ?? 0).toStringAsFixed(1);
 
+  /// `1 review`, `3 reviews`, `1,240 creators`: a count with its noun in
+  /// agreement. [plural] defaults to [singular] plus "s".
+  static String count(num? value, String singular, [String? plural]) {
+    final n = value ?? 0;
+    return '${number(n)} ${n == 1 ? singular : (plural ?? '${singular}s')}';
+  }
+
   /// `2 days` / `1 day` / `Today`
   static String duration(int? days) {
     if (days == null) return '—';

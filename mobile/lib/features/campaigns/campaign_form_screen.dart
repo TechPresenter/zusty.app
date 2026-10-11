@@ -466,8 +466,12 @@ class _CampaignFormScreenState extends ConsumerState<CampaignFormScreen>
       padding: EdgeInsets.fromLTRB(margin, AppSpacing.lg, margin, AppSpacing.xl),
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: AppBreakpoints.maxContentWidth,
+          // On a tablet the page column already caps the width; a second,
+          // narrower cap would leave the fields short of the step header.
+          constraints: BoxConstraints(
+            maxWidth: WindowSize.of(context).isCompact
+                ? AppBreakpoints.maxContentWidth
+                : double.infinity,
           ),
           child: child,
         ),

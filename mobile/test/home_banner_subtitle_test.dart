@@ -3,7 +3,8 @@
 // The creator banner's subtitle ("Set your packages, get booked, and get paid
 // when the work is approved.") was cut after "and" on a phone when the
 // subtitle had one line. The headline keeps its two lines; at a larger text
-// size the subtitle gives way, and nothing overflows.
+// size the subtitle gives way, and nothing overflows. Migration 060 shortened
+// the subtitle to fit two lines on a 360 dp phone too.
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -24,8 +25,7 @@ import 'support/fixtures.dart';
 import 'support/mock_data.dart';
 
 const _title = 'Turn Your Audience Into Income';
-const _subtitle =
-    'Set your packages, get booked, and get paid when the work is approved.';
+const _subtitle = 'Set your packages, get booked, get paid on approval.';
 
 const _feed = HomeFeed(
   sections: [

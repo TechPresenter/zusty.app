@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/formatters.dart';
 import '../../models/category.dart';
 import '../../router/routes.dart';
 import '../motion/pressable.dart';
@@ -134,7 +135,7 @@ class CategoryTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${category.creatorCount} creators',
+                    Formatters.count(category.creatorCount, 'creator'),
                     style: AppTypography.labelSmall.copyWith(
                       color: AppColors.onPrimary.withValues(alpha: 0.85),
                     ),
@@ -202,7 +203,7 @@ class CategoryIconTile extends StatelessWidget {
               if (category.creatorCount > 0) ...[
                 const SizedBox(height: 2),
                 Text(
-                  '${category.creatorCount} creators',
+                  Formatters.count(category.creatorCount, 'creator'),
                   maxLines: 1,
                   style: AppTypography.labelSmall,
                 ),
@@ -239,7 +240,7 @@ class CategoryListRow extends StatelessWidget {
       minTileHeight: 56,
       title: Text(category.name, style: AppTypography.titleSmall),
       subtitle: Text(
-        '${category.creatorCount} creators',
+        Formatters.count(category.creatorCount, 'creator'),
         style: AppTypography.labelSmall,
       ),
       trailing: const Icon(Icons.chevron_right_rounded, size: 20),

@@ -39,6 +39,7 @@ class _SavedCreatorsScreenState extends ConsumerState<SavedCreatorsScreen> {
       backgroundColor: AppColors.surface,
       padded: false,
       constrain: false,
+      maxContentWidth: ContentWidth.wide,
       appBar: ZAppBar(
         title: 'Saved Creators',
         actions: [
@@ -90,7 +91,8 @@ class _SavedCreatorsScreenState extends ConsumerState<SavedCreatorsScreen> {
               );
             }
 
-            return ListView.separated(
+            // Two columns of cards on a tablet.
+            return AdaptiveCardList(
               padding: EdgeInsets.fromLTRB(
                 margin,
                 AppSpacing.md,
@@ -98,7 +100,6 @@ class _SavedCreatorsScreenState extends ConsumerState<SavedCreatorsScreen> {
                 AppSpacing.xl,
               ),
               itemCount: creators.length,
-              separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
               itemBuilder: (_, i) => CreatorListCard(
                 creator: creators[i],
                 trailing: _QuickActions(creator: creators[i]),

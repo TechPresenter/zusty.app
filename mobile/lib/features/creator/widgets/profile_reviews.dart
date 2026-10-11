@@ -68,7 +68,7 @@ class ProfileReviewsTab extends StatelessWidget {
         if (total > reviews.length) ...[
           const SizedBox(height: AppSpacing.xs),
           ZButton.outlined(
-            label: 'See all $total reviews',
+            label: 'See all ${Formatters.count(total, 'review')}',
             size: ZButtonSize.medium,
             onPressed: () => showAllReviews(context, profile: profile),
           ),
@@ -124,8 +124,8 @@ class ProfileRatingSummary extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(vertical: 3),
                     child: Semantics(
                       label:
-                          '$star stars: '
-                          '${profile.ratingBreakdown[star] ?? 0} reviews',
+                          '${Formatters.count(star, 'star')}: '
+                          '${Formatters.count(profile.ratingBreakdown[star], 'review')}',
                       excludeSemantics: true,
                       child: Row(
                         children: [

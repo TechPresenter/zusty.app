@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
+import 'adaptive_layout.dart';
+
+export 'adaptive_layout.dart';
 
 /// The app bar used on every non-shell screen: a back chevron, a title, and
 /// optional actions, on the warm surface with no elevation.
@@ -65,9 +68,13 @@ class ZAppBar extends StatelessWidget implements PreferredSizeWidget {
   }
 }
 
-/// Standard page scaffold: warm surface, safe-area aware, and a content column
-/// capped at a readable width on tablet/desktop so the mobile-first layouts do
-/// not stretch.
+/// Standard page scaffold: warm surface, safe-area aware, and centred in a
+/// capped column on a tablet so the mobile-first layouts do not stretch.
+///
+/// On a medium or expanded window the app bar, the body and the bottom bar
+/// all line up in one column [maxContentWidth] wide, with the page background
+/// either side (see `ContentWidthBox`). On a phone nothing about the layout
+/// changes.
 class ZScaffold extends StatelessWidget {
   const ZScaffold({
     super.key,
@@ -79,6 +86,7 @@ class ZScaffold extends StatelessWidget {
     this.padded = true,
     this.constrain = true,
     this.resizeToAvoidBottomInset = true,
+    this.maxContentWidth = ContentWidth.readable,
   });
 
   final Widget body;
@@ -90,15 +98,24 @@ class ZScaffold extends StatelessWidget {
   final Widget? floatingActionButton;
   final Color? backgroundColor;
 
-  /// Applies the standard 20px page margin.
+  /// Applies the standard page margin.
   final bool padded;
 
-  /// Caps content width on wide screens.
+  /// On a phone wider than 560dp, caps the content at 560 and centres it.
+  /// On a tablet it centres a body that does not fill the height, as it
+  /// always has; the width there is [maxContentWidth] either way.
   final bool constrain;
   final bool resizeToAvoidBottomInset;
 
+  /// How wide the page's column grows on a tablet: [ContentWidth.readable]
+  /// for forms, details and single-column lists, [ContentWidth.wide] for
+  /// grids and two-column lists. Ignored on a phone.
+  final double maxContentWidth;
+
   @override
   Widget build(BuildContext context) {
+    final large = !WindowSize.of(context).isCompact;
+    final bar = appBar;
     Widget content = body;
 
     if (padded) {
@@ -110,7 +127,13 @@ class ZScaffold extends StatelessWidget {
       );
     }
 
-    if (constrain) {
+    if (large) {
+      content = ContentWidthBox(
+        maxWidth: maxContentWidth,
+        alignment: constrain ? Alignment.center : Alignment.topCenter,
+        child: content,
+      );
+    } else if (constrain) {
       content = Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(
@@ -123,13 +146,34 @@ class ZScaffold extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: backgroundColor ?? AppColors.surface,
-      appBar: appBar,
+      appBar: bar == null || !large
+          ? bar
+          : ContentWidthAppBar(
+              maxWidth: maxContentWidth,
+              // The sides take the bar's colour, so the bar reads as one
+              // strip across the screen rather than a block in the middle.
+              backgroundColor: bar is ZAppBar
+                  ? (bar.backgroundColor ?? AppColors.surface)
+                  : (backgroundColor ?? AppColors.surface),
+              child: bar,
+            ),
       resizeToAvoidBottomInset: resizeToAvoidBottomInset,
       floatingActionButton: floatingActionButton,
       body: SafeArea(top: appBar == null, bottom: false, child: content),
       bottomNavigationBar: bottomBar == null
           ? null
-          : _BottomActionBar(child: bottomBar!),
+          : large
+              ? _BottomActionBar(
+                  // In line with the content column, but never wider than a
+                  // readable one: a single button across a grid page would
+                  // be a 1000dp pill.
+                  maxWidth: maxContentWidth < ContentWidth.readable
+                      ? maxContentWidth
+                      : ContentWidth.readable,
+                  margin: AppBreakpoints.pageMargin(context),
+                  child: bottomBar!,
+                )
+              : _BottomActionBar(child: bottomBar!),
     );
   }
 }
@@ -137,9 +181,19 @@ class ZScaffold extends StatelessWidget {
 /// Wraps a pinned bottom bar with the surface treatment and safe-area padding
 /// the designs use.
 class _BottomActionBar extends StatelessWidget {
-  const _BottomActionBar({required this.child});
+  const _BottomActionBar({
+    required this.child,
+    this.maxWidth = AppBreakpoints.maxContentWidth,
+    this.margin = AppSpacing.marginMobile,
+  });
 
   final Widget child;
+
+  /// The widest the bar's content grows; the surface spans the screen.
+  final double maxWidth;
+
+  /// Space either side of the content, inside [maxWidth].
+  final double margin;
 
   @override
   Widget build(BuildContext context) {
@@ -158,14 +212,12 @@ class _BottomActionBar extends StatelessWidget {
           alignment: Alignment.center,
           heightFactor: 1,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: AppBreakpoints.maxContentWidth,
-            ),
+            constraints: BoxConstraints(maxWidth: maxWidth),
             child: Padding(
               padding: EdgeInsets.fromLTRB(
-                AppSpacing.marginMobile,
+                margin,
                 AppSpacing.sm,
-                AppSpacing.marginMobile,
+                margin,
                 AppSpacing.sm,
               ),
               child: child,

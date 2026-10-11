@@ -60,6 +60,7 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen>
       backgroundColor: AppColors.surface,
       padded: false,
       constrain: false,
+      maxContentWidth: ContentWidth.wide,
       appBar: ZAppBar(
         title: 'Explore Creators',
         actions: [

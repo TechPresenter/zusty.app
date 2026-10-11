@@ -57,6 +57,7 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
       backgroundColor: AppColors.surface,
       padded: false,
       constrain: false,
+      maxContentWidth: ContentWidth.wide,
       appBar: ZAppBar(
         title: 'Categories',
         actions: [
@@ -72,22 +73,26 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              margin,
-              AppSpacing.xs,
-              margin,
-              AppSpacing.md,
-            ),
-            child: ZSearchField(
-              controller: _controller,
-              hint: 'Search categories...',
-              showClear: _query.isNotEmpty,
-              onClear: () {
-                _controller.clear();
-                setState(() => _query = '');
-              },
-              onChanged: (value) => setState(() => _query = value),
+          // A readable width on a tablet, not a strip across the grid.
+          ContentWidthBox(
+            alignment: AlignmentDirectional.topStart,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                margin,
+                AppSpacing.xs,
+                margin,
+                AppSpacing.md,
+              ),
+              child: ZSearchField(
+                controller: _controller,
+                hint: 'Search categories...',
+                showClear: _query.isNotEmpty,
+                onClear: () {
+                  _controller.clear();
+                  setState(() => _query = '');
+                },
+                onChanged: (value) => setState(() => _query = value),
+              ),
             ),
           ),
           Expanded(

@@ -45,6 +45,7 @@ class CreatorGalleryScreen extends ConsumerWidget {
         backgroundColor: AppColors.surface,
         padded: false,
         constrain: false,
+        maxContentWidth: ContentWidth.wide,
         appBar: ZAppBar(title: title),
         body: profile.hasError
             ? ErrorState(
@@ -119,6 +120,7 @@ class _GalleryTabsState extends State<_GalleryTabs>
       backgroundColor: AppColors.surface,
       padded: false,
       constrain: false,
+      maxContentWidth: ContentWidth.wide,
       appBar: ZAppBar(
         titleWidget: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

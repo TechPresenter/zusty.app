@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import '../layout/breakpoints.dart';
+
 /// Spacing scale on an 8px grid, with 4px reserved for hairline nudges
 /// (icon-to-label gaps, badge offsets).
 abstract final class AppSpacing {
@@ -17,7 +19,14 @@ abstract final class AppSpacing {
   /// Outer page margin on phones.
   static const double marginMobile = 16;
 
-  /// Outer page margin on tablet / desktop breakpoints.
+  /// Outer page margin on tablets. Pages there are already centred in a
+  /// capped column (see `ContentWidth`), so the margin only has to keep
+  /// content off the column's edge, as on a phone.
+  static const double marginTablet = 24;
+
+  /// Outer page margin on desktop breakpoints. No longer used by
+  /// [AppBreakpoints.pageMargin]: with the content column capped, 64 on each
+  /// side left a 7-inch tablet less room than a large phone.
   static const double marginDesktop = 64;
 
   /// Horizontal page padding — the default for every screen body.
@@ -52,13 +61,18 @@ abstract final class AppRadius {
 }
 
 /// Responsive breakpoints for the Flutter Web / tablet layouts.
+///
+/// The window size classes and content widths the large-screen layouts use
+/// live in `core/layout/breakpoints.dart`; [mobile] is the same 600dp line.
 abstract final class AppBreakpoints {
-  static const double mobile = 600;
+  static const double mobile = Breakpoints.medium;
   static const double tablet = 900;
   static const double desktop = 1200;
 
-  /// Content is centred and capped at this width on wide screens so the
-  /// mobile-first layouts do not stretch awkwardly.
+  /// The narrow column the sign-in screens, onboarding and the update gate
+  /// keep at every size: short forms read better narrow. Also the legacy cap
+  /// a `ZScaffold(constrain: true)` applies on a phone wider than 560dp.
+  /// Other pages use `ContentWidth` on tablets.
   static const double maxContentWidth = 560;
 
   static bool isMobile(BuildContext context) =>
@@ -74,5 +88,5 @@ abstract final class AppBreakpoints {
 
   /// Page margin appropriate to the current width.
   static double pageMargin(BuildContext context) =>
-      isMobile(context) ? AppSpacing.marginMobile : AppSpacing.marginDesktop;
+      isMobile(context) ? AppSpacing.marginMobile : AppSpacing.marginTablet;
 }

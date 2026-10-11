@@ -17,6 +17,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/discovery_provider.dart';
 import '../../router/routes.dart';
 import '../../shared/motion/motion.dart';
+import '../../shared/widgets/adaptive_layout.dart';
 import '../../shared/widgets/app_popup_host.dart';
 import '../../shared/widgets/category_card.dart';
 import '../../shared/widgets/creator_card.dart';
@@ -44,50 +45,57 @@ class HomeScreen extends ConsumerWidget {
     final user = ref.watch(currentUserProvider);
     final unread = user?.unreadNotifications ?? 0;
 
+    // On a tablet the feed is a centred grid page, header included.
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: ShellHeader(
-        title: 'Home',
-        actions: [
-          IconButton(
-            icon: Badge(
-              isLabelVisible: unread > 0,
-              label: Text(unread > 99 ? '99+' : '$unread'),
-              backgroundColor: AppColors.primary,
-              child: const Icon(Icons.notifications_none_rounded),
+      appBar: ContentWidthAppBar(
+        maxWidth: ContentWidth.wide,
+        child: ShellHeader(
+          title: 'Home',
+          actions: [
+            IconButton(
+              icon: Badge(
+                isLabelVisible: unread > 0,
+                label: Text(unread > 99 ? '99+' : '$unread'),
+                backgroundColor: AppColors.primary,
+                child: const Icon(Icons.notifications_none_rounded),
+              ),
+              onPressed: () => context.push(Routes.notifications),
+              tooltip: unread > 0 ? 'Notifications, $unread unread' : 'Notifications',
             ),
-            onPressed: () => context.push(Routes.notifications),
-            tooltip: unread > 0 ? 'Notifications, $unread unread' : 'Notifications',
-          ),
-          Padding(
-            padding: const EdgeInsets.only(left: 4),
-            child: Semantics(
-              button: true,
-              label: 'Your profile',
-              child: ZAvatar(
-                imageUrl: user?.avatarUrl,
-                name: user?.displayName,
-                size: 36,
-                ringWidth: 2,
-                ringColor: AppColors.primaryFixed,
-                onTap: () => context.go(Routes.menu),
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Semantics(
+                button: true,
+                label: 'Your profile',
+                child: ZAvatar(
+                  imageUrl: user?.avatarUrl,
+                  name: user?.displayName,
+                  size: 36,
+                  ringWidth: 2,
+                  ringColor: AppColors.primaryFixed,
+                  onTap: () => context.go(Routes.menu),
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
       // Popups for the `home` placement, plus every popup the admin targeted at
       // `all`, are rendered here; the host reads them from the config the app
       // already fetches and honours the trigger and frequency set in the panel.
       body: AppPopupHost(
         placement: 'home',
-        child: ZRefresh(
-          onRefresh: () async => ref.refresh(homeFeedProvider.future),
-          child: AsyncView(
-            value: feed,
-            onRetry: () => ref.invalidate(homeFeedProvider),
-            loading: const _HomeSkeleton(),
-            builder: (data) => _HomeBody(feed: data),
+        child: ContentWidthBox(
+          maxWidth: ContentWidth.wide,
+          child: ZRefresh(
+            onRefresh: () async => ref.refresh(homeFeedProvider.future),
+            child: AsyncView(
+              value: feed,
+              onRetry: () => ref.invalidate(homeFeedProvider),
+              loading: const _HomeSkeleton(),
+              builder: (data) => _HomeBody(feed: data),
+            ),
           ),
         ),
       ),
@@ -108,14 +116,18 @@ class _HomeBody extends StatelessWidget {
       padding: const EdgeInsets.only(top: AppSpacing.xs, bottom: AppSpacing.xxl),
       children: [
         // -- Search -------------------------------------------------------
-        Padding(
-          padding: EdgeInsets.symmetric(horizontal: margin),
-          child: ZSearchField(
-            readOnly: true,
-            hint: 'Search creators, categories…',
-            voiceInput: false,
-            onTap: () => context.go(Routes.search),
-            onFilterTap: () => context.go(Routes.search),
+        // On a tablet a readable-width bar in the middle, not a strip across
+        // the whole grid.
+        ContentWidthBox(
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: margin),
+            child: ZSearchField(
+              readOnly: true,
+              hint: 'Search creators, categories…',
+              voiceInput: false,
+              onTap: () => context.go(Routes.search),
+              onFilterTap: () => context.go(Routes.search),
+            ),
           ),
         ),
         const SizedBox(height: AppSpacing.md),
@@ -263,9 +275,12 @@ class _HomeBody extends StatelessWidget {
 
       if (feed.topCreators.isNotEmpty) ...[
         const SizedBox(height: AppSpacing.lg),
+        // `top_creators` is sorted by rating and `trending` by the follower
+        // totals creators report (GET /home), the same for every viewer, so
+        // the headings say that rather than "handpicked" or "most booked".
         header(
-          'Recommended Creators',
-          subtitle: 'Handpicked for your brand',
+          'Top-rated creators',
+          subtitle: 'Highest rated first',
           route: Routes.explore,
         ),
         const SizedBox(height: AppSpacing.xs),
@@ -275,8 +290,8 @@ class _HomeBody extends StatelessWidget {
       if (feed.trending.isNotEmpty) ...[
         const SizedBox(height: AppSpacing.lg),
         header(
-          'Trending Creators',
-          subtitle: 'Most booked this week',
+          'Largest audiences',
+          subtitle: 'Ranked by self-reported followers',
           route: Routes.explore,
         ),
         const SizedBox(height: AppSpacing.xs),
@@ -409,21 +424,57 @@ class _BannerCarousel extends StatelessWidget {
   final List<HomeBanner> banners;
   final double margin;
 
-  @override
-  Widget build(BuildContext context) {
-    final width = MediaQuery.sizeOf(context).width;
+  /// From this column width a tablet shows two banners side by side, each
+  /// close to a phone banner's shape, rather than one long strip whose photo
+  /// `BoxFit.cover` would crop to a sliver.
+  static const _twoUpWidth = 760.0;
 
+  ZHeroSlider _slider({
+    Key? key,
+    required double height,
+    required double viewportFraction,
+  }) {
     return ZHeroSlider(
+      key: key,
       itemCount: banners.length,
-      // A little taller on wide screens so the headline is not letterboxed.
-      height: width > 600 ? 220 : 184,
+      height: height,
       leadingInset: margin,
-      viewportFraction: banners.length > 1 ? 0.92 : 1,
+      viewportFraction: viewportFraction,
       autoPlay: banners.length > 1,
       itemBuilder: (context, i, offset) => Padding(
         padding: EdgeInsets.only(right: banners.length > 1 ? 0 : margin),
         child: _BannerCard(banner: banners[i], offset: offset),
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (WindowSize.of(context).isCompact) {
+      return _slider(
+        height: 184,
+        viewportFraction: banners.length > 1 ? 0.92 : 1,
+      );
+    }
+
+    // A tablet: a little taller, so the headline is not letterboxed.
+    if (banners.length == 1) {
+      return ContentWidthBox(
+        child: _slider(height: 240, viewportFraction: 1),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final fraction = constraints.maxWidth >= _twoUpWidth ? 0.5 : 0.92;
+        return _slider(
+          // The page controller keeps the fraction it was made with, so a
+          // tablet turned past the two-up width starts a fresh carousel.
+          key: ValueKey(fraction),
+          height: 220,
+          viewportFraction: fraction,
+        );
+      },
     );
   }
 }
@@ -517,8 +568,8 @@ class _BannerCard extends StatelessWidget {
                       ),
                     ),
                     // Two lines fit under a two-line headline at the default
-                    // text size, so a one-sentence subtitle ("…and get paid
-                    // when the work is approved.") is not cut mid-sentence.
+                    // text size, so a one-sentence subtitle (up to about 65
+                    // characters on a 360 dp phone) is not cut mid-sentence.
                     // Flexible, so at a larger text size it gives way rather
                     // than the headline.
                     if (banner.subtitle.isNotEmpty) ...[

@@ -500,7 +500,7 @@ class _MetaRow extends StatelessWidget {
         Semantics(
           label: creator.ratingCount > 0
               ? 'Rated ${Formatters.rating(creator.rating)} from '
-                    '${creator.ratingCount} reviews'
+                    '${Formatters.count(creator.ratingCount, 'review')}'
               : 'No reviews yet',
           excludeSemantics: true,
           child: Row(

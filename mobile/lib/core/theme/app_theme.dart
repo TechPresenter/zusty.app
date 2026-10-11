@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../layout/breakpoints.dart';
 import 'app_colors.dart';
 import 'app_spacing.dart';
 import 'app_typography.dart';
 
+export '../layout/breakpoints.dart';
 export 'app_colors.dart';
 export 'app_shadows.dart';
 export 'app_spacing.dart';
@@ -257,8 +259,19 @@ abstract final class AppTheme {
           borderRadius:
               BorderRadius.vertical(top: Radius.circular(AppRadius.xxl)),
         ),
+        // Material 3's default, stated so the tablet rule is in one place:
+        // a sheet on a tablet is a centred panel, not a 1280dp slab. A phone
+        // is narrower than this, so its sheets are unaffected.
+        constraints: const BoxConstraints(maxWidth: ContentWidth.sheet),
       ),
       dialogTheme: DialogThemeData(
+        // Dialogs whose content asks for all the width (full-width buttons)
+        // would otherwise span a tablet. Wider than any phone, so a phone's
+        // dialogs are unaffected; 280 is the stock minimum.
+        constraints: const BoxConstraints(
+          minWidth: 280,
+          maxWidth: ContentWidth.dialog,
+        ),
         backgroundColor: AppColors.surfaceContainerLowest,
         surfaceTintColor: Colors.transparent,
         elevation: 0,

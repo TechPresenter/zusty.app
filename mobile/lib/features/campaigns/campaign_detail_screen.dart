@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/network/api_failure.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/formatters.dart';
 import '../../models/campaign.dart';
 import '../../providers/app_config_provider.dart';
 import '../../providers/campaign_provider.dart';
@@ -579,12 +580,14 @@ class _BriefCardState extends State<_BriefCard> {
               children: [
                 if (requirements.usageRightsDays != null)
                   StatusChip(
-                    label: '${requirements.usageRightsDays} days usage rights',
+                    label:
+                        '${Formatters.count(requirements.usageRightsDays, 'day')} usage rights',
                     icon: Icons.copyright_rounded,
                   ),
                 if (requirements.exclusivityDays != null)
                   StatusChip(
-                    label: '${requirements.exclusivityDays} days exclusivity',
+                    label:
+                        '${Formatters.count(requirements.exclusivityDays, 'day')} exclusivity',
                     icon: Icons.block_rounded,
                   ),
                 if (requirements.barterOnly)

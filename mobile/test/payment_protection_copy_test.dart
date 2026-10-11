@@ -14,9 +14,9 @@ import 'package:zuste/models/app_settings.dart';
 /// copy unless it is a bare key such as `'escrow_release'`. Comments are not.
 void main() {
   group('payment protection copy', () {
-    test('no string in lib/ says escrow, nodal, trust account, guaranteed or 100% safe', () {
+    test('no string in lib/ says escrow, nodal, trust account, guaranteed, 100% safe or safely', () {
       final banned = RegExp(
-        r'escrow|\bnodal\b|trust account|guaranteed|100\s*%\s*safe',
+        r'escrow|\bnodal\b|trust account|guaranteed|100\s*%\s*safe|\bsafely\b',
         caseSensitive: false,
       );
       final interpolation = RegExp(r'\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_.]*');

@@ -164,7 +164,7 @@ void main() {
   group('Discovery', () {
     testWidgets('06 Home', (tester) async {
       await pumpScreen(tester, const HomeScreen());
-      expectsRendered(tester, 'Recommended Creators');
+      expectsRendered(tester, 'Top-rated creators');
     });
 
     testWidgets('07 Search', (tester) async {

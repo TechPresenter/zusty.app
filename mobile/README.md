@@ -88,3 +88,45 @@ get builds signed with that key, not the upload key.
   Cashfree (hosted checkout) and the Zusty wallet. Razorpay and Stripe need
   native SDKs the app does not ship, so they are hidden even when enabled.
 - **Crash reports** go to Firebase Crashlytics from release builds only.
+
+## Large screens
+
+The layouts are designed for phones. On tablets they are centred rather than
+stretched, and on phones (under 600dp wide) nothing changes: every rule below
+is skipped for a compact window.
+
+- **Size classes** (`lib/core/layout/breakpoints.dart`): compact under 600dp,
+  medium 600 to 839, expanded 840 and up. `ContentWidth` holds the caps:
+  720 (`readable`) for forms, details, chat, settings and single-column
+  lists; 1040 (`wide`) for grids and two-column lists.
+- **Pages**: `ZScaffold` centres its app bar, body and bottom bar in one
+  column `maxContentWidth` wide (readable by default; pass
+  `ContentWidth.wide` for a grid page), with the page background either
+  side. Screens with their own `Scaffold` wrap the body in `ContentWidthBox`
+  and the app bar in `ContentWidthAppBar`
+  (`lib/shared/widgets/adaptive_layout.dart`). The sign-in screens and
+  onboarding keep their 560dp column. Page margins are 24dp on tablets.
+- **Navigation**: the bottom bar keeps its buttons in a 560dp group on a
+  medium window and becomes a `NavigationRail` (with the Create button on
+  top) on an expanded one. The rail scrolls in a very short window, and the
+  keyboard is left to the tab page's own `Scaffold`, so it never squeezes
+  the rail.
+- **Lists and grids**: `CreatorGridDelegate` adds columns on a tablet
+  (cards at least 200dp) instead of enlarging cards. `AdaptiveCardList` and
+  `SliverAdaptiveCardList` put cards two to a row once a list is 700dp wide
+  (briefs, search results, saved creators). On a grid page, search fields
+  keep the readable width and the home banners show two at a time (from a
+  760dp column), so their photos keep roughly a phone's crop.
+- **Sheets and dialogs** are capped at 640dp (the theme).
+- **Orientation**: phones stay portrait. A device whose shorter side is
+  600dp or more may also rotate (`OrientationPolicy`). `main` applies it
+  before the view may have been measured, so `OrientationPolicyHost` at the
+  root applies it again once the app is up and on every window change (a
+  foldable opening or closing). In landscape the launch splash shows the
+  whole artwork instead of cropping it.
+- **Tests**: `test/large_screen_layout_test.dart` renders the main screens at
+  390x844, 599x900, 600x960, 800x1280, 1280x800 and 960x600. It checks for
+  overflow, that each column on a tablet is centred and fills its cap, and
+  that phones keep the phone rules (the 599/600 line is tested directly).
+  It also opens the keyboard in landscape, runs real tab pages inside the
+  shell, and checks the orientation policy at startup.

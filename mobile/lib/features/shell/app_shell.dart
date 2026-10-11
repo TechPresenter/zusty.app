@@ -61,6 +61,69 @@ class AppShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final currentTab = _tabFor(navigationShell.currentIndex);
     final unread = ref.watch(unreadNotificationsProvider);
+    final window = WindowSize.of(context);
+
+    // A tablet in landscape navigates from a rail down the side, which
+    // leaves the short screen its full height for content.
+    if (window.isExpanded) {
+      return Scaffold(
+        backgroundColor: AppColors.surface,
+        // The keyboard is the tab page's business: its own Scaffold sees it
+        // and makes room. Shrinking this one would squeeze the rail too.
+        resizeToAvoidBottomInset: false,
+        body: Row(
+          children: [
+            _ShellRail(
+              currentBranch: navigationShell.currentIndex,
+              badge: unread,
+              onSelect: _goBranch,
+              onCreate: () => showCreateSheet(context, ref),
+            ),
+            Expanded(
+              // The rail has taken the left inset (a display cutout).
+              child: MediaQuery.removePadding(
+                context: context,
+                removeLeft: true,
+                child: navigationShell,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget bar = SizedBox(
+      height: 68,
+      child: Row(
+        children: [
+          for (var i = 0; i < _tabs.length; i++)
+            Expanded(
+              child: _tabs[i].isAction
+                  ? _CentreAction(onTap: () => showCreateSheet(context, ref))
+                  : _NavButton(
+                      item: _tabs[i],
+                      selected: currentTab == i,
+                      badge: _tabs[i].label == 'Profile' ? unread : 0,
+                      onTap: () => _select(i),
+                    ),
+            ),
+        ],
+      ),
+    );
+
+    // On a medium window the bar still spans the screen, but its five
+    // buttons stay together in the middle rather than 160dp apart.
+    if (!window.isCompact) {
+      bar = Align(
+        heightFactor: 1,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: ContentWidth.navigationBar,
+          ),
+          child: bar,
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: AppColors.surface,
@@ -73,39 +136,119 @@ class AppShell extends ConsumerWidget {
             top: Radius.circular(AppRadius.xl),
           ),
         ),
-        child: SafeArea(
-          top: false,
-          child: SizedBox(
-            height: 68,
-            child: Row(
-              children: [
-                for (var i = 0; i < _tabs.length; i++)
-                  Expanded(
-                    child: _tabs[i].isAction
-                        ? _CentreAction(
-                            onTap: () => showCreateSheet(context, ref),
-                          )
-                        : _NavButton(
-                            item: _tabs[i],
-                            selected: currentTab == i,
-                            badge: _tabs[i].label == 'Profile' ? unread : 0,
-                            onTap: () => _select(i),
-                          ),
-                  ),
-              ],
-            ),
-          ),
-        ),
+        child: SafeArea(top: false, child: bar),
       ),
     );
   }
 
-  void _select(int tabIndex) {
-    final branch = _branchFor(tabIndex);
+  void _select(int tabIndex) => _goBranch(_branchFor(tabIndex));
+
+  void _goBranch(int branch) {
     navigationShell.goBranch(
       branch,
       // Tapping the active tab pops that branch back to its root.
       initialLocation: branch == navigationShell.currentIndex,
+    );
+  }
+}
+
+/// The landscape-tablet form of the bottom bar: the same four destinations
+/// and the same raised Create action, down the left edge.
+class _ShellRail extends StatelessWidget {
+  const _ShellRail({
+    required this.currentBranch,
+    required this.badge,
+    required this.onSelect,
+    required this.onCreate,
+  });
+
+  final int currentBranch;
+  final int badge;
+  final ValueChanged<int> onSelect;
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    final destinations = AppShell._tabs.where((tab) => !tab.isAction);
+
+    final rail = NavigationRail(
+      backgroundColor: Colors.transparent,
+      selectedIndex: currentBranch,
+      onDestinationSelected: onSelect,
+      labelType: NavigationRailLabelType.all,
+      minWidth: 88,
+      groupAlignment: -1,
+      // A short window (split screen) scrolls the rail, Create button
+      // included, rather than overflowing it.
+      scrollable: true,
+      leadingAtTop: false,
+      indicatorColor: AppColors.primaryFixed,
+      selectedIconTheme: IconThemeData(color: AppColors.primary, size: 24),
+      unselectedIconTheme: IconThemeData(
+        color: AppColors.onSurfaceVariant,
+        size: 24,
+      ),
+      selectedLabelTextStyle: AppTypography.labelSmall.copyWith(
+        color: AppColors.primary,
+        fontWeight: FontWeight.w700,
+      ),
+      unselectedLabelTextStyle: AppTypography.labelSmall.copyWith(
+        color: AppColors.onSurfaceVariant,
+        fontWeight: FontWeight.w500,
+      ),
+      leading: Padding(
+        padding: const EdgeInsets.only(
+          top: AppSpacing.md,
+          bottom: AppSpacing.lg,
+        ),
+        child: Column(
+          children: [
+            _CentreAction(onTap: onCreate, raised: false),
+            const SizedBox(height: 4),
+            // The button already announces itself as "Create".
+            ExcludeSemantics(
+              child: Text(
+                'Create',
+                style: AppTypography.labelSmall.copyWith(
+                  color: AppColors.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      destinations: [
+        for (final tab in destinations)
+          NavigationRailDestination(
+            icon: _railIcon(tab.icon, tab),
+            selectedIcon: _railIcon(tab.activeIcon, tab),
+            label: Text(tab.label),
+          ),
+      ],
+    );
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainerLowest,
+        border: Border(right: BorderSide(color: AppColors.outlineVariant)),
+      ),
+      child: SafeArea(
+        right: false,
+        // The rail's scroll view must not take the shell's primary scroll
+        // controller: a status-bar tap scrolls the page, not the rail.
+        child: PrimaryScrollController.none(child: rail),
+      ),
+    );
+  }
+
+  /// The Profile destination carries the unread count, as the bar's does.
+  Widget _railIcon(IconData icon, _NavItem tab) {
+    final count = tab.label == 'Profile' ? badge : 0;
+    return Badge(
+      isLabelVisible: count > 0,
+      label: Text(count > 9 ? '9+' : '$count'),
+      backgroundColor: AppColors.primary,
+      child: Icon(icon, semanticLabel: count > 0 ? '$count unread' : null),
     );
   }
 }
@@ -267,9 +410,12 @@ class _NavButton extends StatelessWidget {
 
 /// The raised pink circle in the middle of the bar.
 class _CentreAction extends StatelessWidget {
-  const _CentreAction({required this.onTap});
+  const _CentreAction({required this.onTap, this.raised = true});
 
   final VoidCallback onTap;
+
+  /// Lifted half out of the bottom bar; flat at the top of the rail.
+  final bool raised;
 
   @override
   Widget build(BuildContext context) {
@@ -277,7 +423,7 @@ class _CentreAction extends StatelessWidget {
     // action rather than a fifth tab.
     return Center(
       child: Transform.translate(
-        offset: const Offset(0, -14),
+        offset: Offset(0, raised ? -14 : 0),
         child: Pressable(
           pressedScale: 0.92,
           child: Container(

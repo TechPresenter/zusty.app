@@ -31,8 +31,9 @@ import 'widgets/booking_ui.dart';
 /// Screen 11 — New Booking Request.
 ///
 /// Collects the brief, deliverables, budget, and timeline required by
-/// FR-007, and shows the live escrow breakdown from `GET /bookings/quote`
-/// before the brand commits.
+/// FR-007, and shows the live fee breakdown from `GET /bookings/quote`
+/// before the brand commits. Opened from the profile's "Choose a package"
+/// sheet, it starts with that package's title and price filled in.
 class NewBookingScreen extends ConsumerStatefulWidget {
   const NewBookingScreen({super.key, required this.handle, this.packageId});
 
@@ -57,6 +58,16 @@ class _NewBookingScreenState extends ConsumerState<NewBookingScreen> {
   int? _selectedPackageId;
   bool _submitting = false;
 
+  /// The title this form last filled in from a package, so switching
+  /// packages can replace it without overwriting a title the brand typed.
+  String? _autoTitle;
+
+  /// Whether the package the screen was opened with ([NewBookingScreen.
+  /// packageId], picked on the profile's "Choose a package" sheet) has been
+  /// applied. It waits for the profile, which carries the package's title
+  /// and price.
+  bool _openingPackageApplied = false;
+
   /// Fields validate as you type only after the first attempt to send, so a
   /// fresh form is not covered in red before anyone has typed.
   AutovalidateMode _autovalidate = AutovalidateMode.disabled;
@@ -66,6 +77,59 @@ class _NewBookingScreenState extends ConsumerState<NewBookingScreen> {
   void initState() {
     super.initState();
     _selectedPackageId = widget.packageId;
+
+    // Fills in the title and budget of the package the brand opened the form
+    // with, as tapping it here would, once the profile has loaded: at once
+    // when it is already cached (the first build is still to come), else
+    // when it arrives (the form repaints). Only once: a refreshed profile
+    // does not overwrite what the brand has typed since.
+    var initialising = true;
+    ref.listenManual<AsyncValue<CreatorProfile>>(
+      creatorProfileProvider(widget.handle),
+      (_, next) {
+        final profile = next.valueOrNull;
+        if (profile == null || _openingPackageApplied) return;
+
+        if (initialising) {
+          _applyOpeningPackage(profile);
+        } else if (mounted) {
+          setState(() => _applyOpeningPackage(profile));
+        }
+      },
+      fireImmediately: true,
+    );
+    initialising = false;
+  }
+
+  void _applyOpeningPackage(CreatorProfile profile) {
+    _openingPackageApplied = true;
+
+    final id = widget.packageId;
+    if (id == null) return;
+
+    final package = profile.packages.where((p) => p.id == id).firstOrNull;
+
+    // A package the creator has since removed: open the form without one,
+    // rather than send an id the screen does not show as selected.
+    if (package == null) {
+      _selectedPackageId = null;
+    } else {
+      _choosePackage(package);
+    }
+  }
+
+  /// Selects [package] and fills in its price as the budget. The title takes
+  /// the package's title while it is empty or still the one a package filled
+  /// in, so a title the brand typed is kept.
+  void _choosePackage(CreatorPackage package) {
+    _selectedPackageId = package.id;
+    _budget.text = package.price.toStringAsFixed(0);
+
+    final title = _title.text.trim();
+    if (title.isEmpty || title == _autoTitle) {
+      _title.text = package.title;
+      _autoTitle = package.title;
+    }
   }
 
   @override
@@ -335,9 +399,7 @@ class _NewBookingScreenState extends ConsumerState<NewBookingScreen> {
                       _selectedPackageId = null;
                       return;
                     }
-                    _selectedPackageId = package.id;
-                    _budget.text = package.price.toStringAsFixed(0);
-                    if (_title.text.isEmpty) _title.text = package.title;
+                    _choosePackage(package);
                   }),
                 ),
               ),

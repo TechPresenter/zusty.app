@@ -378,87 +378,91 @@ class _ProfileViewState extends ConsumerState<_ProfileView>
         blocked: blocked,
         onUnblock: _unblock,
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          // A short tab still fills the screen below the pinned bars, so
-          // switching to it never drags the tab bar back down the page.
-          final minBody = math.max(
-            0.0,
-            constraints.maxHeight - ProfileLayout.pinnedExtent(context),
-          );
+      // On a tablet the whole profile, cover included, is a centred readable
+      // column, and the action bar below lines up with it.
+      body: ContentWidthBox(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // A short tab still fills the screen below the pinned bars, so
+            // switching to it never drags the tab bar back down the page.
+            final minBody = math.max(
+              0.0,
+              constraints.maxHeight - ProfileLayout.pinnedExtent(context),
+            );
 
-          return ZRefresh(
-            onRefresh: _refresh,
-            edgeOffset: top + kToolbarHeight,
-            child: CustomScrollView(
-              controller: _scroll,
-              slivers: [
-                ProfileCoverAppBar(
-                  profile: profile,
-                  collapsed: _collapsed,
-                  // The URL and the wording come from the server, which
-                  // builds them from the creator's handle and the configured
-                  // public path.
-                  onShare: () => _shareProfile(context, ref, profile),
-                  blocked: blocked,
-                  // Report and block, for everyone but the creator.
-                  overflow: profile.isOwner
-                      ? null
-                      : SafetyMenuButton(
-                          target: ReportTarget.creator,
-                          targetId: profile.creator.id,
-                          name: profile.creator.displayName,
-                          userId: profile.creator.userId > 0
-                              ? profile.creator.userId
-                              : null,
-                          blocked: blocked,
-                          onCover: true,
-                        ),
-                ),
-                SliverToBoxAdapter(
-                  child: ProfileIdentity(
+            return ZRefresh(
+              onRefresh: _refresh,
+              edgeOffset: top + kToolbarHeight,
+              child: CustomScrollView(
+                controller: _scroll,
+                slivers: [
+                  ProfileCoverAppBar(
                     profile: profile,
-                    messaging: _messaging,
-                    onMessage: _message,
-                    onSocialTap: _openSocial,
-                    onCategoryTap: _openCategory,
+                    collapsed: _collapsed,
+                    // The URL and the wording come from the server, which
+                    // builds them from the creator's handle and the configured
+                    // public path.
+                    onShare: () => _shareProfile(context, ref, profile),
                     blocked: blocked,
-                    onUnblock: _unblock,
+                    // Report and block, for everyone but the creator.
+                    overflow: profile.isOwner
+                        ? null
+                        : SafetyMenuButton(
+                            target: ReportTarget.creator,
+                            targetId: profile.creator.id,
+                            name: profile.creator.displayName,
+                            userId: profile.creator.userId > 0
+                                ? profile.creator.userId
+                                : null,
+                            blocked: blocked,
+                            onCover: true,
+                          ),
                   ),
-                ),
-                SliverPersistentHeader(
-                  key: _tabHeaderKey,
-                  pinned: true,
-                  delegate: ProfileTabBarDelegate(tabBar),
-                ),
-                SliverToBoxAdapter(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onHorizontalDragStart: (details) => _dragOnBody =
-                        details.globalPosition.dy > _tabBarBottom(),
-                    onHorizontalDragEnd: _onSwipeEnd,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(minHeight: minBody),
-                      child: AnimatedSwitcher(
-                        duration: Motion.of(context, Motion.medium),
-                        switchInCurve: Motion.standard,
-                        switchOutCurve: Motion.exit,
-                        layoutBuilder: (current, previous) => Stack(
-                          alignment: Alignment.topCenter,
-                          children: [...previous, ?current],
-                        ),
-                        child: KeyedSubtree(
-                          key: ValueKey(_shown),
-                          child: _body(_shown, blocked: blocked),
+                  SliverToBoxAdapter(
+                    child: ProfileIdentity(
+                      profile: profile,
+                      messaging: _messaging,
+                      onMessage: _message,
+                      onSocialTap: _openSocial,
+                      onCategoryTap: _openCategory,
+                      blocked: blocked,
+                      onUnblock: _unblock,
+                    ),
+                  ),
+                  SliverPersistentHeader(
+                    key: _tabHeaderKey,
+                    pinned: true,
+                    delegate: ProfileTabBarDelegate(tabBar),
+                  ),
+                  SliverToBoxAdapter(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onHorizontalDragStart: (details) => _dragOnBody =
+                          details.globalPosition.dy > _tabBarBottom(),
+                      onHorizontalDragEnd: _onSwipeEnd,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(minHeight: minBody),
+                        child: AnimatedSwitcher(
+                          duration: Motion.of(context, Motion.medium),
+                          switchInCurve: Motion.standard,
+                          switchOutCurve: Motion.exit,
+                          layoutBuilder: (current, previous) => Stack(
+                            alignment: Alignment.topCenter,
+                            children: [...previous, ?current],
+                          ),
+                          child: KeyedSubtree(
+                            key: ValueKey(_shown),
+                            child: _body(_shown, blocked: blocked),
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
-          );
-        },
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -545,6 +549,12 @@ class _ActionBar extends StatelessWidget {
         starting?.priceFormatted ??
         (creator.priceMin > 0 ? Formatters.currency(creator.priceMin) : null);
 
+    // On a tablet the bar's content lines up with the profile column above.
+    final compact = WindowSize.of(context).isCompact;
+    final margin = compact
+        ? AppSpacing.marginMobile
+        : AppBreakpoints.pageMargin(context);
+
     final Widget content;
 
     if (profile.isOwner) {
@@ -575,6 +585,11 @@ class _ActionBar extends StatelessWidget {
       );
     } else {
       content = Row(
+        // The wider tablet bar puts the price and Book now at its two ends,
+        // rather than leaving the room the price does not use after the button.
+        mainAxisAlignment: compact
+            ? MainAxisAlignment.start
+            : MainAxisAlignment.spaceBetween,
         children: [
           if (fromPrice != null && !unavailable) ...[
             Flexible(
@@ -622,14 +637,16 @@ class _ActionBar extends StatelessWidget {
         child: Align(
           heightFactor: 1,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: AppBreakpoints.maxContentWidth,
+            constraints: BoxConstraints(
+              maxWidth: compact
+                  ? AppBreakpoints.maxContentWidth
+                  : ContentWidth.readable,
             ),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.marginMobile,
+              padding: EdgeInsets.fromLTRB(
+                margin,
                 AppSpacing.sm,
-                AppSpacing.marginMobile,
+                margin,
                 AppSpacing.sm,
               ),
               child: content,
@@ -653,89 +670,92 @@ class _ProfileSkeleton extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      body: Stack(
-        children: [
-          ListView(
-            padding: EdgeInsets.zero,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [
-              SizedBox(
-                height: top + ProfileLayout.expandedHeight,
-                child: Stack(
-                  children: [
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      bottom: ProfileLayout.avatarOverhang,
-                      child: const ZShimmer(),
-                    ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: Center(
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: AppColors.surface,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const ZShimmer(
-                            width: ProfileLayout.avatarSize - 8,
-                            height: ProfileLayout.avatarSize - 8,
-                            borderRadius: AppRadius.pill,
+      // Shaped like the profile it stands in for, tablet column included.
+      body: ContentWidthBox(
+        child: Stack(
+          children: [
+            ListView(
+              padding: EdgeInsets.zero,
+              physics: const NeverScrollableScrollPhysics(),
+              children: [
+                SizedBox(
+                  height: top + ProfileLayout.expandedHeight,
+                  child: Stack(
+                    children: [
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: ProfileLayout.avatarOverhang,
+                        child: const ZShimmer(),
+                      ),
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const ZShimmer(
+                              width: ProfileLayout.avatarSize - 8,
+                              height: ProfileLayout.avatarSize - 8,
+                              borderRadius: AppRadius.pill,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: margin),
-                child: const Column(
-                  children: [
-                    SizedBox(height: AppSpacing.md),
-                    ZShimmer(
-                      width: 180,
-                      height: 26,
-                      borderRadius: AppRadius.baseAll,
-                    ),
-                    SizedBox(height: AppSpacing.xs),
-                    ZShimmer(
-                      width: 140,
-                      height: 14,
-                      borderRadius: AppRadius.baseAll,
-                    ),
-                    SizedBox(height: AppSpacing.md),
-                    ZShimmer(height: 76, borderRadius: AppRadius.xlAll),
-                    SizedBox(height: AppSpacing.md),
-                    ZShimmer(height: 46, borderRadius: AppRadius.pill),
-                    SizedBox(height: AppSpacing.lg),
-                    ZShimmer(height: 14, borderRadius: AppRadius.baseAll),
-                    SizedBox(height: AppSpacing.xs),
-                    ZShimmer(height: 14, borderRadius: AppRadius.baseAll),
-                    SizedBox(height: AppSpacing.lg),
-                    ListSkeleton(count: 2, height: 96),
-                  ],
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: margin),
+                  child: const Column(
+                    children: [
+                      SizedBox(height: AppSpacing.md),
+                      ZShimmer(
+                        width: 180,
+                        height: 26,
+                        borderRadius: AppRadius.baseAll,
+                      ),
+                      SizedBox(height: AppSpacing.xs),
+                      ZShimmer(
+                        width: 140,
+                        height: 14,
+                        borderRadius: AppRadius.baseAll,
+                      ),
+                      SizedBox(height: AppSpacing.md),
+                      ZShimmer(height: 76, borderRadius: AppRadius.xlAll),
+                      SizedBox(height: AppSpacing.md),
+                      ZShimmer(height: 46, borderRadius: AppRadius.pill),
+                      SizedBox(height: AppSpacing.lg),
+                      ZShimmer(height: 14, borderRadius: AppRadius.baseAll),
+                      SizedBox(height: AppSpacing.xs),
+                      ZShimmer(height: 14, borderRadius: AppRadius.baseAll),
+                      SizedBox(height: AppSpacing.lg),
+                      ListSkeleton(count: 2, height: 96),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-          // The way out is there before the content is.
-          Positioned(
-            top: top + (kToolbarHeight - AppSpacing.minTouch) / 2,
-            left: margin,
-            child: CoverButton(
-              icon: Icons.arrow_back_ios_new_rounded,
-              iconSize: 18,
-              tooltip: 'Back',
-              onPressed: () =>
-                  context.canPop() ? context.pop() : context.go(Routes.home),
+              ],
             ),
-          ),
-        ],
+            // The way out is there before the content is.
+            Positioned(
+              top: top + (kToolbarHeight - AppSpacing.minTouch) / 2,
+              left: margin,
+              child: CoverButton(
+                icon: Icons.arrow_back_ios_new_rounded,
+                iconSize: 18,
+                tooltip: 'Back',
+                onPressed: () =>
+                    context.canPop() ? context.pop() : context.go(Routes.home),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

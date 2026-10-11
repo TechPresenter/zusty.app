@@ -33,6 +33,7 @@ class OpportunitiesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return ZScaffold(
       padded: false,
+      maxContentWidth: ContentWidth.wide,
       appBar: ZAppBar(
         title: 'Opportunities',
         actions: [
@@ -163,23 +164,28 @@ class _BoardState extends ConsumerState<_Board> {
               ),
             ),
             SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  margin,
-                  AppSpacing.md,
-                  margin,
-                  AppSpacing.sm,
-                ),
-                child: ZSearchField(
-                  controller: _search,
-                  hint: 'Search briefs by keyword',
-                  onChanged: _onSearchChanged,
-                  onSubmitted: _submitSearch,
-                  showClear: _search.text.isNotEmpty,
-                  onClear: () {
-                    _search.clear();
-                    _submitSearch('');
-                  },
+              // On a tablet the field keeps a readable width, in line with
+              // the headline above it, rather than spanning the card grid.
+              child: ContentWidthBox(
+                alignment: AlignmentDirectional.topStart,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    margin,
+                    AppSpacing.md,
+                    margin,
+                    AppSpacing.sm,
+                  ),
+                  child: ZSearchField(
+                    controller: _search,
+                    hint: 'Search briefs by keyword',
+                    onChanged: _onSearchChanged,
+                    onSubmitted: _submitSearch,
+                    showClear: _search.text.isNotEmpty,
+                    onClear: () {
+                      _search.clear();
+                      _submitSearch('');
+                    },
+                  ),
                 ),
               ),
             ),
@@ -264,10 +270,9 @@ class _BoardState extends ConsumerState<_Board> {
                 return [
                   SliverPadding(
                     padding: EdgeInsets.symmetric(horizontal: margin),
-                    sliver: SliverList.separated(
+                    // Two columns of briefs on a tablet.
+                    sliver: SliverAdaptiveCardList(
                       itemCount: data.items.length,
-                      separatorBuilder: (_, _) =>
-                          const SizedBox(height: AppSpacing.md),
                       itemBuilder: (_, i) {
                         final campaign = data.items[i];
                         return Reveal(

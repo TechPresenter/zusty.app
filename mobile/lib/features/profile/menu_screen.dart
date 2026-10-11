@@ -64,8 +64,9 @@ class MenuScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: const ShellHeader(title: 'Profile'),
-      body: ListView(
+      // On a tablet the hub is a centred readable column, header included.
+      appBar: const ContentWidthAppBar(child: ShellHeader(title: 'Profile')),
+      body: ContentWidthBox(child: ListView(
         padding: EdgeInsets.fromLTRB(
           margin,
           AppSpacing.md,
@@ -346,7 +347,7 @@ class MenuScreen extends ConsumerWidget {
             ),
           ),
         ],
-      ),
+      )),
     );
   }
 }

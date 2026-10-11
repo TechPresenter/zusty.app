@@ -988,8 +988,8 @@
             {
                 "id": 3,
                 "type": "creator_grid",
-                "title": "Top Creators For You",
-                "subtitle": "Handpicked for your brand",
+                "title": "Top-rated creators",
+                "subtitle": "Highest rated first",
                 "layout": "grid_2",
                 "cta_label": "View all",
                 "cta_action": "/explore",
@@ -1265,8 +1265,8 @@
             {
                 "id": 4,
                 "type": "creator_carousel",
-                "title": "Trending Now",
-                "subtitle": "Most booked this week",
+                "title": "Largest audiences",
+                "subtitle": "Ranked by self-reported followers",
                 "layout": "carousel",
                 "cta_label": "View all",
                 "cta_action": "/explore",

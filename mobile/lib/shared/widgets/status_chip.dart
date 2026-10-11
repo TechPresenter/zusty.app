@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/motion/motion.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/formatters.dart';
 import '../../models/booking.dart' show StatusTone;
 import '../motion/pressable.dart';
 
@@ -98,7 +99,7 @@ class RatingStars extends StatelessWidget {
 
   final double rating;
 
-  /// Review count rendered as `(120 Reviews)` when supplied.
+  /// Review count rendered as `(120 reviews)`, or `(1 review)`, when supplied.
   final int? count;
   final double size;
   final bool showValue;
@@ -135,7 +136,7 @@ class RatingStars extends StatelessWidget {
         if (count != null) ...[
           const SizedBox(width: 4),
           Text(
-            '($count Reviews)',
+            '(${Formatters.count(count, 'review')})',
             style: AppTypography.bodySmall.copyWith(fontSize: size - 1),
           ),
         ],

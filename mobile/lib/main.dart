@@ -9,6 +9,7 @@ import 'app.dart';
 import 'core/auth/social_sign_in_service.dart';
 import 'core/config/app_config.dart';
 import 'core/diagnostics/crash_reporting.dart';
+import 'core/layout/orientation_policy.dart';
 import 'core/network/device_headers.dart';
 import 'core/storage/key_value_cache.dart';
 import 'features/kyc/kyc_share_cache.dart';
@@ -39,10 +40,11 @@ Future<void> main() async {
   // to build shows a short message in a release build instead of a grey box.
   CrashReporting.install();
 
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+  // Portrait on phones, as always; a tablet may also turn to landscape. The
+  // view may not be measured yet, in which case this locks portrait for now:
+  // OrientationPolicyHost re-applies it once the app is up, and whenever the
+  // window changes (a foldable).
+  await OrientationPolicy.update();
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -106,7 +108,7 @@ Future<void> main() async {
   runApp(
     UncontrolledProviderScope(
       container: container,
-      child: const ZusteApp(),
+      child: const OrientationPolicyHost(child: ZusteApp()),
     ),
   );
 }

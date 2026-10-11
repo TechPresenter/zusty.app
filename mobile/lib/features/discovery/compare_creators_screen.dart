@@ -492,7 +492,7 @@ class _HeaderRow extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.only(left: AppSpacing.md, top: 4),
               child: Text(
-                '${creators.length} creators',
+                Formatters.count(creators.length, 'creator'),
                 style: AppTypography.labelMedium
                     .copyWith(color: AppColors.onSurfaceVariant),
               ),

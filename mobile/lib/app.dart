@@ -118,7 +118,7 @@ class _ZusteAppState extends ConsumerState<ZusteApp>
         title: AppConfig.appName,
         debugShowCheckedModeBanner: false,
         theme: theme,
-        home: const _Splash(),
+        home: const LaunchSplash(),
       );
     }
 
@@ -153,12 +153,14 @@ class _ZusteAppState extends ConsumerState<ZusteApp>
 /// artwork, with a live brand loader turning where the artwork draws its
 /// loading ring.
 ///
-/// The artwork is laid out like `BoxFit.cover`, so on any screen shape the
-/// loader is placed by the same scale and offset as the picture under it.
-/// The background is white like the native launch screen before it, so the
-/// hand-over has no flash.
-class _Splash extends StatelessWidget {
-  const _Splash();
+/// The artwork is laid out like `BoxFit.cover` on a portrait screen, and like
+/// `BoxFit.contain` on a landscape one (a tablet turned sideways), where cover
+/// would show only a strip of the middle and push the loader off the bottom.
+/// Either way the loader is placed by the same scale and offset as the
+/// picture under it. The background is white like the native launch screen
+/// before it, so the hand-over has no flash.
+class LaunchSplash extends StatelessWidget {
+  const LaunchSplash({super.key});
 
   /// The artwork's pixel size, and where its loading ring sits in it.
   static const _art = Size(946, 1663);
@@ -173,31 +175,60 @@ class _Splash extends StatelessWidget {
         builder: (context, constraints) {
           final w = constraints.maxWidth;
           final h = constraints.maxHeight;
-          final scale = w / _art.width > h / _art.height ? w / _art.width : h / _art.height;
+          final landscape = w > h;
+          final byWidth = w / _art.width;
+          final byHeight = h / _art.height;
+          final scale = landscape
+              ? (byWidth < byHeight ? byWidth : byHeight)
+              : (byWidth > byHeight ? byWidth : byHeight);
           final shownW = _art.width * scale;
           final shownH = _art.height * scale;
           final left = (w - shownW) / 2;
           final top = (h - shownH) / 2;
           final ring = _ringDiameter * shownW;
 
+          Widget artwork = Image.asset(
+            BrandAssets.splash,
+            fit: landscape ? BoxFit.contain : BoxFit.cover,
+            semanticLabel: AppConfig.appName,
+            // Fades in over the white if it decodes a frame late.
+            frameBuilder: (context, child, frame, sync) => sync
+                ? child
+                : AnimatedOpacity(
+                    opacity: frame == null ? 0 : 1,
+                    duration: Motion.of(context, Motion.fast),
+                    curve: Motion.standard,
+                    child: child,
+                  ),
+          );
+
+          // A portrait picture in the middle of a landscape screen: its side
+          // edges fade into the white, so the coloured corners do not end in
+          // a hard line.
+          if (landscape) {
+            artwork = ShaderMask(
+              blendMode: BlendMode.dstIn,
+              shaderCallback: (bounds) => LinearGradient(
+                colors: const [
+                  Colors.transparent,
+                  Colors.white,
+                  Colors.white,
+                  Colors.transparent,
+                ],
+                stops: [
+                  (left / w).clamp(0.0, 1.0),
+                  ((left + shownW * 0.12) / w).clamp(0.0, 1.0),
+                  ((left + shownW * 0.88) / w).clamp(0.0, 1.0),
+                  ((left + shownW) / w).clamp(0.0, 1.0),
+                ],
+              ).createShader(bounds),
+              child: artwork,
+            );
+          }
+
           return Stack(
             children: [
-              Positioned.fill(
-                child: Image.asset(
-                  BrandAssets.splash,
-                  fit: BoxFit.cover,
-                  semanticLabel: AppConfig.appName,
-                  // Fades in over the white if it decodes a frame late.
-                  frameBuilder: (context, child, frame, sync) => sync
-                      ? child
-                      : AnimatedOpacity(
-                          opacity: frame == null ? 0 : 1,
-                          duration: Motion.of(context, Motion.fast),
-                          curve: Motion.standard,
-                          child: child,
-                        ),
-                ),
-              ),
+              Positioned.fill(child: artwork),
               Positioned(
                 left: left + _ringCentre.dx * shownW - ring / 2,
                 top: top + _ringCentre.dy * shownH - ring / 2,

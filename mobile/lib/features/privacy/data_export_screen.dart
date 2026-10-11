@@ -431,7 +431,9 @@ class _HowItWorks extends StatelessWidget {
   final List<String> providers;
 
   String _hours(int hours) =>
-      hours % 24 == 0 && hours >= 48 ? '${hours ~/ 24} days' : '$hours hours';
+      hours % 24 == 0 && hours >= 48
+          ? '${hours ~/ 24} days'
+          : Formatters.count(hours, 'hour');
 
   @override
   Widget build(BuildContext context) {

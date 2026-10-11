@@ -11,8 +11,8 @@ INSERT INTO `onboarding_slides` (`title`, `subtitle`, `icon`, `audience`, `sort_
   ('Verified creators you can trust.',
    'Look for the blue tick: it appears only after our team has checked a creator’s identity.',
    'verified_user', 'all', 20),
-  ('Collaborate and get paid safely.',
-   'Briefs, offers and payment in one place. The brand’s payment is held by Zusty until the work is approved.',
+  ('Collaborate and get paid on approval.',
+   'Briefs, offers and chat in one place. Zusty holds the payment until the work is approved.',
    'lock', 'all', 30)
 ON DUPLICATE KEY UPDATE
   `subtitle`   = VALUES(`subtitle`),

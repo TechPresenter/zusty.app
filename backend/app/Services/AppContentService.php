@@ -245,14 +245,23 @@ final class AppContentService
             case 'featured':
                 $filters['featured'] = 1;
                 break;
+            // These three rails are titled by their order ("Top-rated
+            // creators", "Largest audiences", "New on Zusty"), so they are in
+            // that order alone, without search's featured-first run, and a
+            // top-rated rail leaves out creators nobody has rated yet. An
+            // empty rail is dropped by homeSections().
             case 'top_rated':
-                $filters['sort'] = 'rating';
+                $filters['sort']           = 'rating';
+                $filters['min_rating']     = 1;
+                $filters['featured_first'] = false;
                 break;
             case 'trending':
-                $filters['sort'] = 'popular';
+                $filters['sort']           = 'popular';
+                $filters['featured_first'] = false;
                 break;
             case 'newest':
-                $filters['sort'] = 'newest';
+                $filters['sort']           = 'newest';
+                $filters['featured_first'] = false;
                 break;
             case 'category':
                 if ($value !== '') {

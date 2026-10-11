@@ -131,19 +131,19 @@ $features = [
         'title' => 'Discover creators',
         'text'  => 'Search by city, category, platform, followers and price, and see who is verified at a glance.',
         'shot'  => 'home',
-        'alt'   => 'The brand home screen: a search bar for creators and categories with a filter button, top categories and a collaboration in progress.',
+        'alt'   => 'The brand home screen: a prompt to post a brief, a search bar for creators and categories with a filter button, top categories and a collaboration in progress.',
     ],
     [
         'title' => 'See real profiles',
         'text'  => 'Check followers, packages and past work before you reach out. The blue tick appears only after our team approves a creator.',
         'shot'  => 'packages',
-        'alt'   => 'A creator’s packages as a brand sees them: fixed-price reels, a story series and a YouTube integration, each with its delivery days and revisions, and a Send a custom request button.',
+        'alt'   => 'A creator’s packages as a brand sees them: a reel, a story series, a feed post and reel combo, a YouTube integration and a campaign bundle, each with its price, delivery days and revisions, and a Send a custom request button.',
     ],
     [
         'title' => 'Book with payment protection',
         'text'  => 'Pick a package or post a brief and choose who applies. You pay once the creator accepts, and ' . $appName . ' holds the payment until you approve the work.',
         'shot'  => 'request',
-        'alt'   => 'A new booking request: fixed-price packages with delivery days and revisions, and a note that nothing is charged until the creator accepts.',
+        'alt'   => 'A new booking request: fixed-price packages with delivery days and revisions, one of them selected, a campaign brief, and a note that nothing is charged until the creator accepts.',
     ],
     [
         'title' => 'Approve the work',
@@ -258,7 +258,7 @@ $sections = [
             <li><?= $icon('check') ?><?= $e($invoiceTax) ?> invoices</li>
           </ul>
           <h1 id="hero-title">Brands book <span class="grad">verified creators</span>. Creators get paid securely.</h1>
-          <p class="lead"><?= $e($appName) ?> is where brands discover and book Instagram and YouTube creators at clear, fixed prices. Creators get paid when the work is approved, and until then <?= $e($appName) ?> holds the brand’s payment.</p>
+          <p class="lead"><?= $e($appName) ?> is where brands discover and book Instagram and YouTube creators, choosing one of a creator’s fixed-price packages or naming their own budget. Creators get paid when the work is approved, and until then <?= $e($appName) ?> holds the brand’s payment.</p>
           <div class="cta-row">
             <?= $store() ?>
             <a class="btn btn-ghost" href="#how">See how it works <?= $icon('arrow') ?></a>
@@ -272,7 +272,7 @@ $sections = [
         <div class="hero-art">
           <span class="ring" aria-hidden="true"></span>
           <?= $spark('spark-1') ?><?= $spark('spark-2') ?><?= $spark('spark-3') ?>
-          <?= $phone($shot('home', 'The ' . $appName . ' home screen for brands: creator search, a banner reading “Find the Right Creator for Your Next Campaign”, top categories and an active campaign.', '', true)) ?>
+          <?= $phone($shot('home', 'The ' . $appName . ' home screen for brands: a prompt to post a brief, creator search, a banner reading “Find the Right Creator for Your Next Campaign”, top categories and an active campaign.', '', true)) ?>
           <div class="float f1" aria-hidden="true"><span class="chip-ico ci-blue"><?= $tick ?></span><span><b>KYC verified</b><small>Checked by our team</small></span></div>
           <div class="float f2" aria-hidden="true"><span class="chip-ico ci-pink"><?= $icon('lock') ?></span><span><b>₹8,000 held by <?= $e($appName) ?></b><small>Released when you approve</small></span></div>
           <div class="float f3" aria-hidden="true"><span class="chip-ico ci-green"><?= $icon('check') ?></span><span><b>Booking confirmed</b><small>The creator can start</small></span></div>
@@ -367,7 +367,7 @@ $sections = [
         <div class="sides">
           <article class="side side--brands" id="brands" aria-labelledby="brands-title">
             <div class="side-media">
-              <?= $phone($shot('request', 'A new booking request: fixed-price packages with delivery days and revisions, and a note that nothing is charged until the creator accepts.')) ?>
+              <?= $phone($shot('request', 'A new booking request: fixed-price packages with delivery days and revisions, one of them selected, a campaign brief, and a note that nothing is charged until the creator accepts.')) ?>
 
             </div>
             <div class="side-body">
@@ -494,7 +494,7 @@ $sections = [
 <?php endif; ?>
           </div>
           <div class="dl-art">
-            <?= $phone($shot('packages', 'A creator’s packages: fixed-price reels, story series and a YouTube integration, each with its delivery days and revisions, and a Send a custom request button.')) ?>
+            <?= $phone($shot('packages', 'A creator’s packages: a reel, a story series, a feed post and reel combo, a YouTube integration and a campaign bundle, each with its price, delivery days and revisions, and a Send a custom request button.')) ?>
 
           </div>
         </div>

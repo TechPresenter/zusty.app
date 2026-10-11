@@ -197,7 +197,7 @@ ON DUPLICATE KEY UPDATE
 INSERT INTO `homepage_sections` (`title`, `subtitle`, `section_type`, `data_source`, `item_limit`, `layout`, `cta_label`, `cta_action`, `audience`, `sort_order`) VALUES
   ('Featured',            NULL,                          'banner_carousel', 'featured',  5, 'full',     NULL,       NULL,          'all', 1),
   ('Top Categories',      NULL,                          'category_strip',  'featured', 10, 'carousel', 'View all', '/categories', 'all', 2),
-  ('Top Creators For You','Handpicked for your brand',   'creator_grid',    'top_rated', 8, 'grid_2',   'View all', '/explore',    'all', 3),
-  ('Trending Now',        'Most booked this week',       'creator_carousel','trending',  8, 'carousel', 'View all', '/explore',    'all', 4),
+  ('Top-rated creators',  'Highest rated first',         'creator_grid',    'top_rated', 8, 'grid_2',   'View all', '/explore',    'all', 3),
+  ('Largest audiences',   'Ranked by self-reported followers', 'creator_carousel','trending', 8, 'carousel', 'View all', '/explore', 'all', 4),
   ('New on Zusty',        'Fresh talent worth watching', 'creator_carousel','newest',    8, 'carousel', 'View all', '/explore',    'all', 5)
 ON DUPLICATE KEY UPDATE `subtitle` = VALUES(`subtitle`), `sort_order` = VALUES(`sort_order`);

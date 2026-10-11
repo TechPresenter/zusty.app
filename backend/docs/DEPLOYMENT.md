@@ -366,6 +366,60 @@ curl -s  https://yourdomain.com/robots.txt  # Sitemap: line names this domain
   curl -s https://yourdomain.com/api/v1/app/config | grep -o '"auto_complete_days":[0-9]*' # e.g. 7
   mysql -e "SELECT COUNT(*) FROM payments WHERE JSON_VALID(gateway_response) AND JSON_CONTAINS_PATH(gateway_response,'one','$.payment_method.app.phone','$.payment_method.emi','$.payment_method.card')" zuste_marketplace   # 0
   ```
+- **Copy polish before the Play release.** Migration 060. Every statement changes a
+  row only while it holds the exact old wording (an admin's own text is kept), and a
+  second run changes nothing:
+  - **Home banners.** The app cuts a banner subtitle after two lines (about 33
+    characters a line on a 360 dp phone). Banner 1 becomes "Verified creators, clear
+    pricing and payment protection." (was 80 characters, lost its last word), banner 2
+    "Set your packages, get booked, get paid on approval." (was 70, whole on a 411 dp
+    phone but not on a 360 dp one) and banner 3 "Earn a reward once an invited friend
+    completes a booking." (was 78).
+  - **Popups** shown inline (banner, announcement bar) get two small lines beside the
+    call to action. Demo rows 1518 and 1519 become "Creators apply with their rate.
+    Pick who to hire." and "Save creators to a list and compare them side by side."
+    (1519 also promised saved searches and rate history, which the app does not
+    have). Installs without demo data have neither row.
+  - **Onboarding slide 3**: "Collaborate and get paid on approval." (was "…get paid
+    safely.") with the subtitle "Briefs, offers and chat in one place. Zusty holds the
+    payment until the work is approved." (was 105 characters).
+  - **Home sections.** "Top Creators For You / Handpicked for your brand" lists
+    creators by rating for every audience and becomes "Top-rated creators / Highest
+    rated first"; "Trending Now / Most booked this week" lists them by their
+    self-reported follower total and becomes "Largest audiences / Ranked by
+    self-reported followers". A rename is skipped if a section with the new title and
+    the same type already exists (the unique key seed 003 upserts on). The code makes
+    the headings true: these rails, and "New on Zusty", are now in the order they
+    name alone (`AppContentService::creatorsFor` passes `featured_first = false`;
+    before, the featured creators filled them whatever their rating or sign-up date),
+    and the top-rated rail leaves out creators with no reviews, so it is hidden until
+    someone has been rated. Search and Explore still put featured creators first.
+  - **Privacy policy** section 2: the wallet also holds "any corrections our team
+    makes to fix an error" (Admin → Users → Wallet adjustment, ledger category
+    `adjustment`); "Last updated: 11 October 2026"; version bumped once.
+  - **Stored notifications** sent before 059 changed the templates: the sentences "Your
+    funds are held safely in escrow." (`payment.success`), "The brand will raise a
+    booking so the payment can be held in escrow." (`campaign.hired`) and "The payment
+    stays in escrow until our team has reviewed it." (`booking.disputed`) are replaced
+    with the templates' current wording. Only `notifications.body` changes (the titles
+    never carried them); `email_queue` and `push_queue` are history and are left alone.
+
+  Seeds 002, 003, 009 and demo/026 carry the same copy for fresh installs. The code
+  that goes with it: the landing page's lead says brands book "choosing one of a
+  creator's fixed-price packages or naming their own budget" (not "at clear, fixed
+  prices"), and the password-reset and verification-code emails say "you can ignore
+  this email" (no "safely"). Ship the matching app build: the booking form fills in
+  the title and budget of the package picked on the profile, the Home fallback
+  headings match the sections above, and counts read "1 review", "1 day" and so on.
+  Check after a deploy:
+
+  ```bash
+  curl -s https://yourdomain.com/privacy | grep -c 'corrections our team makes'                   # 1
+  curl -s https://yourdomain.com/ | grep -ci 'fixed prices'                                       # 0
+  mysql -e "SELECT COUNT(*) FROM notifications WHERE (type='payment.success' AND body LIKE BINARY '%Your funds are held safely in escrow.%') OR (type='campaign.hired' AND body LIKE BINARY '%so the payment can be held in escrow.%') OR (type='booking.disputed' AND body LIKE BINARY '%The payment stays in escrow until our team has reviewed it.%')" zuste_marketplace   # 0
+  mysql -e "SELECT id, CHAR_LENGTH(subtitle) FROM banners WHERE is_active=1 AND CHAR_LENGTH(subtitle) > 65" zuste_marketplace   # no rows
+  mysql -e "SELECT title, subtitle FROM homepage_sections WHERE data_source IN ('top_rated','trending')" zuste_marketplace
+  ```
 
 ---
 

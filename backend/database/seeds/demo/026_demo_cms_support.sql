@@ -765,7 +765,7 @@ VALUES
 
 (1518, 'Brand first campaign prompt', 'banner',
  'Post a brief, let creators come to you',
- 'Publish one campaign brief and matching creators apply with their rate for your exact deliverable. Shortlist, compare and send offers without leaving the screen.',
+ 'Creators apply with their rate. Pick who to hire.',
  'https://picsum.photos/seed/zuste-popup-first-campaign/900/600',
  '#1D4ED8', '#FFFFFF',
  'Create a campaign', 'screen', '/campaigns/create',
@@ -775,7 +775,7 @@ VALUES
 
 (1519, 'Guest sign up prompt', 'announcement_bar',
  'Create a free account to save creators',
- 'Shortlists, saved searches and rate history stay with your account. Signing up takes an email address and about thirty seconds.',
+ 'Save creators to a list and compare them side by side.',
  NULL,
  '#111827', '#F9FAFB',
  'Sign up free', 'screen', '/auth/register',

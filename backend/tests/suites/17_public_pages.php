@@ -21,6 +21,11 @@ declare(strict_types=1);
  * migration 059 nothing a user reads calls the held payment "escrow", the
  * privacy policy names the Grievance Officer and says what the code keeps
  * of a payment, and the store and invite links use the current names.
+ * Since migration 060 no copy says "safely", the app's banners, inline
+ * popups and onboarding slides fit where the app cuts them off, no Home
+ * section claims a hand-picked list, the privacy policy names the wallet
+ * corrections our team makes, and no stored notification keeps the old
+ * escrow sentences.
  *
  * Fixtures: the "unpublished page" check switches one seeded page off and
  * restores its original state in a `finally`.
@@ -229,6 +234,13 @@ Suite::equals(
     array_column(Database::select("SELECT `id` FROM `testimonials` WHERE `content` LIKE '%escrow%'"), 'id'),
     []
 );
+// "Safely" is a promise, not a description (migration 060 took it out of the
+// third onboarding slide): say what happens to the money instead.
+Suite::equals(
+    'no page, FAQ, template, banner, slide, popup or testimonial says "safely"',
+    array_keys(array_filter($userCopy, static fn (string $text): bool => preg_match('/\bsafely\b/i', $text) === 1)),
+    []
+);
 Suite::check(
     'the terms say who holds the payment, when it is released and that disputes are reviewed first',
     str_contains($terms, 'held by Zusty and released to the creator')
@@ -296,6 +308,12 @@ Suite::check(
     '…and lists referral rewards among what the wallet holds',
     !Config::settingBool('referral', 'enabled', true) || stripos($privacy, 'referral rewards') !== false
 );
+// An admin can credit or debit a wallet by hand (UserController::adjustWallet,
+// ledger category 'adjustment'), so the policy says so (migration 060).
+Suite::check(
+    '…and the corrections our team makes to it',
+    str_contains($privacy, 'any corrections our team makes to fix an error')
+);
 
 // The links the app hands out (migration 059 fixed live installs that still
 // had the old package name and domain).
@@ -328,6 +346,71 @@ Suite::equals(
             AND (`description` REGEXP '(?i)\\\\brank' OR `description` = 'Required before withdrawals.')"
     ), 'rule_key'),
     []
+);
+
+// ---------------------------------------------------------------------
+Suite::group('Public pages — app copy that fits and says what it is (migration 060)');
+// ---------------------------------------------------------------------
+
+// The app cuts this copy off with "…" rather than wrapping it: a Home banner
+// subtitle after two lines (home_screen.dart, about 33 characters a line on
+// a 360 dp phone), an inline popup's text after two small lines beside its
+// call to action (app_popup_host.dart), an onboarding slide's text after
+// three lines (onboarding_screen.dart). Every active row, by length.
+$tooLong = static function (string $sql, int $max): array {
+    $rows = array_filter(
+        Database::select($sql),
+        static fn (array $r): bool => mb_strlen(trim(html_entity_decode(strip_tags((string) $r['t']), ENT_QUOTES | ENT_HTML5, 'UTF-8'))) > $max
+    );
+
+    return array_values(array_map(static fn (array $r): string => (string) $r['k'], $rows));
+};
+Suite::equals(
+    'no active banner subtitle is over 65 characters (two lines on a 360 dp phone)',
+    $tooLong('SELECT `id` AS `k`, `subtitle` AS `t` FROM `banners` WHERE `is_active` = 1', 65),
+    []
+);
+Suite::equals(
+    'no active inline popup (banner or announcement bar) has over 60 characters of text',
+    $tooLong(
+        "SELECT `id` AS `k`, `content` AS `t` FROM `popups`
+          WHERE `is_active` = 1 AND `deleted_at` IS NULL AND `type` IN ('banner', 'announcement_bar')",
+        60
+    ),
+    []
+);
+Suite::equals(
+    'no active onboarding slide subtitle is over 95 characters',
+    $tooLong('SELECT `id` AS `k`, `subtitle` AS `t` FROM `onboarding_slides` WHERE `is_active` = 1', 95),
+    []
+);
+
+// A Home section built by a query (AppContentService::creatorsFor) lists the
+// same creators for every viewer: top_rated sorts by rating, trending by the
+// follower totals creators report, newest by sign-up. Nobody picks them and
+// nothing counts bookings, so the heading may not say so.
+Suite::equals(
+    'no query-built home section claims a hand-picked, personal or most-booked list',
+    array_column(Database::select(
+        "SELECT `id` FROM `homepage_sections`
+          WHERE `is_active` = 1
+            AND `data_source` IN ('top_rated', 'trending', 'newest', 'category')
+            AND CONCAT_WS(' ', `title`, `subtitle`) REGEXP 'hand[- ]?picked|for you|curated|most booked'"
+    ), 'id'),
+    []
+);
+
+// Notifications stored before migration 059 changed the templates keep the
+// text they were sent with; 060 replaced the three templated sentences.
+Suite::equals(
+    'no stored notification keeps a templated escrow sentence',
+    (int) Database::scalar(
+        "SELECT COUNT(*) FROM `notifications`
+          WHERE (`type` = 'payment.success' AND `body` LIKE BINARY '%Your funds are held safely in escrow.%')
+             OR (`type` = 'campaign.hired' AND `body` LIKE BINARY '%so the payment can be held in escrow.%')
+             OR (`type` = 'booking.disputed' AND `body` LIKE BINARY '%The payment stays in escrow until our team has reviewed it.%')"
+    ),
+    0
 );
 
 // ---------------------------------------------------------------------

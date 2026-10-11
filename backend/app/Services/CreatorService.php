@@ -58,7 +58,7 @@ final class CreatorService
      *   min_followers?:int, max_followers?:int, min_engagement?:float,
      *   language?:string, gender?:string, response_time?:int,
      *   verified_only?:bool, availability?:string,
-     *   sort?:string, page?:int, per_page?:int
+     *   sort?:string, page?:int, per_page?:int, featured_first?:bool
      * } $filters
      *
      * @return array{items:list<array<string,mixed>>,total:int,page:int,per_page:int}
@@ -192,6 +192,14 @@ final class CreatorService
         // ever becomes SQL.
         $orderBy = self::SORTABLE[(string) ($filters['sort'] ?? 'relevance')] ?? self::SORTABLE['relevance'];
 
+        // Featured creators (tagged "Featured" on their card) lead a listing.
+        // A Home rail whose heading names its order ("Top-rated creators",
+        // "New on Zusty") turns that off, so the list is in the order the
+        // heading says. Only PHP's false does: a query string sends strings.
+        if (($filters['featured_first'] ?? true) !== false) {
+            $orderBy = 'c.`is_featured` DESC, ' . $orderBy;
+        }
+
         $total = (int) Database::scalar(
             'SELECT COUNT(DISTINCT c.`id`) FROM `creators` c
              INNER JOIN `users` u ON u.`id` = c.`user_id`' . $joins . $where,
@@ -219,7 +227,7 @@ final class CreatorService
              FROM `creators` c
              INNER JOIN `users` u ON u.`id` = c.`user_id`
              LEFT JOIN `categories` cat ON cat.`id` = c.`primary_category_id`' . $joins . $where . '
-             ORDER BY c.`is_featured` DESC, ' . $orderBy . '
+             ORDER BY ' . $orderBy . '
              LIMIT ' . $perPage . ' OFFSET ' . $offset,
             $bindings
         );

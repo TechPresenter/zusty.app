@@ -270,7 +270,8 @@ you write (pages, FAQs, banners, notification templates, popups), say *payment
 protection* or *held by Zusty*: the brand's payment is held by Zusty, released to the
 creator on approval or automatically `booking.auto_complete_days` after delivery, and
 reviewed by our team before any money moves if there is a dispute. Never write escrow,
-nodal, trust account, guaranteed or 100% safe; the `17_public_pages` suite checks every
+nodal, trust account, guaranteed, 100% safe or "safely" (say what happens instead,
+such as "get paid when the work is approved"); the `17_public_pages` suite checks every
 active page, FAQ, template, banner, slide, popup and testimonial for those words.
 
 ### Reviews
@@ -394,11 +395,22 @@ Banners, Home Sections, FAQs, Testimonials, Redirects, Menus, Sitemap, Media**.
 - **Blog** — posts with categories, cover images, scheduling and view counts.
 - **Banners** — app and web placements with date windows and click tracking.
   On the app Home, a banner shows its title and its subtitle on up to two lines
-  each, about 35 characters a line on a phone; anything longer ends in "…".
-  Keep a subtitle to about 70 characters. The brand banner "Verified creators,
-  transparent pricing, and payment protection on every booking." (81
-  characters) loses its last word on a phone.
-- **Home Sections** — what appears on the app home screen, and in what order.
+  each, about 33 characters a line on a 360 dp phone; anything longer ends in "…".
+  Keep a subtitle to 65 characters or fewer (the `17_public_pages` suite fails over
+  65), and to about 55 if it has long words. Migration 060 shortened all three seeded
+  subtitles: the brand banner, whose 80-character subtitle lost its last word on a
+  phone, to "Verified creators, clear pricing and payment protection.", the creator
+  banner to "Set your packages, get booked, get paid on approval." and the invite
+  banner to "Earn a reward once an invited friend completes a booking."
+- **Home Sections** — what appears on the app home screen, and in what order. A
+  section built from a data source (Top rated, Trending, Newest, A category) shows
+  the same creators to everyone: Top rated sorts by rating and leaves out creators
+  with no reviews yet, Trending by the follower totals creators report, Newest by
+  sign-up date. Those three are in that order alone (featured creators are not put
+  first, as they are in search), and a section with nothing to show is hidden. Title
+  it for what it is ("Top-rated creators", "Largest audiences"); "Handpicked", "For
+  you" or "Most booked" is true only of a Hand-picked ids or The viewer's saved
+  creators section.
 - **FAQs** — grouped, orderable, with helpful-vote counts from the app.
 - **Testimonials** — quotes with an approve step. Publish only quotes a real customer
   gave you and agreed to share: the four seeded ones are samples and ship switched off.
@@ -430,7 +442,10 @@ sitemap and the public pages both use.
 - **Coupons** — percentage or fixed discounts with usage limits, validity windows,
   minimum booking amount and per-user caps. Redemption history per coupon.
 - **Popups** — in-app promotional popups with targeting rules, display frequency and
-  impression/click counts.
+  impression/click counts. A Banner or Announcement bar popup shows its text on two
+  small lines beside the call to action and cuts the rest: keep that text to about 50
+  characters (the `17_public_pages` suite fails over 60). Modals and full-screen
+  popups show their whole text.
 
 ---
 

@@ -1270,7 +1270,7 @@ final class CreatorChangeService
         if (!self::hasColumn($table, 'creator_id')) {
             throw HttpException::conflict(
                 $table . ' does not record which creator a row belongs to, so this change'
-                . ' cannot be applied safely.',
+                . ' could reach another creator\'s rows and cannot be applied.',
                 'target_unownable'
             );
         }

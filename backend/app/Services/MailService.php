@@ -539,7 +539,7 @@ HTML;
                   ? 'If you did not ask for this, someone may be signed in to your account: sign out of all devices and change your password.'
                   : ($login
                       ? "Never share it: nobody from Zusty will ask for it. If you don't have an account, or didn't try to sign in, you can ignore this email."
-                      : 'If you did not request this, you can safely ignore this email.'));
+                      : 'If you did not request this, you can ignore this email.'));
 
         $codeBlock = '<div style="margin:20px 0;padding:20px;background:#FFF0F1;border-radius:16px;text-align:center">'
             . '<div style="font-size:34px;font-weight:800;letter-spacing:0.32em;color:#B80049;font-family:monospace">'

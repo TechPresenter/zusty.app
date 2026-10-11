@@ -1205,7 +1205,7 @@ final class AuthService
             . ($ttlMinutes >= 60
                 ? (int) round($ttlMinutes / 60) . ' hour' . ((int) round($ttlMinutes / 60) === 1 ? '' : 's')
                 : $ttlMinutes . ' minutes')
-            . '. If you did not request it, you can safely ignore this email — your password will not change.',
+            . '. If you did not request it, you can ignore this email — your password will not change.',
             (string) $user['name'],
             'url',
             $resetUrl

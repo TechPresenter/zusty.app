@@ -17,10 +17,11 @@ declare(strict_types=1);
  * key it claims to sort by.
  *
  * Ordering note that shapes most of the sort checks: CreatorService::search
- * always prefixes the ORDER BY with `c.is_featured DESC` (CreatorService.php:163),
- * so a sorted listing is two concatenated runs — featured first, then the rest —
- * each internally ordered by the requested key. Asserting a single global run
- * would be wrong, so every sort assertion partitions on is_featured first.
+ * prefixes the ORDER BY with `c.is_featured DESC` (only the Home rails turn that
+ * off, with featured_first = false), so a sorted listing is two concatenated
+ * runs — featured first, then the rest — each internally ordered by the
+ * requested key. Asserting a single global run would be wrong, so every sort
+ * assertion partitions on is_featured first.
  */
 
 use Zuste\Core\Database;
@@ -1669,6 +1670,100 @@ if ($activeSections === 0) {
             },
             'a rail returned more items than its item_limit'
         );
+
+        // A rail built from top_rated, trending or newest is titled by its
+        // order ("Top-rated creators", "Largest audiences", "New on Zusty"),
+        // so it is in that order alone, with no featured-first run, and a
+        // top-rated rail holds rated creators only (AppContentService).
+        $railsFor = static function (string $source) use ($creatorSections): array {
+            $ids = array_map('intval', Database::column(
+                'SELECT `id` FROM `homepage_sections` WHERE `data_source` = :source',
+                ['source' => $source]
+            ));
+
+            return array_values(array_filter(
+                $creatorSections,
+                static fn (array $s): bool => in_array((int) $s['id'], $ids, true)
+            ));
+        };
+
+        // The values of the creators search would list for an anonymous
+        // caller, best first: what a rail in that order alone must hold.
+        $bestValues = static function (string $column, string $extra, int $n): array {
+            return array_map('floatval', Database::column(
+                "SELECT c.`{$column}` FROM `creators` c
+                   INNER JOIN `users` u ON u.`id` = c.`user_id`
+                  WHERE c.`status` = 'approved' AND c.`is_public` = 1 AND c.`deleted_at` IS NULL
+                    AND u.`status` = 'active' {$extra}
+                  ORDER BY c.`{$column}` DESC
+                  LIMIT " . max(1, $n)
+            ));
+        };
+
+        $orderedRails = [
+            'top_rated' => [static fn (array $r): float => (float) $r['rating'], 'rating', 'rating_avg', 'AND c.`rating_count` > 0', 1],
+            'trending'  => [static fn (array $r): int => (int) $r['followers'], 'followers', 'followers_total', '', 0],
+        ];
+
+        foreach ($orderedRails as $source => [$key, $label, $column, $extra, $decimals]) {
+            $rails = $railsFor($source);
+
+            if ($rails === []) {
+                continue;
+            }
+
+            Suite::check(
+                "a {$source} rail is ordered by {$label} alone, featured creators included",
+                static function () use ($rails, $isMonotonic, $key): bool {
+                    foreach ($rails as $rail) {
+                        if (!$isMonotonic($rail['items'], $key, false)) {
+                            return false;
+                        }
+                    }
+
+                    return true;
+                },
+                'order was: ' . $trail($rails[0]['items'], $key)
+            );
+
+            // Before 060 the featured-first run filled the rail with the
+            // featured creators, whatever their rating or audience.
+            $items    = $rails[0]['items'];
+            $expected = array_map(
+                static fn (float $v): float => round($v, $decimals),
+                $bestValues($column, $extra, count($items))
+            );
+            $actual   = array_map(static fn (array $r): float => (float) $key($r), $items);
+
+            Suite::check(
+                "a {$source} rail holds the best {$label} of every listed creator, not only the featured ones",
+                $items === [] || $actual == $expected,
+                'rail ' . json_encode($actual) . ', best ' . json_encode($expected)
+            );
+        }
+
+        $topRated = $railsFor('top_rated');
+
+        if ($topRated !== []) {
+            Suite::check(
+                'a top_rated rail leaves out creators nobody has rated',
+                static function () use ($topRated): bool {
+                    foreach ($topRated as $rail) {
+                        foreach ($rail['items'] as $item) {
+                            if ((int) $item['rating_count'] < 1 || (float) $item['rating'] < 1) {
+                                return false;
+                            }
+                        }
+                    }
+
+                    return true;
+                },
+                'rail: ' . json_encode(array_map(
+                    static fn (array $r): array => [$r['handle'], $r['rating'], $r['rating_count']],
+                    $topRated[0]['items']
+                ))
+            );
+        }
     }
 }
 

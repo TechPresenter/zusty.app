@@ -14,7 +14,7 @@
 -- Home-screen coverage:
 --   * 11 approved creators with is_featured = 1   -> "Featured"
 --   * 25 approved creators with rating_avg >= 4.50
---     and rating_count >= 20                      -> "Top Creators"
+--     and rating_count >= 20                      -> "Top-rated creators"
 --   * 9  creators created within the last 30 days -> "New on Zusty"
 --   * all 16 categories, 4 follower tiers and 18 cities represented
 --

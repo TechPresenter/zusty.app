@@ -267,6 +267,14 @@ Suite::check(
     preg_match('/★|\bstar rating|\brated\b|#\s?1\b|\bnumber one\b|\bbest\b|\btestimonial|\b\d[\d,.]*\s*(k|m|lakh|crore|million)?\+?\s+(users|downloads|happy|customers)\b/iu', $visible) === 0
 );
 Suite::check('it does not mention SMS or phone OTP', preg_match('/\bSMS\b|\bOTP\b/', $visible) === 0);
+// A booking is priced by a creator's package or by the budget the brand
+// names, and either side can counter (BookingService), so prices are not
+// "fixed". Alt text and meta tags count too.
+Suite::check('it does not promise fixed prices', preg_match('/fixed\s+prices?\b/i', $body) === 0);
+Suite::check(
+    '…and says a brand books from a package or its own budget',
+    str_contains($visible, 'fixed-price packages or naming their own budget')
+);
 
 // P-ESCROW (migration 059): money settles to Zusty's own account, so the page
 // speaks of payment protection, never escrow, and promises nothing. Checked

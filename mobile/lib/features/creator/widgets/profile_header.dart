@@ -32,6 +32,7 @@ class ProfileCoverAppBar extends StatelessWidget {
     required this.onShare,
     this.overflow,
     this.blocked = false,
+    this.coverSpansWindow = true,
   });
 
   final CreatorProfile profile;
@@ -39,6 +40,12 @@ class ProfileCoverAppBar extends StatelessWidget {
   /// True once the cover has scrolled away; switches the status bar to dark
   /// icons and fades the name into the toolbar.
   final bool collapsed;
+
+  /// Whether the cover reaches both edges of the screen, as on a phone
+  /// ([ProfileLayout.coverSpansWindow]). When it does not, the cover starts
+  /// below the status bar, the status bar keeps the page colour, and its
+  /// icons are dark whether or not the cover has scrolled away.
+  final bool coverSpansWindow;
   final VoidCallback onShare;
 
   /// The ⋮ menu after the other actions (report and block a visitor's view).
@@ -52,6 +59,7 @@ class ProfileCoverAppBar extends StatelessWidget {
     final creator = profile.creator;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final margin = AppBreakpoints.pageMargin(context);
+    final statusBar = MediaQuery.paddingOf(context).top;
 
     return SliverAppBar(
       pinned: true,
@@ -62,8 +70,9 @@ class ProfileCoverAppBar extends StatelessWidget {
       scrolledUnderElevation: 0,
       automaticallyImplyLeading: false,
       // Light icons over the photo; the theme's own once the toolbar is a
-      // plain surface again.
-      systemOverlayStyle: collapsed && !dark
+      // plain surface again, or whenever the status bar is over the page
+      // colour rather than the photo (a cover narrower than the screen).
+      systemOverlayStyle: (collapsed || !coverSpansWindow) && !dark
           ? SystemUiOverlayStyle.dark
           : SystemUiOverlayStyle.light,
       leadingWidth: margin + AppSpacing.minTouch + AppSpacing.xs,
@@ -119,18 +128,45 @@ class ProfileCoverAppBar extends StatelessWidget {
         ],
         SizedBox(width: margin),
       ],
-      flexibleSpace: FlexibleSpaceBar(
-        collapseMode: CollapseMode.parallax,
-        background: _CoverBackdrop(profile: profile),
+      // One shape either way, so a window that changes class (a foldable,
+      // a tablet turned) keeps the cover rather than rebuilding it.
+      flexibleSpace: Stack(
+        fit: StackFit.expand,
+        children: [
+          FlexibleSpaceBar(
+            collapseMode: CollapseMode.parallax,
+            background: _CoverBackdrop(
+              profile: profile,
+              top: ProfileLayout.coverTop(
+                context,
+                spansWindow: coverSpansWindow,
+              ),
+            ),
+          ),
+          // Over a capped cover the status bar's strip stays the page
+          // colour across the column too, so its dark icons never land on
+          // the photo as the cover slides up beneath it.
+          if (!coverSpansWindow)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: statusBar,
+              child: ColoredBox(color: AppColors.surface),
+            ),
+        ],
       ),
     );
   }
 }
 
 class _CoverBackdrop extends StatelessWidget {
-  const _CoverBackdrop({required this.profile});
+  const _CoverBackdrop({required this.profile, this.top = 0});
 
   final CreatorProfile profile;
+
+  /// Where the photo starts ([ProfileLayout.coverTop]).
+  final double top;
 
   /// The cover photo, else the creator's own best work — a real image of
   /// theirs reads far better than an empty band of colour.
@@ -155,7 +191,7 @@ class _CoverBackdrop extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         Positioned(
-          top: 0,
+          top: top,
           left: 0,
           right: 0,
           bottom: ProfileLayout.avatarOverhang,

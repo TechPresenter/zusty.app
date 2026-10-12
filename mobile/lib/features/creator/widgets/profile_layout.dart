@@ -32,6 +32,25 @@ abstract final class ProfileLayout {
   /// switching to a short tab never yanks the pinned tabs back down.
   static double pinnedExtent(BuildContext context) =>
       MediaQuery.paddingOf(context).top + kToolbarHeight + tabBarHeight;
+
+  /// Whether a cover [columnWidth] wide spans the window edge to edge: on a
+  /// phone, and on a tablet no wider than the profile's readable column.
+  ///
+  /// When it does not (a 10-inch tablet, any tablet in landscape) the status
+  /// bar's clock and battery sit over the page background either side of
+  /// the cover, not over the photo, so light icons chosen for the photo all
+  /// but vanish. Such a cover starts below the status bar instead
+  /// ([coverTop]), the status bar keeps the page colour across the whole
+  /// width, and its icons are drawn dark.
+  static bool coverSpansWindow(BuildContext context, double columnWidth) =>
+      Breakpoints.reaches(columnWidth, MediaQuery.sizeOf(context).width);
+
+  /// Where the cover photo starts, from the top of the header: at the very
+  /// top, under the status bar, on a cover that spans the window; below the
+  /// status bar on one that does not ([coverSpansWindow]). Either way it is
+  /// [coverHeight] tall below the status bar.
+  static double coverTop(BuildContext context, {required bool spansWindow}) =>
+      spansWindow ? 0 : MediaQuery.paddingOf(context).top;
 }
 
 /// A 44dp round button that reads on any photo: a near-white disc with a dark

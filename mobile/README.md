@@ -99,13 +99,32 @@ is skipped for a compact window.
   medium 600 to 839, expanded 840 and up. `ContentWidth` holds the caps:
   720 (`readable`) for forms, details, chat, settings and single-column
   lists; 1040 (`wide`) for grids and two-column lists.
+- **Comparing widths**: every width-against-threshold check goes through
+  `Breakpoints.reaches(width, threshold)` (or `WindowSize`, which uses it),
+  never a bare `<` or `>=`. Android measures the window with a float
+  density, so an `sw600dp` 7-inch tablet (1080x1920 at 288dpi) reaches
+  Flutter as 599.99998dp; `reaches` allows half a dp (`Breakpoints.tolerance`)
+  so that tablet is a tablet, while a 599.4dp phone is still a phone.
+  `AppBreakpoints.isMobile`/`isTablet`/`pageMargin`, `OrientationPolicy`, the
+  creator grid and the two-column card lists all use it. (Phone-only
+  thresholds such as the 400dp header and 520dp grid checks are left alone,
+  so phones are untouched.)
 - **Pages**: `ZScaffold` centres its app bar, body and bottom bar in one
   column `maxContentWidth` wide (readable by default; pass
   `ContentWidth.wide` for a grid page), with the page background either
   side. Screens with their own `Scaffold` wrap the body in `ContentWidthBox`
   and the app bar in `ContentWidthAppBar`
   (`lib/shared/widgets/adaptive_layout.dart`). The sign-in screens and
-  onboarding keep their 560dp column. Page margins are 24dp on tablets.
+  onboarding keep their 560dp column. Page margins are 24dp on tablets, and
+  anything that pads itself to the page edge takes `AppBreakpoints.pageMargin`
+  rather than the phone's fixed 16 (`ZFilterPills`, `ZSegmentedTabs` and a
+  back-less `ZAppBar` title do by default), so it lines up with the content.
+- **Under the status bar**: only the creator profile draws there. Where its
+  cover spans the screen (phones, a 600dp tablet) the photo runs under a
+  light status bar as before. Where the cover is capped to the 720 column
+  and the page background shows either side (`ProfileLayout.coverSpansWindow`),
+  the cover starts below the status bar, the status bar strip keeps the page
+  colour, and its icons are dark, so the clock and battery stay legible.
 - **Navigation**: the bottom bar keeps its buttons in a 560dp group on a
   medium window and becomes a `NavigationRail` (with the Create button on
   top) on an expanded one. The rail scrolls in a very short window, and the
@@ -114,9 +133,22 @@ is skipped for a compact window.
 - **Lists and grids**: `CreatorGridDelegate` adds columns on a tablet
   (cards at least 200dp) instead of enlarging cards. `AdaptiveCardList` and
   `SliverAdaptiveCardList` put cards two to a row once a list is 700dp wide
-  (briefs, search results, saved creators). On a grid page, search fields
-  keep the readable width and the home banners show two at a time (from a
-  760dp column), so their photos keep roughly a phone's crop.
+  (briefs, search results, saved creators). The two cards in a row are as
+  tall as each other: a small render object lays each out at its column's
+  width, then the shorter one again with the taller one's height as a
+  minimum (never a tight height, so a card whose content changes later
+  still re-measures the row; no `IntrinsicHeight`). A card built with
+  `CardBodyAndFooter` puts that extra height between its body and its
+  footer, so the two footers sit level. On a phone, and in a list under
+  700dp (a 600dp tablet), the list is the plain one-column list and each
+  card keeps its own height. On a grid page, search fields keep the readable
+  width from the content's left edge, except Home on a medium window (see
+  Home). The home banners show two at a time (from a 760dp column), so
+  their photos keep roughly a phone's crop.
+- **Home**: every block starts at the same left edge as the sections. On a
+  medium window the search bar and a lone banner span the column like the
+  sections; on an expanded one they keep the readable width from that left
+  edge instead of being centred.
 - **Sheets and dialogs** are capped at 640dp (the theme).
 - **Orientation**: phones stay portrait. A device whose shorter side is
   600dp or more may also rotate (`OrientationPolicy`). `main` applies it
@@ -125,8 +157,12 @@ is skipped for a compact window.
   foldable opening or closing). In landscape the launch splash shows the
   whole artwork instead of cropping it.
 - **Tests**: `test/large_screen_layout_test.dart` renders the main screens at
-  390x844, 599x900, 600x960, 800x1280, 1280x800 and 960x600. It checks for
-  overflow, that each column on a tablet is centred and fills its cap, and
-  that phones keep the phone rules (the 599/600 line is tested directly).
+  390x844, 599x900, 600x960, 599.99998x960, 800x1280, 1280x800 and 960x600.
+  It checks for overflow, that each column on a tablet is centred and fills
+  its cap, and that phones keep the phone rules (the 599/599.4/599.99998/600
+  and 839.4/839.99998/840 lines are tested directly). It also checks the
+  profile's status bar, that pills, tabs, search and banners share the
+  content's left edge, that search fields keep their width, and that two-up
+  card rows are even, including after a card's content grows.
   It also opens the keyboard in landscape, runs real tab pages inside the
   shell, and checks the orientation policy at startup.

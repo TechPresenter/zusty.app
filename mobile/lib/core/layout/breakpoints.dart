@@ -8,7 +8,9 @@ import 'package:flutter/widgets.dart';
 /// a no-op on [WindowSize.compact], so phone layouts are exactly what they were
 /// before tablets were considered.
 enum WindowSize {
-  /// Under 600dp wide: every phone in portrait.
+  /// Under 600dp wide: every phone in portrait. "600dp" allows for the float
+  /// error in a measured width (see [Breakpoints.reaches]), so a tablet
+  /// Android calls 600dp wide is never compact.
   compact,
 
   /// 600 to 839dp wide: a 7-inch tablet, or a 10-inch tablet in portrait.
@@ -22,8 +24,8 @@ enum WindowSize {
       forWidth(MediaQuery.sizeOf(context).width);
 
   static WindowSize forWidth(double width) {
-    if (width < Breakpoints.medium) return compact;
-    if (width < Breakpoints.expanded) return medium;
+    if (!Breakpoints.reaches(width, Breakpoints.medium)) return compact;
+    if (!Breakpoints.reaches(width, Breakpoints.expanded)) return medium;
     return expanded;
   }
 
@@ -32,9 +34,29 @@ enum WindowSize {
 }
 
 /// Width thresholds between the [WindowSize] classes, in logical pixels.
+///
+/// Compare a width against any of these, or against any other layout
+/// threshold a tablet path uses, with [reaches] rather than `<` or `>=`.
 abstract final class Breakpoints {
   static const double medium = 600;
   static const double expanded = 840;
+
+  /// How far short of a threshold a width may fall and still count as
+  /// reaching it.
+  ///
+  /// Android hands Flutter a window's size in physical pixels and a float
+  /// density, so a size that is a whole number of dp to Android itself need
+  /// not be one in Flutter: a 7-inch tablet at 1080x1920 and 288dpi is
+  /// `sw600dp` to Android but 599.99998dp wide here, and a plain
+  /// `width < 600` would give it the phone layout. Half a dp absorbs that
+  /// error (and any rounding) while a phone a whole dp narrower, 599dp,
+  /// stays a phone.
+  static const double tolerance = 0.5;
+
+  /// Whether [width] reaches [threshold]: `width >= threshold`, allowing for
+  /// the float error in a measured window size (see [tolerance]).
+  static bool reaches(double width, double threshold) =>
+      width >= threshold - tolerance;
 }
 
 /// The widest each kind of content is allowed to grow on a large screen.

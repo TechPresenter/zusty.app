@@ -12,6 +12,7 @@ import '../../providers/discovery_provider.dart';
 import '../../router/routes.dart';
 import '../motion/pop_toggle_icon.dart';
 import '../motion/pressable.dart';
+import 'adaptive_layout.dart';
 import 'platform_icon.dart';
 import 'states.dart';
 import 'status_chip.dart';
@@ -145,9 +146,11 @@ class CreatorListCard extends ConsumerWidget {
     return ZCard(
       padding: const EdgeInsets.all(AppSpacing.sm),
       onTap: onTap ?? open,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      // In a list the card is exactly as tall as its content; beside a
+      // taller card on a tablet the price and actions drop to the bottom,
+      // level with its neighbour's.
+      child: CardBodyAndFooter(
+        body: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -215,6 +218,8 @@ class CreatorListCard extends ConsumerWidget {
               ),
             ],
           ),
+        ],
+        footer: [
           const SizedBox(height: AppSpacing.sm),
           // Price takes what is left after the two actions, so a long figure
           // ellipsizes instead of pushing the buttons off a narrow phone.

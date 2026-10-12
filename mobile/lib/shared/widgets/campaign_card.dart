@@ -10,6 +10,7 @@ import '../../models/campaign.dart';
 import '../../models/category.dart';
 import '../../providers/discovery_provider.dart';
 import '../../router/routes.dart';
+import 'adaptive_layout.dart';
 import 'platform_icon.dart';
 import 'status_chip.dart';
 import 'z_avatar.dart';
@@ -374,16 +375,18 @@ class CampaignCard extends StatelessWidget {
       padding: EdgeInsets.zero,
       clip: true,
       onTap: onTap ?? () => context.push(Routes.opportunity(campaign.id)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      // In a list the card is exactly as tall as its content; beside a
+      // taller card on a tablet the budget row drops to the bottom, level
+      // with its neighbour's.
+      child: CardBodyAndFooter(
+        body: [
           CampaignCoverPanel(campaign: campaign),
           Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.md,
               AppSpacing.sm,
               AppSpacing.md,
-              AppSpacing.md,
+              0,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -463,6 +466,21 @@ class CampaignCard extends StatelessWidget {
                     ),
                   ],
                 ),
+              ],
+            ),
+          ),
+        ],
+        footer: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              0,
+              AppSpacing.md,
+              AppSpacing.md,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 const SizedBox(height: AppSpacing.sm),
                 Divider(height: 1, color: AppColors.outlineVariant),
                 const SizedBox(height: AppSpacing.sm),

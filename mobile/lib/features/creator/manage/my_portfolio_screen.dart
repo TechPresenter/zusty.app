@@ -71,7 +71,7 @@ class _PortfolioGrid extends ConsumerWidget {
     final margin = AppBreakpoints.pageMargin(context);
     final items = state.items;
     final inReview = items.where((i) => i.review == PortfolioReview.pending).length;
-    final columns = MediaQuery.sizeOf(context).width >= 600 ? 3 : 2;
+    final columns = WindowSize.of(context).isCompact ? 2 : 3;
 
     return ZRefresh(
       onRefresh: () => ref.read(myPortfolioProvider.notifier).refresh(),

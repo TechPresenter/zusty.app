@@ -29,7 +29,9 @@ abstract final class AppSpacing {
   /// side left a 7-inch tablet less room than a large phone.
   static const double marginDesktop = 64;
 
-  /// Horizontal page padding — the default for every screen body.
+  /// A phone's horizontal page padding, fixed at 16 either side. Anything
+  /// that should line up with a page's content on a tablet too takes
+  /// `AppBreakpoints.pageMargin(context)` instead (24 there).
   static const EdgeInsets pageHorizontal =
       EdgeInsets.symmetric(horizontal: marginMobile);
 
@@ -75,16 +77,21 @@ abstract final class AppBreakpoints {
   /// Other pages use `ContentWidth` on tablets.
   static const double maxContentWidth = 560;
 
+  // Each line is compared with `Breakpoints.reaches`, as every breakpoint
+  // in the app is, so a window Android measures as 600dp but Flutter sees
+  // as 599.99998dp is a tablet here too.
+
   static bool isMobile(BuildContext context) =>
-      MediaQuery.sizeOf(context).width < mobile;
+      !Breakpoints.reaches(MediaQuery.sizeOf(context).width, mobile);
 
   static bool isTablet(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    return width >= mobile && width < desktop;
+    return Breakpoints.reaches(width, mobile) &&
+        !Breakpoints.reaches(width, desktop);
   }
 
   static bool isDesktop(BuildContext context) =>
-      MediaQuery.sizeOf(context).width >= desktop;
+      Breakpoints.reaches(MediaQuery.sizeOf(context).width, desktop);
 
   /// Page margin appropriate to the current width.
   static double pageMargin(BuildContext context) =>

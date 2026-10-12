@@ -23,9 +23,13 @@ abstract final class OrientationPolicy {
 
   /// Whether a window of [size] (logical pixels) is on a tablet-sized
   /// screen. An empty size — a view that has not been measured yet — counts
-  /// as a phone, which is the safe answer.
+  /// as a phone, which is the safe answer. The 600dp line allows for the
+  /// float error in a measured size, as every breakpoint does
+  /// ([Breakpoints.reaches]): an `sw600dp` tablet that Flutter sees as
+  /// 599.99998dp across may turn.
   static bool allowsLandscape(Size size) =>
-      !size.isEmpty && size.shortestSide >= Breakpoints.medium;
+      !size.isEmpty &&
+      Breakpoints.reaches(size.shortestSide, Breakpoints.medium);
 
   /// Applies the policy for the app's view as it is now. Cheap to call on
   /// every metrics change: the platform is only told when the answer changes.

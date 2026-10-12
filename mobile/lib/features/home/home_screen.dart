@@ -116,9 +116,9 @@ class _HomeBody extends StatelessWidget {
       padding: const EdgeInsets.only(top: AppSpacing.xs, bottom: AppSpacing.xxl),
       children: [
         // -- Search -------------------------------------------------------
-        // On a tablet a readable-width bar in the middle, not a strip across
-        // the whole grid.
-        ContentWidthBox(
+        // From the sections' left edge on a tablet; at a readable width in
+        // landscape rather than a strip across the whole grid.
+        _LeadBlock(
           child: Padding(
             padding: EdgeInsets.symmetric(horizontal: margin),
             child: ZSearchField(
@@ -418,6 +418,40 @@ class _CreatorRail extends StatelessWidget {
   }
 }
 
+/// The blocks at the top of the feed that are not rails or grids: the search
+/// bar and a lone banner. On a tablet they start at the same left edge as
+/// every section below them.
+///
+/// On a medium window (a tablet in portrait) they span the column as the
+/// sections do, so the page is the phone's layout with the same left and
+/// right edges throughout. On an expanded one (landscape), whose column is up
+/// to 1040dp, they keep a readable width ([maxWidth]) from that left edge
+/// instead of becoming a 1000dp search bar or a 4:1 banner strip. On a phone
+/// [child] is returned as is.
+class _LeadBlock extends StatelessWidget {
+  const _LeadBlock({
+    required this.child,
+    this.maxWidth = ContentWidth.readable,
+  });
+
+  final Widget child;
+
+  /// The widest the block grows on an expanded window, margins included
+  /// when [child] carries them.
+  final double maxWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!WindowSize.of(context).isExpanded) return child;
+
+    return ContentWidthBox(
+      maxWidth: maxWidth,
+      alignment: AlignmentDirectional.topStart,
+      child: child,
+    );
+  }
+}
+
 class _BannerCarousel extends StatelessWidget {
   const _BannerCarousel({required this.banners, required this.margin});
 
@@ -457,16 +491,17 @@ class _BannerCarousel extends StatelessWidget {
       );
     }
 
-    // A tablet: a little taller, so the headline is not letterboxed.
+    // A tablet: a little taller, so the headline is not letterboxed. A lone
+    // banner lines up with the search bar above it and the sections below.
     if (banners.length == 1) {
-      return ContentWidthBox(
-        child: _slider(height: 240, viewportFraction: 1),
-      );
+      return _LeadBlock(child: _slider(height: 240, viewportFraction: 1));
     }
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final fraction = constraints.maxWidth >= _twoUpWidth ? 0.5 : 0.92;
+        final fraction = Breakpoints.reaches(constraints.maxWidth, _twoUpWidth)
+            ? 0.5
+            : 0.92;
         return _slider(
           // The page controller keeps the fraction it was made with, so a
           // tablet turned past the two-up width starts a fresh carousel.
@@ -729,7 +764,12 @@ class _HomeSkeleton extends StatelessWidget {
     return ListView(
       padding: EdgeInsets.fromLTRB(margin, AppSpacing.xs, margin, AppSpacing.xl),
       children: [
-        const ZShimmer(height: 52, borderRadius: AppRadius.pill),
+        // Where the search bar will be (the list's padding already holds
+        // the margins).
+        _LeadBlock(
+          maxWidth: ContentWidth.readable - 2 * margin,
+          child: const ZShimmer(height: 52, borderRadius: AppRadius.pill),
+        ),
         const SizedBox(height: AppSpacing.md),
         const ZShimmer(height: 176, borderRadius: AppRadius.xlAll),
         const SizedBox(height: AppSpacing.lg),

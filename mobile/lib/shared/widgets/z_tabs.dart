@@ -16,10 +16,7 @@ class ZSegmentedTabs extends StatelessWidget implements PreferredSizeWidget {
     required this.labels,
     this.controller,
     this.counts,
-    this.padding = const EdgeInsets.symmetric(
-      horizontal: AppSpacing.marginMobile,
-      vertical: AppSpacing.xs,
-    ),
+    this.padding,
   });
 
   final List<String> labels;
@@ -27,7 +24,10 @@ class ZSegmentedTabs extends StatelessWidget implements PreferredSizeWidget {
 
   /// Optional badge per tab; null or zero hides it.
   final List<int?>? counts;
-  final EdgeInsetsGeometry padding;
+
+  /// Defaults to the page margin across (16dp on a phone, 24 on a tablet, in
+  /// line with the page's content) and 8dp above and below.
+  final EdgeInsetsGeometry? padding;
 
   @override
   Size get preferredSize => const Size.fromHeight(44 + AppSpacing.xs * 2);
@@ -37,7 +37,12 @@ class ZSegmentedTabs extends StatelessWidget implements PreferredSizeWidget {
     final tabs = controller ?? DefaultTabController.of(context);
 
     return Padding(
-      padding: padding,
+      padding:
+          padding ??
+          EdgeInsets.symmetric(
+            horizontal: AppBreakpoints.pageMargin(context),
+            vertical: AppSpacing.xs,
+          ),
       child: Container(
         height: 44,
         padding: const EdgeInsets.all(4),
@@ -123,13 +128,16 @@ class ZFilterPills extends StatelessWidget {
     required this.labels,
     required this.selected,
     required this.onSelected,
-    this.padding = const EdgeInsets.symmetric(horizontal: AppSpacing.marginMobile),
+    this.padding,
   });
 
   final List<String> labels;
   final int selected;
   final ValueChanged<int> onSelected;
-  final EdgeInsetsGeometry padding;
+
+  /// Defaults to the page margin either side: 16dp on a phone, 24 on a
+  /// tablet, so the first pill lines up with the content below it.
+  final EdgeInsetsGeometry? padding;
 
   @override
   Widget build(BuildContext context) {
@@ -137,7 +145,11 @@ class ZFilterPills extends StatelessWidget {
       height: AppSpacing.minTouch,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: padding,
+        padding:
+            padding ??
+            EdgeInsets.symmetric(
+              horizontal: AppBreakpoints.pageMargin(context),
+            ),
         itemCount: labels.length,
         separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.xs),
         itemBuilder: (context, i) {

@@ -38,6 +38,7 @@ import 'package:zuste/shared/widgets/z_button.dart';
 import 'package:zuste/shared/widgets/z_card.dart';
 import 'package:zuste/shared/widgets/z_dialogs.dart';
 import 'package:zuste/shared/widgets/z_scaffold.dart';
+import 'package:zuste/shared/widgets/z_tabs.dart';
 import 'package:zuste/shared/widgets/z_text_field.dart';
 
 import 'package:zuste/features/auth/login_screen.dart';
@@ -50,6 +51,7 @@ import 'package:zuste/features/chat/chat_screen.dart';
 import 'package:zuste/features/chat/messages_screen.dart';
 import 'package:zuste/features/creator/creator_profile_screen.dart';
 import 'package:zuste/features/creator/manage/my_packages_screen.dart';
+import 'package:zuste/features/creator/widgets/profile_layout.dart';
 import 'package:zuste/features/dashboard/brand_dashboard_screen.dart';
 import 'package:zuste/features/discovery/explore_screen.dart';
 import 'package:zuste/features/discovery/saved_creators_screen.dart';
@@ -99,6 +101,9 @@ void main() {
     // The widest phone: one dp short of the first tablet breakpoint.
     'phone 599x900': Size(599, 900),
     '7-inch 600x960': Size(600, 960),
+    // A 1080x1920 7-inch tablet at 288dpi: sw600dp to Android, but a float
+    // density leaves Flutter a hair under 600dp. Still a tablet.
+    '7-inch float 599.99998x960': Size(_floatSw600, 960),
     '10-inch 800x1280': Size(800, 1280),
     'landscape 1280x800': Size(1280, 800),
     '7-inch landscape 960x600': Size(960, 600),
@@ -124,11 +129,20 @@ void main() {
     appVersionProvider.overrideWith((ref) async => '1.0.0'),
   ];
 
-  /// A window of [size] dp, with an on-screen keyboard [keyboard] dp tall.
-  void setWindow(WidgetTester tester, Size size, {double keyboard = 0}) {
+  /// A window of [size] dp, with an on-screen keyboard [keyboard] dp tall and,
+  /// when [statusBar] is given, a status bar that many dp tall.
+  void setWindow(
+    WidgetTester tester,
+    Size size, {
+    double keyboard = 0,
+    double statusBar = 0,
+  }) {
     tester.view.physicalSize = size * 2;
     tester.view.devicePixelRatio = 2;
     tester.view.viewInsets = FakeViewPadding(bottom: keyboard * 2);
+    if (statusBar > 0) {
+      tester.view.padding = FakeViewPadding(top: statusBar * 2);
+    }
     addTearDown(tester.view.reset);
   }
 
@@ -139,8 +153,9 @@ void main() {
     User? user,
     List<Override> overrides = const [],
     double keyboard = 0,
+    double statusBar = 0,
   }) async {
-    setWindow(tester, size, keyboard: keyboard);
+    setWindow(tester, size, keyboard: keyboard, statusBar: statusBar);
 
     await tester.pumpWidget(
       ProviderScope(
@@ -207,12 +222,18 @@ void main() {
   // ---------------------------------------------------------------------------
   group('Every main screen fits every window', () {
     final cases = <_ScreenCase>[
-      _ScreenCase('Home (brand)', () => const HomeScreen(), ContentWidth.wide),
+      _ScreenCase(
+        'Home (brand)',
+        () => const HomeScreen(),
+        ContentWidth.wide,
+        searchSpansMediumColumn: true,
+      ),
       _ScreenCase(
         'Home (creator)',
         () => const HomeScreen(),
         ContentWidth.wide,
         asCreator: true,
+        searchSpansMediumColumn: true,
       ),
       _ScreenCase('Search', () => const SearchScreen(), ContentWidth.readable),
       _ScreenCase(
@@ -328,7 +349,7 @@ void main() {
           final column = mainColumn(tester);
           final screenWidth = size.value.width;
 
-          if (screenWidth < Breakpoints.medium) {
+          if (_isPhoneWidth(screenWidth)) {
             if (screenWidth <= AppBreakpoints.maxContentWidth) {
               // A phone: the page is laid out across the whole screen.
               expect(column.width, screenWidth);
@@ -382,6 +403,26 @@ void main() {
             lessThanOrEqualTo(ContentWidth.readable),
             reason: 'a text field wider than a readable column',
           );
+
+          // So does a whole search bar (filter button included), except
+          // Home's on a medium window, which spans the column like the
+          // sections under it.
+          final searchBars = find.byType(ZSearchField);
+          if (screen.searchSpansMediumColumn) {
+            expect(searchBars, findsOneWidget);
+          }
+          for (final element in searchBars.evaluate()) {
+            final width = (element.renderObject! as RenderBox).size.width;
+            if (screen.searchSpansMediumColumn && _isMediumWidth(screenWidth)) {
+              expect(width, closeTo(column.width - 2 * 24, 0.01));
+            } else {
+              expect(
+                width,
+                lessThanOrEqualTo(ContentWidth.readable),
+                reason: 'a search bar wider than a readable column',
+              );
+            }
+          }
         });
       }
     }
@@ -476,23 +517,48 @@ void main() {
     Finder navRow() =>
         find.ancestor(of: find.text('Bookings'), matching: find.byType(Row));
 
-    for (final size in const [phone, Size(599, 900)]) {
-      testWidgets('a ${size.width.round()}dp phone keeps the full-width '
+    for (final size in const [phone, Size(599, 900), Size(599.4, 900)]) {
+      testWidgets('a ${size.width}dp phone keeps the full-width '
           'bottom bar', (tester) async {
         await pumpShell(tester, size);
 
         expect(tester.takeException(), isNull);
         expect(find.byType(NavigationRail), findsNothing);
-        expect(tester.getRect(navRow().first).width, size.width);
+        expect(tester.getRect(navRow().first).width, closeTo(size.width, 1e-6));
       });
     }
 
-    testWidgets('a 600dp tablet centres the bottom bar', (tester) async {
-      await pumpShell(tester, const Size(600, 960));
+    for (final width in const [600.0, _floatSw600]) {
+      testWidgets('a ${width}dp tablet centres the bottom bar', (tester) async {
+        await pumpShell(tester, Size(width, 960));
 
-      expect(find.byType(NavigationRail), findsNothing);
-      expect(tester.getRect(navRow().first).width, ContentWidth.navigationBar);
-    });
+        expect(find.byType(NavigationRail), findsNothing);
+        expect(
+          tester.getRect(navRow().first).width,
+          ContentWidth.navigationBar,
+        );
+      });
+    }
+
+    // The second line, 840dp, allows for the same float error.
+    for (final (width, rail) in const [
+      (839.4, false),
+      (839.99998, true),
+      (840.0, true),
+    ]) {
+      testWidgets(
+        'a ${width}dp window ${rail ? 'navigates from the rail' : 'keeps the bottom bar'}',
+        (tester) async {
+          await pumpShell(tester, Size(width, 1200));
+
+          expect(tester.takeException(), isNull);
+          expect(
+            find.byType(NavigationRail),
+            rail ? findsOneWidget : findsNothing,
+          );
+        },
+      );
+    }
 
     testWidgets('a portrait tablet centres the bottom bar', (tester) async {
       await pumpShell(tester, const Size(800, 1280));
@@ -779,6 +845,96 @@ void main() {
       expect(tester.getRect(find.byType(ZButton)).width, 600 - 48);
     });
 
+    testWidgets('599.99998dp, an sw600dp tablet after float error, is a '
+        'tablet', (tester) async {
+      await pumpAt(tester, const Size(_floatSw600, 960), page());
+
+      // Exactly the 600dp tablet's layout, not the phone's 560 column.
+      expect(
+        tester.getRect(find.byType(ListView)).width,
+        closeTo(_floatSw600 - 48, 1e-6),
+      );
+      expect(
+        tester.getRect(find.byType(ZButton)).width,
+        closeTo(_floatSw600 - 48, 1e-6),
+      );
+      expect(tester.getRect(find.byType(AppBar)).left, 0);
+    });
+
+    testWidgets('599.4dp is still a phone', (tester) async {
+      await pumpAt(tester, const Size(599.4, 900), page());
+
+      // The phone's centred 560 column with its 16dp margins.
+      expect(
+        tester.getRect(find.byType(ListView)).width,
+        AppBreakpoints.maxContentWidth - 32,
+      );
+      expect(tester.getRect(find.byType(AppBar)).width, closeTo(599.4, 1e-6));
+    });
+
+    test('the size classes allow for float error at both lines', () {
+      expect(WindowSize.forWidth(390), WindowSize.compact);
+      expect(WindowSize.forWidth(599), WindowSize.compact);
+      expect(WindowSize.forWidth(599.4), WindowSize.compact);
+      expect(WindowSize.forWidth(_floatSw600), WindowSize.medium);
+      expect(WindowSize.forWidth(600), WindowSize.medium);
+      expect(WindowSize.forWidth(800), WindowSize.medium);
+      expect(WindowSize.forWidth(839.4), WindowSize.medium);
+      expect(WindowSize.forWidth(839.99998), WindowSize.expanded);
+      expect(WindowSize.forWidth(840), WindowSize.expanded);
+      expect(WindowSize.forWidth(1280), WindowSize.expanded);
+
+      expect(Breakpoints.reaches(_floatSw600, Breakpoints.medium), isTrue);
+      expect(Breakpoints.reaches(599.4, Breakpoints.medium), isFalse);
+      expect(Breakpoints.reaches(839.99998, Breakpoints.expanded), isTrue);
+    });
+
+    for (final (width, tablet) in const [
+      (390.0, false),
+      (599.4, false),
+      (_floatSw600, true),
+      (600.0, true),
+      (839.99998, true),
+      (840.0, true),
+    ]) {
+      testWidgets('every width check agrees at ${width}dp', (tester) async {
+        late BuildContext context;
+        await pumpAt(
+          tester,
+          Size(width, 960),
+          Builder(
+            builder: (c) {
+              context = c;
+              return const SizedBox.expand();
+            },
+          ),
+        );
+
+        expect(WindowSize.of(context).isCompact, !tablet);
+        expect(AppBreakpoints.isMobile(context), !tablet);
+        expect(AppBreakpoints.isTablet(context), tablet);
+        expect(AppBreakpoints.isDesktop(context), isFalse);
+        expect(
+          AppBreakpoints.pageMargin(context),
+          tablet ? AppSpacing.marginTablet : AppSpacing.marginMobile,
+        );
+        // The orientation policy judges the shorter side by the same line,
+        // portrait or landscape.
+        expect(OrientationPolicy.allowsLandscape(Size(width, 960)), tablet);
+        expect(OrientationPolicy.allowsLandscape(Size(1280, width)), tablet);
+      });
+    }
+
+    test('the card lists split in two at the same allowance', () {
+      // AdaptiveCardList goes two-up at 700dp of list: a hair short of it
+      // after float error counts.
+      expect(
+        Breakpoints.reaches(699.99998, ContentWidth.twoColumnList),
+        isTrue,
+      );
+      expect(Breakpoints.reaches(699.4, ContentWidth.twoColumnList), isFalse);
+    });
+
     test('the creator grid keeps phone columns up to 599dp', () {
       // The grid's own width on a 599dp phone, less its 16dp margins.
       expect(_gridColumns(599 - 32), 2);
@@ -825,15 +981,599 @@ void main() {
         expect(slide.width, lessThanOrEqualTo(ContentWidth.wide / 2));
       });
     }
+  });
 
-    testWidgets('the home search bar keeps a readable width, centred', (
-      tester,
-    ) async {
-      await pumpAt(tester, const Size(1280, 800), const HomeScreen());
+  // ---------------------------------------------------------------------------
+  group('Home shares one left edge', () {
+    /// The left edge every section starts at: the first section title's.
+    double sectionEdge(WidgetTester tester) =>
+        tester.getRect(find.text('Top Categories')).left;
 
-      final field = tester.getRect(find.byType(ZSearchField));
-      expect(field.width, ContentWidth.readable - 48);
-      expect(field.center.dx, closeTo(640, 0.5));
+    /// The first banner on screen.
+    Rect firstSlide(WidgetTester tester) => tester.getRect(
+      find
+          .descendant(
+            of: find.byType(ZHeroSlider),
+            matching: find.byType(InkWell),
+          )
+          .first,
+    );
+
+    // The window, the left edge of the column the feed is laid out in, and
+    // the page margin inside it.
+    for (final (size, columnLeft, margin) in const [
+      (phone, 0.0, 16.0),
+      (Size(_floatSw600, 960), 0.0, 24.0),
+      (Size(600, 960), 0.0, 24.0),
+      (Size(800, 1280), 0.0, 24.0),
+      (Size(1280, 800), (1280 - ContentWidth.wide) / 2, 24.0),
+    ]) {
+      testWidgets('search, banners and sections at ${size.width}dp', (
+        tester,
+      ) async {
+        await pumpAt(tester, size, const HomeScreen());
+        expect(tester.takeException(), isNull);
+
+        final edge = columnLeft + margin;
+        final search = tester.getRect(find.byType(ZSearchField));
+        expect(sectionEdge(tester), closeTo(edge, 0.01));
+        expect(search.left, closeTo(edge, 0.01));
+        expect(firstSlide(tester).left, closeTo(edge, 0.01));
+        // The second section, below the banners, too.
+        expect(
+          tester.getRect(find.text('Active Campaigns')).left,
+          closeTo(edge, 0.01),
+        );
+
+        if (size.width >= Breakpoints.expanded) {
+          // Landscape: a readable-width bar from that edge, not one
+          // across the whole grid, and not centred away from the edge.
+          expect(
+            search.width,
+            closeTo(ContentWidth.readable - 2 * margin, 0.01),
+          );
+        } else {
+          // A phone or a portrait tablet: the bar spans the column like the
+          // sections, so the right edges agree as well.
+          expect(search.width, closeTo(size.width - 2 * margin, 0.01));
+        }
+      });
+    }
+
+    // A lone banner follows the same edge (and width) as the search bar.
+    for (final size in const [phone, Size(800, 1280), Size(1280, 800)]) {
+      testWidgets('a lone banner lines up with the search bar at '
+          '${size.width}dp', (tester) async {
+        BaseRepository.fixtures = (key) => key == 'home'
+            ? {
+                ...MockData.home,
+                'banners': [(MockData.home['banners'] as List).first],
+              }
+            : resolveTestFixture(key);
+
+        await pumpAt(tester, size, const HomeScreen());
+        expect(tester.takeException(), isNull);
+
+        final search = tester.getRect(find.byType(ZSearchField));
+        final slide = firstSlide(tester);
+        expect(slide.left, closeTo(search.left, 0.01));
+        // The slider keeps its 8dp gap after a slide, as it does on a phone.
+        expect(slide.right, closeTo(search.right - AppSpacing.xs, 0.01));
+        expect(sectionEdge(tester), closeTo(search.left, 0.01));
+      });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  group('The status bar over the creator profile', () {
+    const statusBar = 24.0;
+
+    /// The cover photo (or its gradient stand-in), below the avatar's
+    /// overhang.
+    Rect cover(WidgetTester tester) => tester.getRect(
+      find
+          .descendant(
+            of: find.byType(FlexibleSpaceBar),
+            matching: find.byWidgetPredicate(
+              (w) =>
+                  w is Positioned && w.bottom == ProfileLayout.avatarOverhang,
+            ),
+          )
+          .first,
+    );
+
+    Brightness? statusIcons() =>
+        SystemChrome.latestStyle?.statusBarIconBrightness;
+
+    // Where the cover spans the screen, its photo runs under the status bar
+    // and the icons are light. Where it is capped to the column, the page
+    // background shows either side under the clock and battery: the cover
+    // starts below the status bar and the icons are dark.
+    for (final (size, spans) in const [
+      (phone, true),
+      (Size(_floatSw600, 960), true),
+      (Size(600, 960), true),
+      (Size(800, 1280), false),
+      (Size(1280, 800), false),
+    ]) {
+      testWidgets('at ${size.width}x${size.height}, scrolled to the top', (
+        tester,
+      ) async {
+        await pumpAt(
+          tester,
+          size,
+          const CreatorProfileScreen(handle: 'ananyasharma'),
+          statusBar: statusBar,
+        );
+        expect(tester.takeException(), isNull);
+        expect(find.byType(SliverAppBar), findsOneWidget);
+
+        final photo = cover(tester);
+        if (spans) {
+          expect(photo.left, closeTo(0, 0.01));
+          expect(photo.width, closeTo(size.width, 0.01));
+          expect(photo.top, 0, reason: 'under the status bar, as on a phone');
+          expect(statusIcons(), Brightness.light);
+        } else {
+          expect(photo.left, greaterThan(0), reason: 'gutters either side');
+          expect(photo.width, ContentWidth.readable);
+          expect(photo.top, statusBar, reason: 'below the status bar');
+          expect(statusIcons(), Brightness.dark);
+          // The photo keeps its phone height below the status bar.
+          expect(photo.height, ProfileLayout.coverHeight);
+        }
+      });
+    }
+
+    for (final size in const [phone, Size(1280, 800)]) {
+      testWidgets('at ${size.width}dp, once the cover has scrolled away', (
+        tester,
+      ) async {
+        await pumpAt(
+          tester,
+          size,
+          const CreatorProfileScreen(handle: 'ananyasharma'),
+          statusBar: statusBar,
+        );
+        await tester.drag(
+          find.byType(CustomScrollView).first,
+          const Offset(0, -400),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(tester.takeException(), isNull);
+        // Dark on the plain toolbar, on a phone as before and on a tablet.
+        expect(statusIcons(), Brightness.dark);
+      });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  group('Filter pills and tabs line up with the content', () {
+    /// The first pill under the search bar.
+    Rect firstPill(WidgetTester tester) => tester.getRect(
+      find
+          .descendant(
+            of: find.byType(ZFilterPills),
+            matching: find.byType(AnimatedContainer),
+          )
+          .first,
+    );
+
+    for (final (size, margin) in const [
+      (phone, 16.0),
+      (Size(_floatSw600, 960), 24.0),
+      (Size(600, 960), 24.0),
+      (Size(800, 1280), 24.0),
+      (Size(1280, 800), 24.0),
+    ]) {
+      testWidgets('Browse all creators at ${size.width}dp', (tester) async {
+        await pumpAt(tester, size, const SearchResultsScreen());
+        expect(tester.takeException(), isNull);
+        expect(find.byType(ZFilterPills), findsOneWidget);
+
+        // The content's edge: the grid's first card.
+        final card = tester.getRect(find.byType(CreatorGridCard).first);
+        final column = mainColumn(tester);
+        expect(card.left, closeTo(column.left + margin, 0.01));
+
+        expect(firstPill(tester).left, closeTo(card.left, 0.01));
+        expect(
+          tester.getRect(find.textContaining('found')).left,
+          closeTo(card.left, 0.01),
+        );
+      });
+    }
+
+    for (final (size, margin) in const [
+      (phone, 16.0),
+      (Size(599.4, 900), 16.0),
+      (Size(_floatSw600, 960), 24.0),
+      (Size(600, 960), 24.0),
+      (Size(800, 1280), 24.0),
+      (Size(1280, 800), 24.0),
+    ]) {
+      testWidgets('segmented tabs at ${size.width}dp', (tester) async {
+        await pumpAt(
+          tester,
+          size,
+          const Scaffold(
+            body: DefaultTabController(
+              length: 2,
+              child: Column(
+                children: [
+                  ZSegmentedTabs(labels: ['Active', 'Done']),
+                ],
+              ),
+            ),
+          ),
+        );
+
+        final track = tester.getRect(
+          find
+              .descendant(
+                of: find.byType(ZSegmentedTabs),
+                matching: find.byType(Container),
+              )
+              .first,
+        );
+        expect(track.left, margin);
+        expect(track.right, closeTo(size.width - margin, 1e-6));
+      });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  group('Two-up card rows are even', () {
+    /// A card that is [height] tall unless its row asks for more.
+    Widget probe(int i, double height) => Container(
+      key: ValueKey('card $i'),
+      constraints: BoxConstraints(minHeight: height),
+      color: const Color(0xFFEEEEEE),
+    );
+
+    /// A card whose content is [height] tall and can change after the first
+    /// frame, rebuilding only itself, not the list around it: a data refresh
+    /// of one item, or a chip appearing.
+    Widget growingProbe(int i, ValueNotifier<double> height) => ColoredBox(
+      key: ValueKey('card $i'),
+      color: const Color(0xFFEEEEEE),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ValueListenableBuilder<double>(
+            valueListenable: height,
+            builder: (_, value, _) => SizedBox(height: value),
+          ),
+        ],
+      ),
+    );
+
+    const heights = [100.0, 160.0, 120.0];
+    Rect card(WidgetTester tester, int i) =>
+        tester.getRect(find.byKey(ValueKey('card $i')));
+
+    Widget boxList({int? count, IndexedWidgetBuilder? item}) => Scaffold(
+      body: AdaptiveCardList(
+        padding: const EdgeInsets.all(24),
+        itemCount: count ?? heights.length,
+        itemBuilder: item ?? (_, i) => probe(i, heights[i]),
+      ),
+    );
+
+    Widget sliverList({int? count, IndexedWidgetBuilder? item}) => Scaffold(
+      body: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.all(24),
+            sliver: SliverAdaptiveCardList(
+              itemCount: count ?? heights.length,
+              itemBuilder: item ?? (_, i) => probe(i, heights[i]),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    // Each list with its default gap between cards.
+    for (final (name, list, spacing) in [
+      ('AdaptiveCardList', boxList, AppSpacing.sm),
+      ('SliverAdaptiveCardList', sliverList, AppSpacing.md),
+    ]) {
+      // A phone, and a 7-inch tablet whose 552dp list is too narrow for two
+      // columns (including one measured a hair under 600dp): the plain list.
+      for (final size in const [
+        phone,
+        Size(_floatSw600, 960),
+        Size(600, 960),
+      ]) {
+        testWidgets('$name: at ${size.width}dp one column, each card its own '
+            'height', (tester) async {
+          await pumpAt(tester, size, list());
+          expect(tester.takeException(), isNull);
+
+          for (var i = 0; i < heights.length; i++) {
+            expect(card(tester, i).height, heights[i]);
+            expect(card(tester, i).left, 24);
+            expect(card(tester, i).width, closeTo(size.width - 48, 1e-6));
+          }
+          // The phone's gap, and nothing else, between one card and the next.
+          for (var i = 1; i < heights.length; i++) {
+            expect(
+              card(tester, i).top - card(tester, i - 1).bottom,
+              closeTo(spacing, 1e-6),
+            );
+          }
+        });
+      }
+
+      for (final size in const [Size(800, 1280), Size(1280, 800)]) {
+        testWidgets('$name: at ${size.width}dp a row is as tall as its '
+            'tallest card', (tester) async {
+          await pumpAt(tester, size, list());
+          expect(tester.takeException(), isNull);
+
+          final a = card(tester, 0);
+          final b = card(tester, 1);
+          expect(b.top, a.top, reason: 'side by side');
+          expect(a.height, 160);
+          expect(b.height, 160);
+          expect(a.width, b.width);
+          expect(b.left, greaterThan(a.right));
+
+          // The odd card out keeps its own height and its column's width.
+          final c = card(tester, 2);
+          expect(c.height, 120);
+          expect(c.width, a.width);
+          expect(c.left, a.left);
+        });
+      }
+
+      testWidgets('$name: right to left', (tester) async {
+        setWindow(tester, const Size(1280, 800));
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light,
+            home: Directionality(
+              textDirection: TextDirection.rtl,
+              child: list(),
+            ),
+          ),
+        );
+
+        // The first card is on the right.
+        expect(card(tester, 0).left, greaterThan(card(tester, 1).right));
+        expect(card(tester, 0).height, card(tester, 1).height);
+      });
+
+      for (final size in const [Size(800, 1280), Size(1280, 800)]) {
+        testWidgets('$name: at ${size.width}dp a card that changes after the '
+            'first frame evens its row again', (tester) async {
+          final first = ValueNotifier(160.0);
+          final second = ValueNotifier(100.0);
+          addTearDown(first.dispose);
+          addTearDown(second.dispose);
+
+          await pumpAt(
+            tester,
+            size,
+            list(
+              count: 2,
+              item: (_, i) => growingProbe(i, i == 0 ? first : second),
+            ),
+          );
+
+          Future<void> expectRow(double height) async {
+            await tester.pump();
+            expect(tester.takeException(), isNull, reason: 'no overflow');
+            expect(card(tester, 0).height, height);
+            expect(card(tester, 1).height, height);
+            expect(card(tester, 1).top, card(tester, 0).top);
+          }
+
+          await expectRow(160);
+
+          // The stretched card outgrows its neighbour: the row grows with
+          // it rather than the card overflowing at the old height.
+          second.value = 220;
+          await expectRow(220);
+
+          // It shrinks back below its neighbour: the row follows.
+          second.value = 130;
+          await expectRow(160);
+
+          // The taller card shrinks: now the other one sets the height.
+          first.value = 100;
+          await expectRow(130);
+
+          // And the newly stretched card grows again.
+          first.value = 200;
+          await expectRow(200);
+        });
+      }
+    }
+
+    // Find campaigns: a brief whose title wraps beside one whose does not.
+    final briefs = [
+      {
+        ...MockData.campaigns[0],
+        'id': 1,
+        'title':
+            'A long brief title that wraps onto a second line on every card',
+      },
+      {...MockData.campaigns[0], 'id': 2, 'title': 'Short brief'},
+    ];
+
+    Finder inCard(int i, Finder finder) =>
+        find.descendant(of: find.byType(CampaignCard).at(i), matching: finder);
+
+    // A phone, and a 7-inch tablet whose list is one column wide.
+    for (final size in const [phone, Size(_floatSw600, 960), Size(600, 960)]) {
+      testWidgets('Find campaigns at ${size.width}dp: one column, cards as on '
+          'a phone', (tester) async {
+        BaseRepository.fixtures = (key) =>
+            key == 'campaigns.open' ? briefs : resolveTestFixture(key);
+        await pumpAt(tester, size, const OpportunitiesScreen(), user: creator);
+        expect(tester.takeException(), isNull);
+
+        final first = tester.getRect(find.byType(CampaignCard).at(0));
+        final second = tester.getRect(find.byType(CampaignCard).at(1));
+        // One above the other, each its own height: the wrapped title makes
+        // the first taller.
+        expect(second.top, greaterThan(first.bottom));
+        expect(second.left, first.left);
+        expect(first.height, greaterThan(second.height));
+
+        // No gap opens anywhere: the footer follows the facts at the phone's
+        // spacing, and the card ends its padding below the footer.
+        for (var i = 0; i < 2; i++) {
+          final facts = tester.getRect(inCard(i, find.byType(Wrap)));
+          final divider = tester.getRect(inCard(i, find.byType(Divider)));
+          final cardRect = tester.getRect(find.byType(CampaignCard).at(i));
+          final footer = tester.getRect(
+            find
+                .ancestor(
+                  of: inCard(i, find.byType(ZButton)),
+                  matching: find.byType(Row),
+                )
+                .first,
+          );
+          expect(divider.top - facts.bottom, AppSpacing.sm);
+          // The footer's 16dp padding and the card's 1dp border.
+          expect(cardRect.bottom - footer.bottom, AppSpacing.md + 1);
+        }
+      });
+    }
+
+    for (final size in const [Size(800, 1280), Size(1280, 800)]) {
+      testWidgets('Find campaigns at ${size.width}dp: even cards, footers '
+          'level', (tester) async {
+        BaseRepository.fixtures = (key) =>
+            key == 'campaigns.open' ? briefs : resolveTestFixture(key);
+        await pumpAt(tester, size, const OpportunitiesScreen(), user: creator);
+        expect(tester.takeException(), isNull);
+
+        final first = tester.getRect(find.byType(CampaignCard).at(0));
+        final second = tester.getRect(find.byType(CampaignCard).at(1));
+        expect(second.top, first.top);
+        expect(second.height, first.height);
+
+        // The shorter card's budget row and Apply button sit on its bottom,
+        // level with its neighbour's.
+        expect(
+          tester.getRect(inCard(1, find.byType(Divider))).top,
+          tester.getRect(inCard(0, find.byType(Divider))).top,
+        );
+        expect(
+          tester.getRect(inCard(1, find.byType(ZButton))).bottom,
+          tester.getRect(inCard(0, find.byType(ZButton))).bottom,
+        );
+      });
+    }
+
+    for (final size in const [Size(800, 1280), Size(1280, 800)]) {
+      testWidgets('saved creators at ${size.width}dp: even cards, actions '
+          'level', (tester) async {
+        await pumpAt(tester, size, const SavedCreatorsScreen());
+        expect(tester.takeException(), isNull);
+
+        final cards = find.byType(CreatorListCard);
+        expect(cards, findsAtLeastNWidgets(2));
+        final a = tester.getRect(cards.at(0));
+        final b = tester.getRect(cards.at(1));
+        expect(b.top, a.top);
+        expect(b.height, a.height);
+
+        // The footers (price, Follow and View) sit level.
+        Rect view(int i) => tester.getRect(
+          find
+              .descendant(of: cards.at(i), matching: find.text('View'))
+              .first,
+        );
+        expect(view(1).bottom, view(0).bottom);
+      });
+    }
+
+    for (final (size, margin) in const [
+      (phone, 16.0),
+      (Size(_floatSw600, 960), 24.0),
+      (Size(600, 960), 24.0),
+    ]) {
+      testWidgets('saved creators at ${size.width}dp: one column, cards as '
+          'on a phone', (tester) async {
+        await pumpAt(tester, size, const SavedCreatorsScreen());
+        expect(tester.takeException(), isNull);
+
+        final cards = find.byType(CreatorListCard);
+        expect(cards, findsAtLeastNWidgets(2));
+        final a = tester.getRect(cards.at(0));
+        final b = tester.getRect(cards.at(1));
+        expect(b.top, greaterThan(a.bottom));
+        expect(b.left, a.left);
+        expect(a.width, closeTo(size.width - 2 * margin, 1e-6));
+
+        // No gap between body and footer: the footer group starts where
+        // the body ends, and the card is exactly the two plus its padding.
+        for (var i = 0; i < 2; i++) {
+          final content = tester.renderObject<RenderFlex>(
+            find.descendant(
+              of: cards.at(i),
+              matching: find.byType(CardBodyAndFooter),
+            ),
+          );
+          final body = content.firstChild!;
+          final footer = content.lastChild!;
+          final footerTop = (footer.parentData! as FlexParentData).offset.dy;
+          expect(footerTop, body.size.height);
+          expect(content.size.height, body.size.height + footer.size.height);
+          // The card's 8dp padding and 1dp border, top and bottom.
+          expect(
+            tester.getRect(cards.at(i)).height,
+            content.size.height + 2 * (AppSpacing.sm + 1),
+          );
+        }
+      });
+    }
+
+    testWidgets('CardBodyAndFooter: a plain column until given a minimum '
+        'height, which opens above the footer', (tester) async {
+      Widget item(double? minHeight) {
+        final content = CardBodyAndFooter(
+          body: const [SizedBox(key: ValueKey('body'), width: 120, height: 40)],
+          footer: const [
+            SizedBox(key: ValueKey('footer'), width: 60, height: 20),
+          ],
+        );
+        return Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            key: const ValueKey('card'),
+            width: 200,
+            child: minHeight == null
+                ? content
+                : ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: minHeight),
+                    child: content,
+                  ),
+          ),
+        );
+      }
+
+      Rect rect(String key) => tester.getRect(find.byKey(ValueKey(key)));
+
+      // Unbounded height, as in a list: one after the other, no gap.
+      await pumpAt(tester, phone, ListView(children: [item(null)]));
+      expect(rect('card').height, 60);
+      expect(rect('body').top, rect('card').top);
+      expect(rect('footer').top, rect('body').bottom);
+      expect(rect('footer').left, rect('card').left);
+
+      // A minimum from a two-up row: the extra goes between the groups.
+      await pumpAt(tester, phone, ListView(children: [item(100)]));
+      expect(rect('card').height, 100);
+      expect(rect('body').top, rect('card').top);
+      expect(rect('footer').bottom, rect('card').bottom);
     });
   });
 
@@ -1025,7 +1765,20 @@ void main() {
       // A phone held sideways is still a phone.
       expect(OrientationPolicy.allowsLandscape(const Size(844, 390)), isFalse);
       expect(OrientationPolicy.allowsLandscape(const Size(599, 900)), isFalse);
+      expect(
+        OrientationPolicy.allowsLandscape(const Size(599.4, 900)),
+        isFalse,
+      );
       expect(OrientationPolicy.allowsLandscape(const Size(600, 960)), isTrue);
+      // An sw600dp tablet that Flutter measures a hair short of 600dp.
+      expect(
+        OrientationPolicy.allowsLandscape(const Size(_floatSw600, 959.99997)),
+        isTrue,
+      );
+      expect(
+        OrientationPolicy.allowsLandscape(const Size(959.99997, _floatSw600)),
+        isTrue,
+      );
       expect(OrientationPolicy.allowsLandscape(const Size(1280, 800)), isTrue);
       // A window not measured yet is treated as a phone.
       expect(OrientationPolicy.allowsLandscape(Size.zero), isFalse);
@@ -1108,6 +1861,23 @@ void main() {
       expect(calls.last, portrait);
     });
 
+    testWidgets('a 1080x1920 tablet whose float density leaves it a hair '
+        'under 600dp may turn', (tester) async {
+      final calls = recordOrientations(tester);
+
+      // 288dpi: Android's density of 1.8, as a float.
+      tester.view.devicePixelRatio = 1080 / _floatSw600;
+      tester.view.physicalSize = const Size(1080, 1920);
+      expect(
+        tester.view.physicalSize.width / tester.view.devicePixelRatio,
+        lessThan(600),
+      );
+      await OrientationPolicy.update();
+
+      expect(calls, hasLength(1));
+      expect(calls.single, isEmpty, reason: 'every orientation allowed');
+    });
+
     testWidgets('the platform is told once per change', (tester) async {
       final calls = recordOrientations(tester);
 
@@ -1129,6 +1899,20 @@ void main() {
     });
   });
 }
+
+/// What a 600dp-wide (`sw600dp`) 7-inch tablet measures in Flutter: Android
+/// works the size out with a float density, so it can arrive a hair short.
+const _floatSw600 = 599.99998;
+
+/// Whether a window [width] dp wide is a phone: under 600dp by at least the
+/// half-dp the breakpoints allow for float error. Spelled out here rather
+/// than asked of `WindowSize`, so the tests do not grade the code with
+/// itself.
+bool _isPhoneWidth(double width) => width < 599.5;
+
+/// Whether a window [width] dp wide is a medium (portrait tablet) window,
+/// with the same half-dp allowance at 840.
+bool _isMediumWidth(double width) => !_isPhoneWidth(width) && width < 839.5;
 
 /// How many columns [CreatorGridDelegate] lays out across a grid [width] dp
 /// wide.
@@ -1161,6 +1945,7 @@ class _ScreenCase {
     this.maxWidth, {
     this.asCreator = false,
     this.packages = false,
+    this.searchSpansMediumColumn = false,
   });
 
   final String name;
@@ -1172,6 +1957,11 @@ class _ScreenCase {
 
   /// Whether the screen needs the creator's packages.
   final bool packages;
+
+  /// Whether the screen's one search bar spans its column (less the page
+  /// margins) on a medium window instead of keeping a readable width, as
+  /// Home's does to share the sections' edges.
+  final bool searchSpansMediumColumn;
 }
 
 /// Signed in from the start, without the session restore the real controller

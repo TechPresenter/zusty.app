@@ -38,7 +38,7 @@ class CreatorGridDelegate extends SliverGridDelegate {
 
   int _columnsFor(double width) {
     final phoneColumns = width < 520 ? 2 : maxColumns.clamp(2, 4);
-    if (width < _tabletWidth) return phoneColumns;
+    if (!Breakpoints.reaches(width, _tabletWidth)) return phoneColumns;
 
     final fit = ((width + spacing) / (_tabletMinCell + spacing)).floor();
     return fit.clamp(phoneColumns, 6);

@@ -36,7 +36,10 @@
 --     upward over the 90-day window with weekday seasonality and bounded noise.
 --   * Every statement is INSERT IGNORE and every id is deterministic, so the whole
 --     file is safely re-runnable.
---   * Images use deterministic picsum seeds: zpf-<creator_id>-<slot>.
+--   * Images use deterministic picsum seeds: zpf-<creator_id>-<slot>. One
+--     exception: Aanya's first reel (creator 101, slot 0) uses picsum id 106
+--     (flowers), because seed zpf-101-0 shows a camera with a readable maker's
+--     engraving, which store screenshots must not show.
 -- =====================================================================================
 
 
@@ -373,8 +376,12 @@ FROM (
     f.media_kind,
     f.title,
     f.caption,
-    CONCAT('https://picsum.photos/seed/zpf-', cx.cid, '-', sl.n, '/', f.media_dims) AS media_url,
-    CONCAT('https://picsum.photos/seed/zpf-', cx.cid, '-', sl.n, '/', f.thumb_dims) AS thumbnail_url,
+    IF(cx.cid = 101 AND sl.n = 0,
+      CONCAT('https://picsum.photos/id/106/', f.media_dims),
+      CONCAT('https://picsum.photos/seed/zpf-', cx.cid, '-', sl.n, '/', f.media_dims)) AS media_url,
+    IF(cx.cid = 101 AND sl.n = 0,
+      CONCAT('https://picsum.photos/id/106/', f.thumb_dims),
+      CONCAT('https://picsum.photos/seed/zpf-', cx.cid, '-', sl.n, '/', f.thumb_dims)) AS thumbnail_url,
     CASE f.source_platform
       WHEN 'instagram' THEN CONCAT('https://www.instagram.com/',
         IF(f.media_kind = 'reel', 'reel', 'p'), '/',

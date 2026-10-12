@@ -39,7 +39,9 @@ class ZAppBar extends StatelessWidget implements PreferredSizeWidget {
     return AppBar(
       backgroundColor: backgroundColor ?? AppColors.surface,
       centerTitle: centerTitle,
-      titleSpacing: showBack ? 0 : AppSpacing.marginMobile,
+      // Without a back button the title starts at the page margin, in line
+      // with the content: 16dp on a phone, 24 on a tablet.
+      titleSpacing: showBack ? 0 : AppBreakpoints.pageMargin(context),
       leading: showBack
           ? IconButton(
               icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
